@@ -17,16 +17,9 @@ import lombok.NoArgsConstructor;
 @Builder
 @JsonInclude(Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class EnchantmentDto implements Serializable {
+public class AttributeModifierDto implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private Byte statId;
     private Byte deltaValue;
-    private Byte pixelX;
-    private Byte pixelY;
-    private Integer pixelColor;
-    private Byte effectType;
-    private Byte param1;
-    private Short magnitude;
-    private Integer durationMs;
 }

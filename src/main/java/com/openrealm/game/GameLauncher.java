@@ -65,7 +65,11 @@ public class GameLauncher {
         pingClient();
         GameDataManager.loadGameData(true);
 
-        SocketClient.SERVER_ADDR = args[0];
+        // SocketClient.SERVER_ADDR is the GAME-server host (TCP target on
+        // port 2222), NOT the data-service host. They're different
+        // deployments. Leave SERVER_ADDR alone here — CharacterSelectState
+        // owns it and writes it from the user's typed/preset game-server
+        // value at Play time.
         // Headless / scripted launch path. Stash credentials on SocketClient
         // and let LoginState detect them and skip straight to PlayState.
         if (args.length > 3) {

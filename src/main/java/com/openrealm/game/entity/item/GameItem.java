@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.openrealm.account.dto.AttributeModifierDto;
 import com.openrealm.account.dto.EnchantmentDto;
 import com.openrealm.account.dto.GameItemRefDto;
 import com.openrealm.game.data.GameDataManager;
@@ -38,26 +39,32 @@ public class GameItem extends SpriteModel {
     private byte targetSlot;
     private byte targetClass;
     private byte fameBonus;
-    // Stackable items (shards, essence) merge in inventory up to maxStack
     @Builder.Default
     private boolean stackable = false;
     @Builder.Default
     private int maxStack = 1;
-    // Item category — used by forge & stacking. "generic", "shard", "crystal", "essence"
     @Builder.Default
     private String category = "generic";
-    // For shards/crystals: 0=VIT 1=WIS 2=HP 3=MP 4=ATT 5=DEF 6=SPD 7=DEX. -1 if N/A.
     @Builder.Default
     private byte forgeStatId = -1;
-    // For essence: 0=weapon 1=ability 2=armor 3=ring. -1 if N/A.
     @Builder.Default
     private byte forgeSlotId = -1;
-    // Per-instance: current quantity in this stack. 1 for non-stackable items.
     @Builder.Default
     private int stackCount = 1;
-    // Per-instance: applied enchantments (max 5)
     @Builder.Default
     private List<Enchantment> enchantments = new java.util.ArrayList<>();
+    @Builder.Default
+    private byte rarity = 0;
+    @Builder.Default
+    private List<AttributeModifier> attributeModifiers = new java.util.ArrayList<>();
+    @Builder.Default
+    private byte gemEffectType = -1;
+    @Builder.Default
+    private byte gemParam1 = 0;
+    @Builder.Default
+    private short gemMagnitude = 0;
+    @Builder.Default
+    private int gemDurationMs = 0;
 
     public GameItem() {
         this.uid = UUID.randomUUID().toString();
@@ -68,6 +75,12 @@ public class GameItem extends SpriteModel {
         this.forgeSlotId = -1;
         this.stackCount = 1;
         this.enchantments = new java.util.ArrayList<>();
+        this.rarity = 0;
+        this.attributeModifiers = new java.util.ArrayList<>();
+        this.gemEffectType = -1;
+        this.gemParam1 = 0;
+        this.gemMagnitude = 0;
+        this.gemDurationMs = 0;
     }
 
     @Override
@@ -76,7 +89,10 @@ public class GameItem extends SpriteModel {
                 .description(this.description).consumable(this.consumable).tier(this.tier).targetSlot(this.targetSlot)
                 .targetClass(this.targetClass).fameBonus(this.fameBonus)
                 .stackable(this.stackable).maxStack(this.maxStack).category(this.category)
-                .forgeStatId(this.forgeStatId).forgeSlotId(this.forgeSlotId).stackCount(this.stackCount);
+                .forgeStatId(this.forgeStatId).forgeSlotId(this.forgeSlotId).stackCount(this.stackCount)
+                .rarity(this.rarity)
+                .gemEffectType(this.gemEffectType).gemParam1(this.gemParam1)
+                .gemMagnitude(this.gemMagnitude).gemDurationMs(this.gemDurationMs);
 
         if (this.damage != null) {
             builder = builder.damage(this.damage.clone());
@@ -94,6 +110,14 @@ public class GameItem extends SpriteModel {
             builder = builder.enchantments(copy);
         }
 
+        if (this.attributeModifiers != null && !this.attributeModifiers.isEmpty()) {
+            final java.util.List<AttributeModifier> copy = new java.util.ArrayList<>(this.attributeModifiers.size());
+            for (AttributeModifier m : this.attributeModifiers) {
+                copy.add(m == null ? null : m.clone());
+            }
+            builder = builder.attributeModifiers(copy);
+        }
+
         GameItem itemFinal = builder.build();
         itemFinal.setAngleOffset(this.getAngleOffset());
         itemFinal.setRow(this.getRow());
@@ -109,19 +133,34 @@ public class GameItem extends SpriteModel {
         this.setAngleOffset(model.getAngleOffset());
         this.setSpriteKey(model.getSpriteKey());
     }
-    
+
     public GameItemRefDto toGameItemRefDto(int idx) {
         final List<EnchantmentDto> enchDtos;
         if (this.enchantments != null && !this.enchantments.isEmpty()) {
             enchDtos = new ArrayList<>(this.enchantments.size());
             for (Enchantment e : this.enchantments) {
-                enchDtos.add(new EnchantmentDto(e.getStatId(), e.getDeltaValue(), e.getPixelX(), e.getPixelY(), e.getPixelColor()));
+                enchDtos.add(EnchantmentDto.builder()
+                        .statId(e.getStatId()).deltaValue(e.getDeltaValue())
+                        .pixelX(e.getPixelX()).pixelY(e.getPixelY()).pixelColor(e.getPixelColor())
+                        .effectType(e.getEffectType()).param1(e.getParam1())
+                        .magnitude(e.getMagnitude()).durationMs(e.getDurationMs())
+                        .build());
             }
         } else {
             enchDtos = null;
         }
+        final List<AttributeModifierDto> modDtos;
+        if (this.attributeModifiers != null && !this.attributeModifiers.isEmpty()) {
+            modDtos = new ArrayList<>(this.attributeModifiers.size());
+            for (AttributeModifier m : this.attributeModifiers) {
+                modDtos.add(new AttributeModifierDto(m.getStatId(), m.getDeltaValue()));
+            }
+        } else {
+            modDtos = null;
+        }
         return GameItemRefDto.builder().itemId(this.itemId).slotIdx(idx).itemUuid(this.uid)
-                .stackCount(this.stackCount).enchantments(enchDtos).build();
+                .stackCount(this.stackCount).enchantments(enchDtos)
+                .rarity(this.rarity).attributeModifiers(modDtos).build();
     }
 
     public NetGameItemRef asNetGameItemRef(int idx) {
@@ -131,8 +170,6 @@ public class GameItem extends SpriteModel {
     public static GameItem fromGameItemRef(final GameItemRefDto gameItem) {
         final GameItem template = GameDataManager.GAME_ITEMS.get(gameItem.getItemId());
         if (template == null) return null;
-        // Clone the template so per-instance state (uid, stackCount, enchantments)
-        // does not leak between players sharing the same item definition.
         final GameItem item = template.clone();
         item.setUid(gameItem.getItemUuid());
         if (gameItem.getStackCount() != null) {
@@ -141,17 +178,35 @@ public class GameItem extends SpriteModel {
         if (gameItem.getEnchantments() != null && !gameItem.getEnchantments().isEmpty()) {
             final List<Enchantment> loaded = new ArrayList<>(gameItem.getEnchantments().size());
             for (EnchantmentDto e : gameItem.getEnchantments()) {
+                final byte statId = e.getStatId() == null ? 0 : e.getStatId();
+                final byte delta = e.getDeltaValue() == null ? 0 : e.getDeltaValue();
+                final byte effectType = e.getEffectType() == null ? 0 : e.getEffectType();
+                final byte param1 = e.getParam1() == null ? statId : e.getParam1();
+                final short magnitude = e.getMagnitude() == null ? (short) delta : e.getMagnitude();
                 loaded.add(new Enchantment(
-                        e.getStatId() == null ? 0 : e.getStatId(),
-                        e.getDeltaValue() == null ? 0 : e.getDeltaValue(),
+                        statId, delta,
                         e.getPixelX() == null ? 0 : e.getPixelX(),
                         e.getPixelY() == null ? 0 : e.getPixelY(),
-                        e.getPixelColor() == null ? 0 : e.getPixelColor()));
+                        e.getPixelColor() == null ? 0 : e.getPixelColor(),
+                        effectType, param1, magnitude,
+                        e.getDurationMs() == null ? 0 : e.getDurationMs()));
             }
             item.setEnchantments(loaded);
         } else {
             item.setEnchantments(new ArrayList<>());
         }
+        if (gameItem.getAttributeModifiers() != null && !gameItem.getAttributeModifiers().isEmpty()) {
+            final List<AttributeModifier> mods = new ArrayList<>(gameItem.getAttributeModifiers().size());
+            for (AttributeModifierDto m : gameItem.getAttributeModifiers()) {
+                mods.add(new AttributeModifier(
+                        m.getStatId() == null ? 0 : m.getStatId(),
+                        m.getDeltaValue() == null ? 0 : m.getDeltaValue()));
+            }
+            item.setAttributeModifiers(mods);
+        } else {
+            item.setAttributeModifiers(new ArrayList<>());
+        }
+        item.setRarity(gameItem.getRarity() == null ? 0 : gameItem.getRarity());
         GameDataManager.loadSpriteModel(item);
         return item;
     }
@@ -164,5 +219,10 @@ public class GameItem extends SpriteModel {
         GameDataManager.loadSpriteModel(item);
         return item;
     }
-    
+
+    /** Convenience: max enchantments allowed by current rarity. */
+    public int getMaxEnchantments() {
+        return Rarity.slotsFor(this.rarity);
+    }
+
 }

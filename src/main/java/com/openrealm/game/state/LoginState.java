@@ -88,6 +88,19 @@ public class LoginState extends GameState {
         else if (this.mode == Mode.REGISTER && this.nameField.isFocused()) this.nameField.appendChar(c);
     }
 
+    /**
+     * Set when the auto-login worker thread detects an invalid/expired
+     * persisted token. The GL update() loop watches for this and clears
+     * the busy spinner so the user can re-enter their password instead of
+     * staring at a hung form.
+     *
+     * Separate flag from {@link #loginError} so we can distinguish a
+     * silent "no valid session, just show the form" from an actual error
+     * that needs surfacing in red.
+     */
+    private final java.util.concurrent.atomic.AtomicBoolean autoLoginCleared =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
     /** Try the persisted token before showing the login form. */
     private void tryAutoLogin() {
         this.autoLoginAttempted = true;
@@ -106,7 +119,13 @@ public class LoginState extends GameState {
                 log.info("[LOGIN] persisted token failed validation: {} — clearing", e.getMessage());
                 store.clearSession();
                 svc.setSessionToken(null);
-                this.loginError.set(null); // silent — fall through to login form
+                // Surface a soft, non-error status so the user knows why the
+                // form just appeared, and signal the GL loop to drop the
+                // spinner. The previous code wrote null into loginError,
+                // which the update() consumer's null-check filtered out —
+                // leaving busy=true forever and the form unusable.
+                this.loginError.set("Session expired — please sign in again.");
+                this.autoLoginCleared.set(true);
             }
         }, "openrealm-autologin").start();
     }
@@ -126,6 +145,13 @@ public class LoginState extends GameState {
         if (err != null) {
             this.busy = false;
             this.error = err;
+        }
+        // Auto-login worker may have decided "no usable session, drop the
+        // spinner" without producing a user-visible error string. Honour
+        // that signal independently so the form unblocks even when err
+        // happened to be null.
+        if (this.autoLoginCleared.compareAndSet(true, false)) {
+            this.busy = false;
         }
         if (this.pendingHandoff != null) {
             // Hand off to character select on the GL thread.

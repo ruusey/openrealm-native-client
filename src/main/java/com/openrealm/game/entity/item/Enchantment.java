@@ -28,7 +28,29 @@ public class Enchantment {
     private byte pixelY;
     private int pixelColor;
 
+    @Builder.Default
+    private byte effectType = 0;
+    @Builder.Default
+    private byte param1 = 0;
+    @Builder.Default
+    private short magnitude = 0;
+    @Builder.Default
+    private int durationMs = 0;
+
+    public Enchantment(byte statId, byte deltaValue, byte pixelX, byte pixelY, int pixelColor) {
+        this.statId = statId;
+        this.deltaValue = deltaValue;
+        this.pixelX = pixelX;
+        this.pixelY = pixelY;
+        this.pixelColor = pixelColor;
+        this.effectType = 0;
+        this.param1 = statId;
+        this.magnitude = deltaValue;
+        this.durationMs = 0;
+    }
+
     public Enchantment clone() {
-        return new Enchantment(this.statId, this.deltaValue, this.pixelX, this.pixelY, this.pixelColor);
+        return new Enchantment(this.statId, this.deltaValue, this.pixelX, this.pixelY,
+                this.pixelColor, this.effectType, this.param1, this.magnitude, this.durationMs);
     }
 }

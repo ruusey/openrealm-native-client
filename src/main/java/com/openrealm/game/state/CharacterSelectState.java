@@ -53,7 +53,24 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class CharacterSelectState extends GameState {
 
-    private static final String[] SERVERS = { "useast", "local", "localhost" };
+    /**
+     * Preset host shortcuts the user can cycle through. Each entry is a
+     * {label, host} pair — label shows in the cycler, host is what gets
+     * written to the editable field (and ultimately to SocketClient).
+     *
+     * The legacy ["useast","local","localhost"] list was useless on the
+     * native TCP client because those nginx-route names don't resolve
+     * outside the web client's reverse proxy. Replace with real targets:
+     *   USEast → user's prod game-server IP
+     *   Local  → 127.0.0.1
+     *   Localhost → localhost
+     * Add more here as deployments come online.
+     */
+    private static final String[][] SERVER_PRESETS = {
+            { "USEast",    "100.55.103.226" },
+            { "Local",     "127.0.0.1" },
+            { "Localhost", "localhost" }
+    };
     private static final String[] CLASS_NAMES = {
             "Rogue","Archer","Wizard","Priest","Warrior","Knight","Paladin",
             "Assassin","Necromancer","Mystic","Trickster","Sorcerer","Huntress","Ninja"
@@ -99,6 +116,8 @@ public class CharacterSelectState extends GameState {
     private float scrollOffset = 0f;
     /** Pixels per scroll-wheel notch — matches typical OS feel. */
     private static final float SCROLL_STEP = 56f;
+    /** Currently-selected preset index (used by the preset cycler button). */
+    private int presetIdx = 0;
 
     public CharacterSelectState(GameStateManager gsm, PlayerAccountDto account) {
         super(gsm);
@@ -109,19 +128,50 @@ public class CharacterSelectState extends GameState {
         this.currentPw.setPlaceholder("Current password");
         this.newPw.setPlaceholder("New password");
         this.confirmPw.setPlaceholder("Confirm new password");
-        // Seed the editable game-server host field. Order of preference:
-        //   1. previously-saved server host (SessionStore.lastServer)
-        //   2. SocketClient.SERVER_ADDR (the launcher's data-service host)
-        //   3. "openrealm.net" so the field is never blank
+        // Seed the editable game-server host field. The data-service host
+        // (SocketClient.SERVER_ADDR / launcher arg) is intentionally NOT
+        // used as a fallback here — the game server runs on a different
+        // host in production, so seeding from the data-service IP would
+        // mislead the user into a guaranteed-broken connection. Order:
+        //   1. previously-saved server host (if it looks like a real host
+        //      and not a stale nginx-route label)
+        //   2. First preset's host (the known prod game-server IP)
+        //   3. "127.0.0.1" as a last resort
         SessionStore store = SessionStore.get();
         String seed;
-        if (store.getLastServer() != null && !store.getLastServer().isBlank()) seed = store.getLastServer();
-        else if (SocketClient.SERVER_ADDR != null && !SocketClient.SERVER_ADDR.isBlank()) seed = SocketClient.SERVER_ADDR;
-        else seed = "openrealm.net";
+        String saved = store.getLastServer();
+        if (saved != null && isUsableHost(saved)) {
+            seed = saved;
+        } else if (SERVER_PRESETS.length > 0) {
+            seed = SERVER_PRESETS[0][1];
+        } else {
+            seed = "127.0.0.1";
+        }
         this.serverHostField.setText(seed);
-        this.serverHostField.setPlaceholder("game-server host");
+        this.serverHostField.setPlaceholder("e.g. 100.55.103.226");
+        // Try to align the preset cycler index with the seeded host so the
+        // displayed preset label matches what's in the field on entry.
+        for (int i = 0; i < SERVER_PRESETS.length; i++) {
+            if (SERVER_PRESETS[i][1].equalsIgnoreCase(seed)) { this.presetIdx = i; break; }
+        }
         // Hook up our typed-char sink so the focused field receives keystrokes.
         KeyHandler.textSink = this::onChar;
+    }
+
+    /**
+     * True if {@code host} is something a raw {@code Socket(host, 2222)} can
+     * actually resolve. Filters out the legacy nginx-route labels
+     * ("useast", "euwest", "local") that only worked through the web
+     * client's reverse proxy.
+     */
+    private static boolean isUsableHost(String host) {
+        if (host == null) return false;
+        String h = host.trim();
+        if (h.isEmpty()) return false;
+        if ("useast".equalsIgnoreCase(h) || "euwest".equalsIgnoreCase(h)
+                || "local".equalsIgnoreCase(h)) return false;
+        // localhost, IPs (contain dots) and FQDNs (contain dots) are fine.
+        return "localhost".equalsIgnoreCase(h) || h.contains(".") || h.contains(":");
     }
 
     private void onChar(char c) {
@@ -251,6 +301,14 @@ public class CharacterSelectState extends GameState {
         if (hit(mx, my, L.logoutX, L.logoutY, L.rightBtnW, L.btnH)) { this.doLogout(); return; }
         if (hit(mx, my, L.changePwX, L.changePwY, L.rightBtnW, L.btnH)) {
             this.changePwOpen = !this.changePwOpen;
+            return;
+        }
+        // Preset cycler: cycles through SERVER_PRESETS and writes the host
+        // into the editable field. Sits 8 px below the field box.
+        int presetY = L.serverY + L.btnH + 8;
+        if (hit(mx, my, L.serverX, presetY, L.rightBtnW, 36)) {
+            this.presetIdx = (this.presetIdx + 1) % SERVER_PRESETS.length;
+            this.serverHostField.setText(SERVER_PRESETS[this.presetIdx][1]);
             return;
         }
         // Click into the editable game-server field to focus it. Defocus
@@ -433,25 +491,31 @@ public class CharacterSelectState extends GameState {
         }
 
         // Right column: account info, server, leaderboard, vault, logout, change password
-        // Editable game-server host. The label sits above the field with
-        // enough clearance for the 1.8x font; the field itself accepts
-        // keyboard input via the focused-field text sink.
+        // Game-server config block.
+        // Label at serverY - 36 leaves a clear 8 px gap above the field.
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "Game Server", L.serverX, L.serverY - 8);
+        font.draw(batch, "Game Server", L.serverX, L.serverY - 36);
         this.serverHostField.setBounds(L.serverX, L.serverY, L.rightBtnW, L.btnH);
         this.serverHostField.render(batch, shapes, font);
+        // Preset cycler 8 px below the field box.
+        int presetY = L.serverY + L.btnH + 8;
+        String[] preset = SERVER_PRESETS[this.presetIdx];
+        this.drawButton(batch, shapes, font, L.serverX, presetY, L.rightBtnW, 36,
+                "Preset: " + preset[0] + " (" + preset[1] + ")", false, false);
 
-        // Vault — label above the button with full label clearance
+        // Vault block: label, then "+ Add Chest" button below.
         int vaultChests = (this.account.getPlayerVault() == null) ? 0 : this.account.getPlayerVault().size();
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "Vault Chests: " + vaultChests + "/10", L.addChestX, L.addChestY - 32);
+        font.draw(batch, "Vault Chests: " + vaultChests + "/10", L.addChestX, L.addChestY - 36);
         this.drawButton(batch, shapes, font, L.addChestX, L.addChestY, L.rightBtnW, L.btnH,
                 "+ Add Chest", false, false);
 
-        // Change password collapsible header
+        // Change password collapsible header — caret arrow indicates state.
         this.drawButton(batch, shapes, font, L.changePwX, L.changePwY, L.rightBtnW, L.btnH,
                 this.changePwOpen ? "v Change Password" : "> Change Password", false, false);
         if (this.changePwOpen) {
+            // Three 32-px-tall password fields stacked with 8 px gaps —
+            // matches the 40-px stride used in the layout calculation.
             this.currentPw.setBounds(L.pwFieldX, L.pwFieldY,         L.pwFieldW, 32);
             this.newPw    .setBounds(L.pwFieldX, L.pwFieldY + 40,    L.pwFieldW, 32);
             this.confirmPw.setBounds(L.pwFieldX, L.pwFieldY + 80,    L.pwFieldW, 32);
@@ -462,7 +526,7 @@ public class CharacterSelectState extends GameState {
                     "Update Password", false, false);
             if (!this.pwStatus.isEmpty()) {
                 font.setColor(this.pwStatus.startsWith("OK") ? Color.LIME : Color.SALMON);
-                font.draw(batch, this.pwStatus, L.pwFieldX, L.pwSubmitY + L.btnH + 18);
+                font.draw(batch, this.pwStatus, L.pwFieldX, L.pwSubmitY + L.btnH + 12);
             }
         }
 
@@ -523,7 +587,7 @@ public class CharacterSelectState extends GameState {
             }
         }
 
-        int textX = x + h + 8;
+        int textX = x + h + 12;
         int lvl = (c.getStats() != null && c.getStats().getXp() != null
                 && GameDataManager.EXPERIENCE_LVLS != null
                 && GameDataManager.EXPERIENCE_LVLS.isMaxLvl(c.getStats().getXp()))
@@ -532,9 +596,14 @@ public class CharacterSelectState extends GameState {
                         ? GameDataManager.EXPERIENCE_LVLS.getLevel(c.getStats().getXp())
                         : 0);
         String className = (cc != null) ? cc.name() : "Unknown";
+        // Two lines per row with proper vertical spacing. Line 1 = class +
+        // level + maxed-count summary. Line 2 = stat block. UUID dropped —
+        // it's noise the user explicitly asked to remove.
+        int line1Y = y + 24;
+        int line2Y = y + 60;
         font.setColor(grayed ? new Color(0.55f, 0.55f, 0.55f, 1f) : Color.WHITE);
-        font.draw(batch, className + "  Lv " + lvl + "  " + c.numStatsMaxed() + "/8 maxed",
-                textX, y + 24);
+        font.draw(batch, className + "    Lv " + lvl + "    " + c.numStatsMaxed() + "/8 maxed",
+                textX, line1Y);
         if (c.getStats() != null) {
             font.setColor(0.75f, 0.70f, 0.60f, 1f);
             font.draw(batch,
@@ -543,14 +612,13 @@ public class CharacterSelectState extends GameState {
                         nz(c.getStats().getAtt()), nz(c.getStats().getDef()),
                         nz(c.getStats().getSpd()), nz(c.getStats().getDex()),
                         nz(c.getStats().getVit()), nz(c.getStats().getWis())),
-                    textX, y + 46);
+                    textX, line2Y);
         }
+        // Graveyard rows show the death date; live rows just leave the third
+        // line blank for breathing room.
         if (grayed && c.getDeleted() != null) {
             font.setColor(0.55f, 0.40f, 0.40f, 1f);
-            font.draw(batch, "Died: " + DEATH_FMT.format(c.getDeleted()), textX, y + 66);
-        } else {
-            font.setColor(0.45f, 0.40f, 0.40f, 1f);
-            font.draw(batch, c.getCharacterUuid() == null ? "" : c.getCharacterUuid(), textX, y + 66);
+            font.draw(batch, "Died: " + DEATH_FMT.format(c.getDeleted()), textX, y + 88);
         }
     }
 
@@ -681,7 +749,10 @@ public class CharacterSelectState extends GameState {
         L.listY = L.tabsY + L.tabH + 12;
         L.listW = leftW;
         L.listH = 360;
-        L.rowH = 84;
+        // Taller rows so the class title and stat line each get their own
+        // breathing room — was 84, but the 1.8x font wants ~30/line and
+        // we render two lines plus padding.
+        L.rowH = 96;
 
         // Picker header sits ABOVE pickerY, so reserve space for the label
         // height (~28px for the 1.8x font) plus a gap.
@@ -701,36 +772,52 @@ public class CharacterSelectState extends GameState {
         L.createX = leftPad + 2 * (L.btnW + 12);
         L.createY = L.playY;
 
-        // Right column. Each "row" stacks: optional 24px label, then a 40px
-        // button, then a 16px gap.
+        // Right column laid out top-down with generous, non-overlapping
+        // spacing. Each block reserves space for its own label, field/
+        // button, and a clear gap before the next block. Constants are
+        // tuned so a 1.8x BitmapFont's actual glyph heights fit cleanly.
         int rx = width - rightW;
-        int ry = 64;
-        int labelH = 24;
-        int rowGap = 16;
+        int labelH = 28;          // 1.8x font line height ≈ 28
+        int rowGap = 24;          // gap between blocks
+        int presetH = 36;         // preset cycler height
+        int fieldH = L.btnH;      // input fields share btnH
+        int ry = 56;
 
-        // "Server: useast"
+        // -- Game Server block --
+        // Label
+        // [ Editable field ]
+        // [ Preset cycler ]
         L.serverX = rx;
-        L.serverY = ry;
-        ry += L.btnH + rowGap;
+        L.serverY = ry + labelH + 8;                                    // field starts under label + 8 padding
+        int presetY_local = L.serverY + fieldH + 8;                     // preset under field + 8
+        ry = presetY_local + presetH + rowGap;                          // next block starts after preset + rowGap
 
-        // "Vault Chests: N/10" label, then "+ Add Chest" button below
+        // -- Vault block --
+        // Label
+        // [ + Add Chest button ]
         L.addChestX = rx;
-        L.addChestY = ry + labelH + 4;          // label sits above the button
+        L.addChestY = ry + labelH + 8;                                  // button under label + 8 padding
         ry = L.addChestY + L.btnH + rowGap;
 
-        // "Change Password" collapsible header
+        // -- Change Password collapsible block --
         L.changePwX = rx;
         L.changePwY = ry;
-        ry += L.btnH + 8;
+        ry = L.changePwY + L.btnH + 12;
         L.pwFieldX = rx;
         L.pwFieldY = ry;
-        L.pwFieldW = rightW - 60;
-        L.pwSubmitX = rx;
-        L.pwSubmitY = ry + (this.changePwOpen ? 120 : 0);
-        if (this.changePwOpen) ry = L.pwSubmitY + L.btnH + 24;
-        else ry += 8;
+        L.pwFieldW = rightW - 40;
+        // 3 password fields stacked at 40 px each + 8 px gap between rows
+        if (this.changePwOpen) {
+            L.pwSubmitX = rx;
+            L.pwSubmitY = ry + 3 * 40 + 16;                             // 3 fields * 40 + 16 padding
+            ry = L.pwSubmitY + L.btnH + rowGap;
+        } else {
+            L.pwSubmitX = rx;
+            L.pwSubmitY = ry;                                           // unused when closed
+            ry += rowGap / 2;
+        }
 
-        // Logout last in the account stack
+        // -- Logout --
         L.logoutX = rx;
         L.logoutY = ry;
 
@@ -763,9 +850,15 @@ public class CharacterSelectState extends GameState {
     private void startGame(CharacterDto c) {
         SocketClient.CHARACTER_UUID = c.getCharacterUuid();
         // Take the user-typed server host as authoritative — overrides any
-        // previously cycled label.
+        // previously cycled label. Reject the legacy nginx-route labels
+        // outright so a stale "useast" doesn't trigger another UnknownHost
+        // crash; the user must enter a real IP or FQDN.
         String host = this.serverHostField.getText().trim();
-        if (host.isEmpty()) host = "openrealm.net";
+        if (!isUsableHost(host)) {
+            this.error = "Enter a real host (e.g. 127.0.0.1 or openrealm.net) — '"
+                    + host + "' isn't a resolvable address.";
+            return;
+        }
         SocketClient.SERVER_ADDR = host;
         SessionStore.get().setLastServer(host);
         SessionStore.get().save();

@@ -28,6 +28,8 @@ public class GameItemRefDto extends TemporalDto {
     private String itemUuid;
     private Integer stackCount;
     private List<EnchantmentDto> enchantments;
+    private Byte rarity;
+    private List<AttributeModifierDto> attributeModifiers;
 
 
     public NetGameItemRef asNetGameItemRef() {

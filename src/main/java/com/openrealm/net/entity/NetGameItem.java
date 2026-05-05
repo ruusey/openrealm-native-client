@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.openrealm.game.entity.item.AttributeModifier;
 import com.openrealm.game.entity.item.Damage;
 import com.openrealm.game.entity.item.Effect;
 import com.openrealm.game.entity.item.Enchantment;
@@ -65,11 +66,19 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 	@SerializableField(order = 17, type = SerializableByte.class)
 	private byte forgeSlotId;
 	private List<NetEnchantment> enchantments;
+	// Appended fields (wire layout extended for rarity + modifiers + gem template).
+	private byte rarity;
+	private List<NetAttributeModifier> attributeModifiers;
+	private byte gemEffectType;
+	private byte gemParam1;
+	private short gemMagnitude;
+	private int gemDurationMs;
 
 	private static final NetStats STATS_SERIALIZER = new NetStats();
 	private static final NetDamage DAMAGE_SERIALIZER = new NetDamage();
 	private static final NetEffect EFFECT_SERIALIZER = new NetEffect();
 	private static final NetEnchantment ENCHANTMENT_SERIALIZER = new NetEnchantment();
+	private static final NetAttributeModifier MODIFIER_SERIALIZER = new NetAttributeModifier();
 
 	private static int writeString(String s, DataOutputStream stream) throws Exception {
 		if (s == null) s = "";
@@ -87,7 +96,8 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		return new String(bytes, StandardCharsets.UTF_8);
 	}
 
-	/** Hand-coded write bypassing IOService reflection */
+	/** Hand-coded write bypassing IOService reflection. Wire layout MUST match
+	 *  the server's NetGameItem.write byte-for-byte or inventory packets desync. */
 	@Override
 	public int write(NetGameItem value, DataOutputStream stream) throws Exception {
 		final NetGameItem v = (value == null ? new NetGameItem() : value);
@@ -110,12 +120,21 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		written += writeString(v.category, stream);
 		stream.writeByte(v.forgeStatId); written += 1;
 		stream.writeByte(v.forgeSlotId); written += 1;
-		// Enchantment list: int count + N × NetEnchantment
 		final List<NetEnchantment> ench = v.enchantments == null ? new ArrayList<>() : v.enchantments;
 		stream.writeInt(ench.size()); written += 4;
 		for (NetEnchantment e : ench) {
 			written += ENCHANTMENT_SERIALIZER.write(e, stream);
 		}
+		stream.writeByte(v.rarity); written += 1;
+		final List<NetAttributeModifier> mods = v.attributeModifiers == null ? new ArrayList<>() : v.attributeModifiers;
+		stream.writeInt(mods.size()); written += 4;
+		for (NetAttributeModifier m : mods) {
+			written += MODIFIER_SERIALIZER.write(m, stream);
+		}
+		stream.writeByte(v.gemEffectType); written += 1;
+		stream.writeByte(v.gemParam1); written += 1;
+		stream.writeShort(v.gemMagnitude); written += 2;
+		stream.writeInt(v.gemDurationMs); written += 4;
 		return written;
 	}
 
@@ -146,6 +165,16 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		for (int i = 0; i < enchCount; i++) {
 			item.enchantments.add(ENCHANTMENT_SERIALIZER.read(stream));
 		}
+		item.rarity = stream.readByte();
+		final int modCount = stream.readInt();
+		item.attributeModifiers = new ArrayList<>(Math.max(0, modCount));
+		for (int i = 0; i < modCount; i++) {
+			item.attributeModifiers.add(MODIFIER_SERIALIZER.read(stream));
+		}
+		item.gemEffectType = stream.readByte();
+		item.gemParam1 = stream.readByte();
+		item.gemMagnitude = stream.readShort();
+		item.gemDurationMs = stream.readInt();
 		return item;
 	}
 
@@ -169,22 +198,33 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		item.setCategory(this.category);
 		item.setForgeStatId(this.forgeStatId);
 		item.setForgeSlotId(this.forgeSlotId);
+		item.setRarity(this.rarity);
+		item.setGemEffectType(this.gemEffectType);
+		item.setGemParam1(this.gemParam1);
+		item.setGemMagnitude(this.gemMagnitude);
+		item.setGemDurationMs(this.gemDurationMs);
 		if (this.enchantments != null && !this.enchantments.isEmpty()) {
 			final List<Enchantment> out = new ArrayList<>(this.enchantments.size());
 			for (NetEnchantment ne : this.enchantments) {
-				out.add(new Enchantment(ne.getStatId(), ne.getDeltaValue(), ne.getPixelX(), ne.getPixelY(), ne.getPixelColor()));
+				out.add(new Enchantment(ne.getStatId(), ne.getDeltaValue(), ne.getPixelX(), ne.getPixelY(),
+						ne.getPixelColor(), ne.getEffectType(), ne.getParam1(), ne.getMagnitude(), ne.getDurationMs()));
 			}
 			item.setEnchantments(out);
 		} else {
 			item.setEnchantments(new ArrayList<>());
 		}
+		if (this.attributeModifiers != null && !this.attributeModifiers.isEmpty()) {
+			final List<AttributeModifier> out = new ArrayList<>(this.attributeModifiers.size());
+			for (NetAttributeModifier nm : this.attributeModifiers) {
+				out.add(new AttributeModifier(nm.getStatId(), nm.getDeltaValue()));
+			}
+			item.setAttributeModifiers(out);
+		} else {
+			item.setAttributeModifiers(new ArrayList<>());
+		}
 		return item;
 	}
 
-	/**
-	 * Value equality based on itemId and uid. Two NetGameItems representing the
-	 * same game item instance will be equal even if they are different objects.
-	 */
 	public boolean equals(NetGameItem other) {
 		if (other == null) return false;
 		if (this.itemId != other.itemId) return false;
@@ -213,5 +253,11 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		this.forgeStatId = -1;
 		this.forgeSlotId = -1;
 		this.enchantments = new ArrayList<>();
+		this.rarity = 0;
+		this.attributeModifiers = new ArrayList<>();
+		this.gemEffectType = -1;
+		this.gemParam1 = 0;
+		this.gemMagnitude = 0;
+		this.gemDurationMs = 0;
 	}
 }

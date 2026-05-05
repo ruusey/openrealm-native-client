@@ -118,7 +118,7 @@ public class RealmManagerClient implements Runnable {
 							log.error("Failed to invoke packet callback. Reason: {}", e);
 						}
 					}
-					log.info("[CLIENT] Invoked {} packet callbacks for PacketType {} using reflection in {} nanos",
+					log.debug("[CLIENT] Invoked {} packet callbacks for PacketType {} using reflection in {} nanos",
 							packetHandles.size(), PacketType.valueOf(created.getId()),
 							(System.nanoTime() - start));
 				}
