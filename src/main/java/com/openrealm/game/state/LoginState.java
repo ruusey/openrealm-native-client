@@ -61,6 +61,31 @@ public class LoginState extends GameState {
 
     private boolean prevMouseDown = false;
 
+    /**
+     * Lazy-loaded brand logo shown at the top of the login card. Pulled from
+     * the same {@code icon_min.png} the OS window uses, so brand identity is
+     * consistent everywhere.
+     *
+     * Stored as a flipped TextureRegion: the project's camera is in y-down
+     * ortho mode (setToOrtho(true, ...)), and a raw {@code Texture} drawn
+     * into that camera renders upside-down. Flipping V once at load time
+     * is cheaper than rebinding flipped UVs on every draw.
+     */
+    private com.badlogic.gdx.graphics.g2d.TextureRegion logoRegion;
+    private com.badlogic.gdx.graphics.g2d.TextureRegion getLogo() {
+        if (this.logoRegion == null) {
+            try {
+                com.badlogic.gdx.graphics.Texture tex = new com.badlogic.gdx.graphics.Texture(
+                        Gdx.files.classpath("icon_min.png"));
+                this.logoRegion = new com.badlogic.gdx.graphics.g2d.TextureRegion(tex);
+                this.logoRegion.flip(false, true);
+            } catch (Exception e) {
+                log.debug("[LOGIN] no logo texture: {}", e.getMessage());
+            }
+        }
+        return this.logoRegion;
+    }
+
     public LoginState(GameStateManager gsm) {
         super(gsm);
         // Bind the typed-char sink so any focused TextField receives keys.
@@ -184,15 +209,17 @@ public class LoginState extends GameState {
         // form fields, then primary/secondary buttons, then a "Register"
         // text link, then the server cycler, then the Discord footer.
         int cardW = 460;
-        int cardH = this.mode == Mode.REGISTER ? 620 : 560;
+        // Card grew by ~110 px to fit the logo + spacing above the title.
+        int cardH = this.mode == Mode.REGISTER ? 720 : 660;
         int cardX = (OpenRealmGame.width - cardW) / 2;
         int cardY = (OpenRealmGame.height - cardH) / 2;
         int padX = cardX + 48;
         int fieldW = cardW - 96;
 
-        // Title block (no input target) is fixed-height; layout pointer
-        // starts BELOW it.
-        int curY = cardY + 130;
+        // Title block (logo + title + subtitle) is fixed-height; layout
+        // pointer starts BELOW it. Must match render()'s curY math so
+        // click-targets line up with the visible field positions.
+        int curY = cardY + 96 + 110;
 
         int rowH = 40;
         int labelGap = 28;
@@ -449,7 +476,8 @@ public class LoginState extends GameState {
 
         // Card geometry — must match input() exactly.
         int cardW = 460;
-        int cardH = this.mode == Mode.REGISTER ? 620 : 560;
+        // Card grew by ~110 px to fit the logo + spacing above the title.
+        int cardH = this.mode == Mode.REGISTER ? 720 : 660;
         int cardX = (OpenRealmGame.width - cardW) / 2;
         int cardY = (OpenRealmGame.height - cardH) / 2;
         int padX = cardX + 48;
@@ -467,14 +495,22 @@ public class LoginState extends GameState {
         shapes.end();
         batch.begin();
 
-        // Title block inside the card — mirrors the web client. Big gold
-        // "OpenRealm" and a small subtitle below it.
+        // Logo + title block inside the card.
+        com.badlogic.gdx.graphics.g2d.TextureRegion logo = this.getLogo();
+        int logoSize = 96;
+        if (logo != null) {
+            float logoX = cardX + (cardW - logoSize) / 2f;
+            float logoY = cardY + 16;
+            batch.draw(logo, logoX, logoY, logoSize, logoSize);
+        }
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        drawCenteredText(batch, font, "OpenRealm", cardX + cardW / 2f, cardY + 36);
+        drawCenteredText(batch, font, "OpenRealm", cardX + cardW / 2f,
+                cardY + (logo != null ? logoSize + 28 : 36));
         font.setColor(0.55f, 0.50f, 0.45f, 1f);
-        drawCenteredText(batch, font, "Native Client", cardX + cardW / 2f, cardY + 80);
+        drawCenteredText(batch, font, "Native Client", cardX + cardW / 2f,
+                cardY + (logo != null ? logoSize + 64 : 80));
 
-        int curY = cardY + 130;
+        int curY = cardY + (logo != null ? logoSize + 110 : 130);
         int rowH = 40;
         int labelGap = 28;
         int fieldGap = 18;

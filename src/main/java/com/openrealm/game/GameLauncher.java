@@ -86,6 +86,15 @@ public class GameLauncher {
         config.setResizable(true);
         config.useVsync(true);
         config.setForegroundFPS(144);
+        // OS window / taskbar icon. setWindowIcon takes a list of sizes; LibGDX
+        // picks the closest match per platform (Windows wants 16/32, macOS
+        // dock prefers larger, Linux varies). One 300×300 PNG is enough — the
+        // backend downscales — and ships at the jar root after Maven shade.
+        try {
+            config.setWindowIcon(com.badlogic.gdx.Files.FileType.Classpath, "icon_min.png");
+        } catch (Exception e) {
+            log.warn("[CLIENT] Could not set window icon: {}", e.getMessage());
+        }
 
         new Lwjgl3Application(new OpenRealmGame(), config);
     }

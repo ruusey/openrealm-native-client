@@ -2,8 +2,12 @@ package com.openrealm.net.entity;
 
 import java.util.Arrays;
 
+import com.openrealm.game.data.GameDataManager;
+import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.entity.Bullet;
+import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.math.Vector2f;
+import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.net.Streamable;
 import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
@@ -15,9 +19,11 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
 @Getter
 @Setter
+@Slf4j
 @EqualsAndHashCode(callSuper=false)
 @AllArgsConstructor
 @NoArgsConstructor
@@ -122,6 +128,23 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		bullet.setAmplitude(this.amplitude);
 		bullet.setFrequency(this.frequency);
 		bullet.setCreatedTime(this.createdTime);
+		// Web-parity sprite resolution: projectileId → ProjectileGroup → spriteKey.
+		// Without this, Bullet.render() short-circuits at its null-check and
+		// every projectile is invisible.
+		final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS != null
+				? GameDataManager.PROJECTILE_GROUPS.get(this.projectileId)
+				: null;
+		if (group != null) {
+			final SpriteSheet sheet = GameSpriteManager.getSpriteSheet(group);
+			if (sheet != null) {
+				bullet.setSpriteSheet(sheet);
+			} else {
+				log.warn("[BULLET] no sprite sheet for projectileId={} spriteKey={}",
+						this.projectileId, group.getSpriteKey());
+			}
+		} else {
+			log.warn("[BULLET] no projectile group for projectileId={}", this.projectileId);
+		}
 		return bullet;
 	}
 }

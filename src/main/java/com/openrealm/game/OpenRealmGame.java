@@ -19,14 +19,34 @@ import lombok.extern.slf4j.Slf4j;
 public class OpenRealmGame implements ApplicationListener {
     public static int width = 1920;
     public static int height = 1080;
+    /**
+     * World-to-screen pixel scale. The web client renders at 2x on desktop
+     * (renderer.js SCALE constant). Matched here by feeding the world camera
+     * a half-size ortho viewport — one world pixel becomes two screen pixels.
+     */
+    public static final float WORLD_SCALE = 2f;
 
     private SpriteBatch batch;
     private ShapeRenderer shapes;
+    /**
+     * World camera — used for tiles and entities. Ortho viewport is sized
+     * width/WORLD_SCALE × height/WORLD_SCALE so the rendered world appears
+     * 2× zoomed on a 1920×1080 window (matching the web client's SCALE=2).
+     */
     private OrthographicCamera camera;
+    /**
+     * UI / HUD camera — fixed at full window size so HUD layout uses
+     * screen-space pixels regardless of the world zoom. Switched onto the
+     * batch around HUD draws.
+     */
+    private OrthographicCamera uiCamera;
     private BitmapFont defaultFont;
     private GameStateManager gsm;
     private KeyHandler keyHandler;
     private MouseHandler mouseHandler;
+
+    public OrthographicCamera getUiCamera() { return this.uiCamera; }
+    public OrthographicCamera getWorldCamera() { return this.camera; }
 
     @Override
     public void create() {
@@ -35,9 +55,15 @@ public class OpenRealmGame implements ApplicationListener {
         this.batch = new SpriteBatch();
         this.shapes = new ShapeRenderer();
 
-        // Y-down camera to match existing game math (0,0 at top-left)
+        // Y-down camera to match existing game math (0,0 at top-left).
+        // Smaller ortho viewport = zoomed-in world rendering; web client
+        // ships at 2× on desktop so we mirror that.
         this.camera = new OrthographicCamera();
-        this.camera.setToOrtho(true, width, height);
+        this.camera.setToOrtho(true, width / WORLD_SCALE, height / WORLD_SCALE);
+        // HUD camera: full window size so PlayerUI / OptionsWindow / etc.
+        // can keep using OpenRealmGame.width/height as their layout space.
+        this.uiCamera = new OrthographicCamera();
+        this.uiCamera.setToOrtho(true, width, height);
 
         this.defaultFont = new BitmapFont(true); // flipped for Y-down
         this.defaultFont.getData().setScale(1.8f);
@@ -100,7 +126,8 @@ public class OpenRealmGame implements ApplicationListener {
     public void resize(int width, int height) {
         OpenRealmGame.width = width;
         OpenRealmGame.height = height;
-        this.camera.setToOrtho(true, width, height);
+        this.camera.setToOrtho(true, width / WORLD_SCALE, height / WORLD_SCALE);
+        if (this.uiCamera != null) this.uiCamera.setToOrtho(true, width, height);
     }
 
     @Override

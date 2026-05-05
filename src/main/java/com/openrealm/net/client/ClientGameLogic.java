@@ -202,18 +202,27 @@ public class ClientGameLogic {
 				log.debug("[CLIENT] LoadMap received before login complete, skipping");
 				return;
 			}
+			// LoadMap packets fire on EVERY tile-stream chunk while moving
+			// around — they're not a transition signal. Only show the
+			// "OPENREALM <zone>" overlay when the realm or map id actually
+			// changes from what we previously recorded; otherwise treat the
+			// packet as a normal tile merge and skip the splash.
+			final long prevRealmId = cli.getRealm().getRealmId();
+			final long prevMapId   = cli.getRealm().getMapId();
+			final boolean realmChanged = (prevRealmId != loadPacket.getRealmId())
+					|| (prevMapId != loadPacket.getMapId());
+
 			cli.getState().getPui().getMinimap().initializeMap((int) loadPacket.getMapId());
 			cli.getRealm().setRealmId(loadPacket.getRealmId());
 			cli.getRealm().setMapId(loadPacket.getMapId());
 			cli.getRealm().getTileManager().mergeMap(loadPacket);
 
-			// Web-parity: brief realm transition overlay on every map load.
-			// We don't have a clean zone-name accessor on Realm — fall back to
-			// the numeric map id, prefixed so the overlay still reads cleanly.
-			String zoneName = "Map " + loadPacket.getMapId();
-			float diff = 0f;
-			try { diff = cli.getRealm().getDifficulty(); } catch (Exception ignored) {}
-			cli.getState().getPui().getRealmTransition().trigger(zoneName, diff);
+			if (realmChanged) {
+				String zoneName = "Map " + loadPacket.getMapId();
+				float diff = 0f;
+				try { diff = cli.getRealm().getDifficulty(); } catch (Exception ignored) {}
+				cli.getState().getPui().getRealmTransition().trigger(zoneName, diff);
+			}
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle LoadMap Packet. Reason: {}", e);
 		}

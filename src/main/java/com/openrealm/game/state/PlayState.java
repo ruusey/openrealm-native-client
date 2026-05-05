@@ -640,6 +640,9 @@ public class PlayState extends GameState {
         return bestPortal;
     }
 
+    /** Frame counter for periodic debug logging. */
+    private long frameCounter = 0;
+
     @Override
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
@@ -654,6 +657,22 @@ public class PlayState extends GameState {
         final List<Entity> visibleEntities = new ArrayList<>();
         final List<Bullet> visibleBullets = new ArrayList<>();
         final List<Enemy> visibleEnemies = new ArrayList<>();
+
+        // Diagnostic: dump entity counts every ~5 seconds (60fps × 5 = 300
+        // frames). Helps debug "why aren't enemies/bullets rendering" — if
+        // realmTotal > 0 but visibleTotal == 0 the bounds query is culling
+        // them; if realmTotal == 0 they aren't being added to the realm.
+        this.frameCounter++;
+        if (this.frameCounter % 300 == 0) {
+            int realmEnemies = this.realmManager.getRealm().getEnemies() != null
+                    ? this.realmManager.getRealm().getEnemies().size() : 0;
+            int realmBullets = this.realmManager.getRealm().getBullets() != null
+                    ? this.realmManager.getRealm().getBullets().size() : 0;
+            int realmPortals = this.realmManager.getRealm().getPortals() != null
+                    ? this.realmManager.getRealm().getPortals().size() : 0;
+            log.info("[RENDER] realm[enemies={} bullets={} portals={}] viewport[objs={}]",
+                    realmEnemies, realmBullets, realmPortals, gameObject.length);
+        }
 
         for (Player p : this.realmManager.getRealm().getPlayers().values()) {
             visibleEntities.add(p);
@@ -733,7 +752,23 @@ public class PlayState extends GameState {
 
         if (this.pui == null)
             return;
+        // Switch from world camera (zoomed) to UI camera (1:1 screen pixels)
+        // so PlayerUI's HUD layout uses the actual window-pixel coords it
+        // was designed for. Flip projection on both batch and shapes since
+        // PlayerUI alternates between them. After HUD is drawn, restore the
+        // world camera for any post-HUD effects/debug overlays.
+        OpenRealmGame game = (OpenRealmGame) Gdx.app.getApplicationListener();
+        if (game.getUiCamera() != null) {
+            game.getUiCamera().update();
+            batch.setProjectionMatrix(game.getUiCamera().combined);
+            shapes.setProjectionMatrix(game.getUiCamera().combined);
+        }
         this.pui.render(batch, shapes, font);
+        if (game.getWorldCamera() != null) {
+            game.getWorldCamera().update();
+            batch.setProjectionMatrix(game.getWorldCamera().combined);
+            shapes.setProjectionMatrix(game.getWorldCamera().combined);
+        }
 
         this.renderCloseLoot(batch);
 
