@@ -48,6 +48,38 @@ public class OpenRealmGame implements ApplicationListener {
     public OrthographicCamera getUiCamera() { return this.uiCamera; }
     public OrthographicCamera getWorldCamera() { return this.camera; }
 
+    /**
+     * Render the project's bundled oryx-simplex.ttf at 18 px through
+     * FreeType so HUD / login text uses the chunky pixel typeface the web
+     * client uses, instead of LibGDX's tiny default Arial.
+     *
+     * Returns a {@link BitmapFont} flipped for the Y-down ortho camera the
+     * rest of the game expects. The flip is set via FreeTypeBitmapFontData
+     * before the font is built so glyphs draw correctly without per-call
+     * inversion.
+     */
+    private static BitmapFont loadOryxFont() {
+        try {
+            com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator gen =
+                    new com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator(
+                            Gdx.files.classpath("oryx-simplex.ttf"));
+            com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator.FreeTypeFontParameter p =
+                    new com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator.FreeTypeFontParameter();
+            p.size = 18;
+            p.flip = true;            // y-down camera
+            p.minFilter = com.badlogic.gdx.graphics.Texture.TextureFilter.Nearest;
+            p.magFilter = com.badlogic.gdx.graphics.Texture.TextureFilter.Nearest;
+            BitmapFont f = gen.generateFont(p);
+            gen.dispose();
+            return f;
+        } catch (Exception e) {
+            log.warn("[FONT] failed to load oryx-simplex.ttf, falling back to default: {}", e.getMessage());
+            BitmapFont fallback = new BitmapFont(true);
+            fallback.getData().setScale(1.8f);
+            return fallback;
+        }
+    }
+
     @Override
     public void create() {
         OpenRealmGame.log.info("Initializing LibGDX client...");
@@ -65,8 +97,11 @@ public class OpenRealmGame implements ApplicationListener {
         this.uiCamera = new OrthographicCamera();
         this.uiCamera.setToOrtho(true, width, height);
 
-        this.defaultFont = new BitmapFont(true); // flipped for Y-down
-        this.defaultFont.getData().setScale(1.8f);
+        // Load the oryx-simplex pixel font via FreeType. Falls back to the
+        // built-in BitmapFont if the .ttf is missing or FreeType fails — we
+        // never want a font issue to crash the launcher.
+        this.defaultFont = loadOryxFont();
+        this.defaultFont.getData().setScale(1.0f);
 
         // Load sprite sheets as LibGDX Textures
         GameSpriteManager.loadSpriteImages(true);
@@ -111,10 +146,15 @@ public class OpenRealmGame implements ApplicationListener {
         // Process input
         this.gsm.input(this.mouseHandler, this.keyHandler);
 
-        // Render game state
+        // Default to the UI / screen-space camera so login, char-select,
+        // pause, options, and any HUD-only state get drawn at 1:1 pixels.
+        // PlayState's world rendering opts into the zoomed world camera
+        // for tiles/entities and flips back to the UI camera before
+        // drawing PlayerUI.
+        this.uiCamera.update();
         this.camera.update();
-        this.batch.setProjectionMatrix(this.camera.combined);
-        this.shapes.setProjectionMatrix(this.camera.combined);
+        this.batch.setProjectionMatrix(this.uiCamera.combined);
+        this.shapes.setProjectionMatrix(this.uiCamera.combined);
 
         this.batch.begin();
         ShaderManager.applyVibrance(this.batch, 1.3f, 1.1f);

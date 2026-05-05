@@ -70,6 +70,13 @@ public class PlayerUI {
     private Vector2f dragStartPos = null;
     private static final float DRAG_THRESHOLD = 8.0f;
     private ItemTooltip activeTooltip = null;
+    /**
+     * Currently visible bag tab. 0 = BAG 1 (inventory slots 4–11),
+     * 1 = BAG 2 (inventory slots 12–19). Mirrors the web client's
+     * tab-switched bag layout — only one bag is on screen at a time so
+     * the panel stays compact.
+     */
+    private int activeBag = 0;
 
     // Web-parity UIs. These live on PlayerUI so packet handlers and the input
     // loop can reach them via realmManager.state.pui.<name>.
@@ -376,6 +383,12 @@ public class PlayerUI {
     }
 
     public void input(MouseHandler mouse, KeyHandler key) {
+        // Bag-tab clicks have to fire BEFORE drag-drop / slot input so a
+        // tab click doesn't get swallowed by a slot underneath. Position
+        // math mirrors the render() tab strip exactly so click bounds and
+        // visual bounds line up.
+        this.handleBagTabClick(mouse);
+
         this.handleDragAndDrop(mouse);
 
         for (int i = 0; i < this.inventory.length; i++) {
@@ -527,9 +540,18 @@ public class PlayerUI {
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
 
+        // Web-parity inventory: 4 equipment + 8 BAG 1 + 8 BAG 2 = 20 slots.
+        // Only the currently-active bag's 8 slots are rendered, the other
+        // bag is hidden behind its tab.
         Slots[] equips = this.getSlots(0, 4);
-        Slots[] inv1 = this.getSlots(4, 8);
-        Slots[] inv2 = this.getSlots(8, 12);
+        final int bagBase = (this.activeBag == 0) ? 4 : 12;
+        Slots[] bagRow1 = this.getSlots(bagBase,     bagBase + 4);
+        Slots[] bagRow2 = this.getSlots(bagBase + 4, bagBase + 8);
+        // Aliased to old names so the rest of render() keeps compiling. The
+        // visual stays as two rows of four — the only difference vs before
+        // is which 8 slots the rows are bound to.
+        Slots[] inv1 = bagRow1;
+        Slots[] inv2 = bagRow2;
 
         // ====== SHAPES PASS: all backgrounds in one ShapeRenderer batch ======
         batch.end();
@@ -553,7 +575,24 @@ public class PlayerUI {
             }
         }
 
-        // Inventory row 1 backgrounds
+        // BAG 1 / BAG 2 tab strip — sits 4 px above the bag rows. Click
+        // routing is in handleBagTabClick(); render here just paints the
+        // active tab in tan and the inactive tab in muted grey.
+        int tabY = 420;
+        int tabH = 24;
+        int tabW = (panelWidth / 2) - 8;
+        // BAG 1 tab
+        shapes.setColor(this.activeBag == 0 ? 0.55f : 0.20f,
+                        this.activeBag == 0 ? 0.45f : 0.18f,
+                        this.activeBag == 0 ? 0.18f : 0.20f, 1f);
+        shapes.rect(startX + 4, tabY, tabW, tabH);
+        // BAG 2 tab
+        shapes.setColor(this.activeBag == 1 ? 0.55f : 0.20f,
+                        this.activeBag == 1 ? 0.45f : 0.18f,
+                        this.activeBag == 1 ? 0.18f : 0.20f, 1f);
+        shapes.rect(startX + 8 + tabW, tabY, tabW, tabH);
+
+        // Inventory row 1 backgrounds (top row of the active bag)
         for (int i = 0; i < inv1.length; i++) {
             Slots curr = inv1[i];
             if (curr != null) {
@@ -621,6 +660,18 @@ public class PlayerUI {
 
         // ====== SPRITE PASS: all item sprites + text in one SpriteBatch ======
         batch.begin();
+
+        // BAG tab labels — must be in the sprite pass since text rendering
+        // can only happen between batch.begin/end. Position math mirrors
+        // the shapes pass exactly.
+        int tabPanelW = (OpenRealmGame.width / 5);
+        int tabStartX = OpenRealmGame.width - tabPanelW;
+        int tabLabelW = (tabPanelW / 2) - 8;
+        font.setColor(this.activeBag == 0 ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
+        font.draw(batch, "BAG 1", tabStartX + 4 + tabLabelW / 2 - 18, 420 + 18);
+        font.setColor(this.activeBag == 1 ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
+        font.draw(batch, "BAG 2", tabStartX + 8 + tabLabelW + tabLabelW / 2 - 18, 420 + 18);
+        font.setColor(Color.WHITE);
 
         // Equipment items
         for (int i = 0; i < equips.length; i++) {
@@ -939,6 +990,33 @@ public class PlayerUI {
                 shapes.end();
                 batch.begin();
             }
+        }
+    }
+
+    /**
+     * Detect a click on the BAG 1 / BAG 2 tab strip and toggle the active
+     * bag. Edge-triggered on mouse press (using prevMouseDown) so holding
+     * the button doesn't flip back and forth every frame.
+     */
+    private boolean prevTabMouseDown = false;
+    private void handleBagTabClick(MouseHandler mouse) {
+        boolean down = mouse.isPressed(1);
+        boolean justClicked = down && !this.prevTabMouseDown;
+        this.prevTabMouseDown = down;
+        if (!justClicked) return;
+
+        int panelWidth = (OpenRealmGame.width / 5);
+        int startX = OpenRealmGame.width - panelWidth;
+        int tabY = 420;
+        int tabH = 24;
+        int tabW = (panelWidth / 2) - 8;
+        int mx = (int) mouse.getX();
+        int my = (int) mouse.getY();
+        if (my < tabY || my > tabY + tabH) return;
+        if (mx >= startX + 4 && mx <= startX + 4 + tabW) {
+            this.activeBag = 0;
+        } else if (mx >= startX + 8 + tabW && mx <= startX + 8 + 2 * tabW) {
+            this.activeBag = 1;
         }
     }
 

@@ -168,8 +168,16 @@ public class PlayState extends GameState {
 
         if (player == null)
             return;
-        float targetMapX = player.getPos().x - (OpenRealmGame.width / 2);
-        float targetMapY = player.getPos().y - (OpenRealmGame.height / 2);
+        // The world camera ortho viewport is `width / WORLD_SCALE` wide and
+        // `height / WORLD_SCALE` tall (zoomed-in world rendering). To center
+        // the player we offset by HALF that, not half the window width — the
+        // earlier math was using full window coords and put the player in
+        // the bottom-right of the visible world. Slight south-bias of 12.5%
+        // mirrors the web client (more headroom above the player than below).
+        final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
+        final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
+        float targetMapX = player.getPos().x - (worldViewW / 2f);
+        float targetMapY = player.getPos().y - (worldViewH * 0.625f);
         // Snap camera directly to player - no lerp lag, keeps movement feeling crisp
         PlayState.map.x = targetMapX;
         PlayState.map.y = targetMapY;
@@ -648,6 +656,17 @@ public class PlayState extends GameState {
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
         if (player == null)
             return;
+        // Switch from the default UI camera (set by OpenRealmGame.render)
+        // to the zoomed world camera for tile + entity rendering. The HUD
+        // pass below will switch back. Without this, world tiles/entities
+        // would be drawn 1:1 and look way out of scale relative to the
+        // web client's 2x desktop zoom.
+        OpenRealmGame game = (OpenRealmGame) Gdx.app.getApplicationListener();
+        if (game.getWorldCamera() != null) {
+            game.getWorldCamera().update();
+            batch.setProjectionMatrix(game.getWorldCamera().combined);
+            shapes.setProjectionMatrix(game.getWorldCamera().combined);
+        }
         this.realmManager.getRealm().getTileManager().render(player, batch, shapes);
 
         GameObject[] gameObject = this.realmManager.getRealm()
@@ -752,23 +771,16 @@ public class PlayState extends GameState {
 
         if (this.pui == null)
             return;
-        // Switch from world camera (zoomed) to UI camera (1:1 screen pixels)
-        // so PlayerUI's HUD layout uses the actual window-pixel coords it
-        // was designed for. Flip projection on both batch and shapes since
-        // PlayerUI alternates between them. After HUD is drawn, restore the
-        // world camera for any post-HUD effects/debug overlays.
-        OpenRealmGame game = (OpenRealmGame) Gdx.app.getApplicationListener();
+        // Switch back to the UI camera (1:1 screen pixels) so PlayerUI's
+        // HUD layout uses the actual window-pixel coords it was designed
+        // for. Stays on UI camera for the rest of the frame — that's the
+        // default OpenRealmGame.render() picks for the next frame anyway.
         if (game.getUiCamera() != null) {
             game.getUiCamera().update();
             batch.setProjectionMatrix(game.getUiCamera().combined);
             shapes.setProjectionMatrix(game.getUiCamera().combined);
         }
         this.pui.render(batch, shapes, font);
-        if (game.getWorldCamera() != null) {
-            game.getWorldCamera().update();
-            batch.setProjectionMatrix(game.getWorldCamera().combined);
-            shapes.setProjectionMatrix(game.getWorldCamera().combined);
-        }
 
         this.renderCloseLoot(batch);
 
