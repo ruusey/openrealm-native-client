@@ -15,6 +15,19 @@ public class KeyHandler implements InputProcessor {
     public String content = "";
     public static List<Key> keys = new ArrayList<Key>();
 
+    /**
+     * Optional sink for typed characters used by ad-hoc text fields outside
+     * the chat captureMode flow (login/register forms, char-create rename
+     * dialogs, etc.). When non-null, every printable char from keyTyped is
+     * forwarded so multiple {@link com.openrealm.game.ui.TextField} instances
+     * can share the single LibGDX InputProcessor without trampling each
+     * other's buffers.
+     */
+    public interface TextSink {
+        void onChar(char c);
+    }
+    public static volatile TextSink textSink = null;
+
     public static class Key {
         public int presses, absorbs;
         public boolean down, clicked;
@@ -155,6 +168,14 @@ public class KeyHandler implements InputProcessor {
 
     @Override
     public boolean keyTyped(char character) {
+        // Sink takes priority over captureMode — when a login/register field
+        // is focused we route chars there; chat captureMode is exclusive to
+        // gameplay so the two never coincide in practice.
+        TextSink sink = KeyHandler.textSink;
+        if (sink != null) {
+            sink.onChar(character);
+            return true;
+        }
         this.appendChar(character);
         return this.captureMode;
     }

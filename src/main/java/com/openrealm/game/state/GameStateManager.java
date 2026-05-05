@@ -22,6 +22,12 @@ public class GameStateManager {
     public static final int PLAY = 1;
     public static final int PAUSE = 2;
     public static final int GAMEOVER = 3;
+    // Pre-game flow added when porting the web client's account UI to LibGDX.
+    // LOGIN sits in slot 4 and CHARSELECT sits in slot 5; PLAY is no longer
+    // auto-instantiated, so the launcher boots into LOGIN and only constructs
+    // a PlayState once the user actually clicks "Play".
+    public static final int LOGIN = 4;
+    public static final int CHARSELECT = 5;
 
     public static SpriteSheet ui;
     public static SpriteSheet button;
@@ -41,7 +47,7 @@ public class GameStateManager {
         GameStateManager.map = new Vector2f(OpenRealmGame.width, OpenRealmGame.height);
         Vector2f.setWorldVar(GameStateManager.map.x, GameStateManager.map.y);
 
-        this.states = new GameState[5];
+        this.states = new GameState[8];
 
         GameStateManager.ui = new SpriteSheet("ui.png", 64, 64);
         GameStateManager.button = new SpriteSheet("buttons.png", 122, 57);
@@ -49,7 +55,18 @@ public class GameStateManager {
         GameStateManager.cam = new Camera(
                 new Rectangle(new Vector2f(0, 0), OpenRealmGame.width + 64, OpenRealmGame.height + 64));
 
-        this.add(GameStateManager.PLAY);
+        // Boot path:
+        //   - If GameLauncher's CLI form supplied creds + characterUuid, jump
+        //     straight into PlayState (used by automation).
+        //   - Otherwise show the login screen and let the user pick a flow.
+        boolean cliCreds = com.openrealm.net.client.SocketClient.PLAYER_EMAIL != null
+                && com.openrealm.net.client.SocketClient.PLAYER_PASSWORD != null
+                && com.openrealm.net.client.SocketClient.CHARACTER_UUID != null;
+        if (cliCreds) {
+            this.add(GameStateManager.PLAY);
+        } else {
+            this.add(GameStateManager.LOGIN, new LoginState(this));
+        }
     }
 
     public boolean isStateActive(int state) {
@@ -92,23 +109,10 @@ public class GameStateManager {
     public void add(int state, GameState gameState) {
         if (this.states[state] != null)
             return;
-
-        switch (state) {
-        case GameStateManager.PLAY:
-            this.states[GameStateManager.PLAY] = gameState;
-            break;
-        case GameStateManager.MENU:
-            this.states[GameStateManager.MENU] = gameState;
-            break;
-        case GameStateManager.PAUSE:
-            this.states[GameStateManager.PAUSE] = gameState;
-            break;
-        case GameStateManager.GAMEOVER:
-            this.states[GameStateManager.GAMEOVER] = gameState;
-            break;
-        default:
-            break;
-        }
+        // Generic slot assignment so we don't have to grow the switch every
+        // time a new state is introduced. Bounds-check is implicit because
+        // the array length is fixed at construction.
+        this.states[state] = gameState;
     }
 
     public void addAndpop(int state) {

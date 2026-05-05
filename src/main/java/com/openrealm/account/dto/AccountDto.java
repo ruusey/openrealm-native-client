@@ -33,6 +33,7 @@ public class AccountDto implements Serializable {
     private String email;
     private String password;
     private String accountName;
+    private Boolean guest;
     private Map<String, String> accountProperties;
     private List<AccountProvision> accountProvisions;
     private List<AccountSubscription> accountSubscriptions;
