@@ -76,6 +76,14 @@ public class CharacterSelectState extends GameState {
     private final TextField newPw = new TextField(0, 0, 200, 28);
     private final TextField confirmPw = new TextField(0, 0, 200, 28);
 
+    /**
+     * Editable game-server host. Defaults to the data-service host (which
+     * is what the launcher was started with) since most deployments run the
+     * game server and data service on the same machine. Persisted between
+     * sessions via SessionStore.
+     */
+    private final TextField serverHostField = new TextField(0, 0, 200, 32);
+
     private final LeaderboardPanel leaderboard = new LeaderboardPanel();
 
     /** Result fields from background threads; consumed on the GL thread. */
@@ -87,7 +95,10 @@ public class CharacterSelectState extends GameState {
     private boolean pendingLogout = false;
 
     private boolean prevMouseDown = false;
+    /** Vertical scroll offset for the character list (pixels; 0 = top). */
     private float scrollOffset = 0f;
+    /** Pixels per scroll-wheel notch — matches typical OS feel. */
+    private static final float SCROLL_STEP = 56f;
 
     public CharacterSelectState(GameStateManager gsm, PlayerAccountDto account) {
         super(gsm);
@@ -98,18 +109,24 @@ public class CharacterSelectState extends GameState {
         this.currentPw.setPlaceholder("Current password");
         this.newPw.setPlaceholder("New password");
         this.confirmPw.setPlaceholder("Confirm new password");
+        // Seed the editable game-server host field. Order of preference:
+        //   1. previously-saved server host (SessionStore.lastServer)
+        //   2. SocketClient.SERVER_ADDR (the launcher's data-service host)
+        //   3. "openrealm.net" so the field is never blank
         SessionStore store = SessionStore.get();
-        if (store.getLastServer() != null) {
-            for (int i = 0; i < SERVERS.length; i++) {
-                if (SERVERS[i].equals(store.getLastServer())) { this.serverIdx = i; break; }
-            }
-        }
-        // Hook up our typed-char sink so password fields receive keystrokes.
+        String seed;
+        if (store.getLastServer() != null && !store.getLastServer().isBlank()) seed = store.getLastServer();
+        else if (SocketClient.SERVER_ADDR != null && !SocketClient.SERVER_ADDR.isBlank()) seed = SocketClient.SERVER_ADDR;
+        else seed = "openrealm.net";
+        this.serverHostField.setText(seed);
+        this.serverHostField.setPlaceholder("game-server host");
+        // Hook up our typed-char sink so the focused field receives keystrokes.
         KeyHandler.textSink = this::onChar;
     }
 
     private void onChar(char c) {
-        if (this.currentPw.isFocused()) this.currentPw.appendChar(c);
+        if (this.serverHostField.isFocused()) this.serverHostField.appendChar(c);
+        else if (this.currentPw.isFocused()) this.currentPw.appendChar(c);
         else if (this.newPw.isFocused()) this.newPw.appendChar(c);
         else if (this.confirmPw.isFocused()) this.confirmPw.appendChar(c);
     }
@@ -157,9 +174,21 @@ public class CharacterSelectState extends GameState {
             return;
         }
 
+        // If the just-launched PlayState failed to connect to the game
+        // server, pop it and surface the error here. The user can then edit
+        // the host field and try again.
+        PlayState live = this.gsm.getPlayState();
+        if (live != null && live.getConnectError() != null) {
+            this.error = "Connect failed: " + live.getConnectError();
+            this.gsm.pop(GameStateManager.PLAY);
+            // Re-claim the typed-char sink — startGame() cleared it.
+            KeyHandler.textSink = this::onChar;
+        }
+
         // Field caret blink + text input
         this.currentPw.update();
         this.newPw.update();
+        this.serverHostField.update();
         this.confirmPw.update();
     }
 
@@ -188,6 +217,28 @@ public class CharacterSelectState extends GameState {
             this.changePwOpen = false;
         }
 
+        // Mouse wheel scroll for the character list. Only applied when the
+        // pointer is over the list region so wheel-scrolling elsewhere on the
+        // screen (e.g. over the leaderboard) doesn't move the char list.
+        Layout LL = this.layout();
+        float wheel = KeyHandler.consumeScroll();
+        if (wheel != 0f
+                && mx >= LL.listX && mx <= LL.listX + LL.listW
+                && my >= LL.listY && my <= LL.listY + LL.listH) {
+            int rowCount = ((this.tab == Tab.CHARACTERS) ? this.aliveChars().size() : this.deadChars().size());
+            float maxScroll = Math.max(0f, rowCount * LL.rowH - LL.listH);
+            this.scrollOffset = Math.max(0f, Math.min(maxScroll, this.scrollOffset + wheel * SCROLL_STEP));
+        }
+        // Arrow-key scroll fallback for keyboards / accessibility.
+        if (Gdx.input.isKeyJustPressed(Input.Keys.PAGE_DOWN)) this.scrollOffset += LL.listH;
+        if (Gdx.input.isKeyJustPressed(Input.Keys.PAGE_UP))   this.scrollOffset -= LL.listH;
+        // Clamp here too so PageUp/Down can't escape valid bounds.
+        {
+            int rc = ((this.tab == Tab.CHARACTERS) ? this.aliveChars().size() : this.deadChars().size());
+            float maxScroll = Math.max(0f, rc * LL.rowH - LL.listH);
+            this.scrollOffset = Math.max(0f, Math.min(maxScroll, this.scrollOffset));
+        }
+
         if (!justClicked) return;
 
         // Tabs
@@ -195,23 +246,29 @@ public class CharacterSelectState extends GameState {
         if (hit(mx, my, L.tabGraveX, L.tabsY, L.tabW, L.tabH)) { this.tab = Tab.GRAVEYARD; return; }
 
         // Logout / change-pw / server / vault buttons in the right column
-        if (hit(mx, my, L.logoutX, L.logoutY, L.btnW, L.btnH)) { this.doLogout(); return; }
-        if (hit(mx, my, L.changePwX, L.changePwY, L.btnW, L.btnH)) {
+        // (these use the wider rightBtnW so the click region matches what's
+        // actually rendered).
+        if (hit(mx, my, L.logoutX, L.logoutY, L.rightBtnW, L.btnH)) { this.doLogout(); return; }
+        if (hit(mx, my, L.changePwX, L.changePwY, L.rightBtnW, L.btnH)) {
             this.changePwOpen = !this.changePwOpen;
             return;
         }
-        if (hit(mx, my, L.serverX, L.serverY, L.btnW, L.btnH)) {
-            this.serverIdx = (this.serverIdx + 1) % SERVERS.length;
-            SessionStore.get().setLastServer(SERVERS[this.serverIdx]);
-            SessionStore.get().save();
+        // Click into the editable game-server field to focus it. Defocus
+        // any currently-focused field if the click lands elsewhere on the
+        // server row but outside the field bounds.
+        if (this.serverHostField.handleClick(mx, my)) {
+            // Field grabbed focus — also clear the password fields.
+            this.currentPw.setFocused(false);
+            this.newPw.setFocused(false);
+            this.confirmPw.setFocused(false);
             return;
         }
-        if (hit(mx, my, L.addChestX, L.addChestY, L.btnW, L.btnH)) { this.doAddChest(); return; }
+        if (hit(mx, my, L.addChestX, L.addChestY, L.rightBtnW, L.btnH)) { this.doAddChest(); return; }
 
         if (this.changePwOpen) {
-            this.currentPw.setBounds(L.pwFieldX, L.pwFieldY,         L.pwFieldW, 28);
-            this.newPw    .setBounds(L.pwFieldX, L.pwFieldY + 36,    L.pwFieldW, 28);
-            this.confirmPw.setBounds(L.pwFieldX, L.pwFieldY + 72,    L.pwFieldW, 28);
+            this.currentPw.setBounds(L.pwFieldX, L.pwFieldY,         L.pwFieldW, 32);
+            this.newPw    .setBounds(L.pwFieldX, L.pwFieldY + 40,    L.pwFieldW, 32);
+            this.confirmPw.setBounds(L.pwFieldX, L.pwFieldY + 80,    L.pwFieldW, 32);
             boolean cur = this.currentPw.handleClick(mx, my);
             boolean n   = this.newPw.handleClick(mx, my);
             boolean conf= this.confirmPw.handleClick(mx, my);
@@ -220,19 +277,23 @@ public class CharacterSelectState extends GameState {
                 this.newPw.setFocused(false);
                 this.confirmPw.setFocused(false);
             }
-            if (hit(mx, my, L.pwSubmitX, L.pwSubmitY, L.btnW, L.btnH)) {
+            if (hit(mx, my, L.pwSubmitX, L.pwSubmitY, L.rightBtnW, L.btnH)) {
                 this.doChangePassword();
                 return;
             }
         }
 
-        // Character list rows
+        // Character list rows — apply scroll offset so the click target moves
+        // with the visible row. Rows whose visible band falls outside the list
+        // viewport are not clickable.
         List<CharacterDto> alive = this.aliveChars();
         List<CharacterDto> chars = (this.tab == Tab.CHARACTERS) ? alive : this.deadChars();
         for (int i = 0; i < chars.size(); i++) {
-            int rowY = L.listY + i * L.rowH;
-            if (rowY + L.rowH > L.listY + L.listH) break;
-            if (hit(mx, my, L.listX, rowY, L.listW, L.rowH)) {
+            int rowY = L.listY + i * L.rowH - (int) this.scrollOffset;
+            // Skip if entirely outside the list viewport.
+            if (rowY + L.rowH <= L.listY || rowY >= L.listY + L.listH) continue;
+            if (hit(mx, my, L.listX, rowY, L.listW, L.rowH)
+                    && my >= L.listY && my <= L.listY + L.listH) {
                 if (this.tab == Tab.CHARACTERS) {
                     this.selectedCharIdx = i;
                 }
@@ -315,19 +376,53 @@ public class CharacterSelectState extends GameState {
                     : "No fallen characters.";
             font.draw(batch, empty, L.listX + 16, L.listY + 32);
         } else {
+            // Scissor-clip rendering to the list viewport so rows that scroll
+            // partially in/out are cropped at the edges instead of bleeding
+            // over the picker / leaderboard below.
+            batch.flush();
+            com.badlogic.gdx.math.Rectangle scissor = new com.badlogic.gdx.math.Rectangle();
+            com.badlogic.gdx.math.Rectangle clipBounds = new com.badlogic.gdx.math.Rectangle(
+                    L.listX, L.listY, L.listW, L.listH);
+            com.badlogic.gdx.scenes.scene2d.utils.ScissorStack.calculateScissors(
+                    com.badlogic.gdx.utils.viewport.ScalingViewport.class.cast(null) == null
+                            ? new com.badlogic.gdx.graphics.OrthographicCamera() : null,
+                    batch.getTransformMatrix(), clipBounds, scissor);
+            // Calculator above can be unreliable with our flipped Y-down camera;
+            // fall back to a manual clip rect: just trust list bounds.
+            scissor.set(L.listX, OpenRealmGame.height - (L.listY + L.listH), L.listW, L.listH);
+            com.badlogic.gdx.scenes.scene2d.utils.ScissorStack.pushScissors(scissor);
             for (int i = 0; i < chars.size(); i++) {
-                int rowY = L.listY + i * L.rowH;
-                if (rowY + L.rowH > L.listY + L.listH) break;
+                int rowY = L.listY + i * L.rowH - (int) this.scrollOffset;
+                if (rowY + L.rowH <= L.listY) continue;            // above viewport
+                if (rowY >= L.listY + L.listH) break;               // below viewport
                 this.renderCharRow(batch, shapes, font, chars.get(i),
                         L.listX, rowY, L.listW, L.rowH,
                         this.tab == Tab.CHARACTERS && i == this.selectedCharIdx,
                         this.tab == Tab.GRAVEYARD);
             }
+            batch.flush();
+            com.badlogic.gdx.scenes.scene2d.utils.ScissorStack.popScissors();
+
+            // Scroll indicator: tiny tan thumb on the right edge of the list
+            // so the user knows there's more content offscreen.
+            int rowCount = chars.size();
+            float contentH = rowCount * L.rowH;
+            if (contentH > L.listH) {
+                float thumbH = Math.max(24f, L.listH * (L.listH / contentH));
+                float thumbY = L.listY + (this.scrollOffset / Math.max(1f, contentH - L.listH)) * (L.listH - thumbH);
+                batch.end();
+                shapes.begin(ShapeRenderer.ShapeType.Filled);
+                shapes.setColor(0.55f, 0.45f, 0.25f, 0.85f);
+                shapes.rect(L.listX + L.listW - 6, thumbY, 4, thumbH);
+                shapes.end();
+                batch.begin();
+            }
         }
 
-        // Class picker
+        // Class picker — header above the cells with enough vertical
+        // clearance that the 1.8x font doesn't overlap the first row.
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "CREATE CHARACTER", L.pickerX, L.pickerY - 8);
+        font.draw(batch, "CREATE CHARACTER", L.pickerX, L.pickerY - 32);
         for (int i = 0; i < CLASS_NAMES.length; i++) {
             int col = i % 4;
             int row = i / 4;
@@ -338,28 +433,32 @@ public class CharacterSelectState extends GameState {
         }
 
         // Right column: account info, server, leaderboard, vault, logout, change password
-        // Server cycler
-        this.drawButton(batch, shapes, font, L.serverX, L.serverY, L.btnW, L.btnH,
-                "Server: " + SERVERS[this.serverIdx], false, false);
+        // Editable game-server host. The label sits above the field with
+        // enough clearance for the 1.8x font; the field itself accepts
+        // keyboard input via the focused-field text sink.
+        font.setColor(0.78f, 0.66f, 0.43f, 1f);
+        font.draw(batch, "Game Server", L.serverX, L.serverY - 8);
+        this.serverHostField.setBounds(L.serverX, L.serverY, L.rightBtnW, L.btnH);
+        this.serverHostField.render(batch, shapes, font);
 
-        // Vault
+        // Vault — label above the button with full label clearance
         int vaultChests = (this.account.getPlayerVault() == null) ? 0 : this.account.getPlayerVault().size();
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "Vault Chests: " + vaultChests + "/10", L.addChestX, L.addChestY - 8);
-        this.drawButton(batch, shapes, font, L.addChestX, L.addChestY, L.btnW, L.btnH,
+        font.draw(batch, "Vault Chests: " + vaultChests + "/10", L.addChestX, L.addChestY - 32);
+        this.drawButton(batch, shapes, font, L.addChestX, L.addChestY, L.rightBtnW, L.btnH,
                 "+ Add Chest", false, false);
 
         // Change password collapsible header
-        this.drawButton(batch, shapes, font, L.changePwX, L.changePwY, L.btnW, L.btnH,
-                this.changePwOpen ? "▼ Change Password" : "▶ Change Password", false, false);
+        this.drawButton(batch, shapes, font, L.changePwX, L.changePwY, L.rightBtnW, L.btnH,
+                this.changePwOpen ? "v Change Password" : "> Change Password", false, false);
         if (this.changePwOpen) {
-            this.currentPw.setBounds(L.pwFieldX, L.pwFieldY,         L.pwFieldW, 28);
-            this.newPw    .setBounds(L.pwFieldX, L.pwFieldY + 36,    L.pwFieldW, 28);
-            this.confirmPw.setBounds(L.pwFieldX, L.pwFieldY + 72,    L.pwFieldW, 28);
+            this.currentPw.setBounds(L.pwFieldX, L.pwFieldY,         L.pwFieldW, 32);
+            this.newPw    .setBounds(L.pwFieldX, L.pwFieldY + 40,    L.pwFieldW, 32);
+            this.confirmPw.setBounds(L.pwFieldX, L.pwFieldY + 80,    L.pwFieldW, 32);
             this.currentPw.render(batch, shapes, font);
             this.newPw    .render(batch, shapes, font);
             this.confirmPw.render(batch, shapes, font);
-            this.drawButton(batch, shapes, font, L.pwSubmitX, L.pwSubmitY, L.btnW, L.btnH,
+            this.drawButton(batch, shapes, font, L.pwSubmitX, L.pwSubmitY, L.rightBtnW, L.btnH,
                     "Update Password", false, false);
             if (!this.pwStatus.isEmpty()) {
                 font.setColor(this.pwStatus.startsWith("OK") ? Color.LIME : Color.SALMON);
@@ -368,7 +467,7 @@ public class CharacterSelectState extends GameState {
         }
 
         // Logout
-        this.drawButton(batch, shapes, font, L.logoutX, L.logoutY, L.btnW, L.btnH, "Logout", false, false);
+        this.drawButton(batch, shapes, font, L.logoutX, L.logoutY, L.rightBtnW, L.btnH, "Logout", false, false);
 
         // Leaderboard
         this.leaderboard.render(batch, shapes, font, L.lbX, L.lbY, L.lbW, L.lbH);
@@ -501,7 +600,7 @@ public class CharacterSelectState extends GameState {
         shapes.end();
         batch.begin();
         font.setColor(active ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
-        font.draw(batch, label, x + (w / 2f) - (label.length() * 4f), y + h * 0.65f);
+        drawCenteredInBox(batch, font, label, x, y, w, h);
         font.setColor(Color.WHITE);
     }
 
@@ -520,8 +619,24 @@ public class CharacterSelectState extends GameState {
         shapes.end();
         batch.begin();
         font.setColor(disabled ? Color.LIGHT_GRAY : Color.WHITE);
-        font.draw(batch, label, x + (w / 2f) - (label.length() * 4f), y + h * 0.65f);
+        drawCenteredInBox(batch, font, label, x, y, w, h);
         font.setColor(Color.WHITE);
+    }
+
+    /**
+     * Center text both axes inside (x, y, w, h). The previous heuristic
+     * {@code y + h * 0.65f} put the baseline below the box for a
+     * 1.8x-scaled flipped BitmapFont, which made every button look struck-
+     * through by its own border. GlyphLayout gives us a real width/height
+     * for the glyph run so centering is exact.
+     */
+    private static void drawCenteredInBox(SpriteBatch batch, BitmapFont font,
+                                          String text, int x, int y, int w, int h) {
+        com.badlogic.gdx.graphics.g2d.GlyphLayout layout =
+                new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, text);
+        float tx = x + (w - layout.width) / 2f;
+        float ty = y + (h - layout.height) / 2f;
+        font.draw(batch, text, tx, ty);
     }
 
     private static boolean hit(int mx, int my, int x, int y, int w, int h) {
@@ -535,6 +650,8 @@ public class CharacterSelectState extends GameState {
         int pickerX, pickerY, pickerCellW, pickerCellH;
         int playX, playY, deleteX, deleteY, createX, createY;
         int btnW, btnH;
+        /** Right-column buttons stretch wider than the bottom action ones. */
+        int rightBtnW;
         int serverX, serverY;
         int addChestX, addChestY;
         int changePwX, changePwY;
@@ -548,61 +665,80 @@ public class CharacterSelectState extends GameState {
         Layout L = new Layout();
         int width = OpenRealmGame.width;
         int height = OpenRealmGame.height;
-        // Left column = char list + class picker. Right column = account/leaderboard/etc.
+        // Two columns: left = char list + class picker, right = account
+        // panel + leaderboard. Constants tuned so labels above controls
+        // don't overlap and bottom action buttons clear all chrome.
         int leftPad = 32;
-        int leftW = width - 380;
-        L.tabsY = 56;
-        L.tabH = 32;
-        L.tabW = 200;
+        int rightW = 340;
+        int leftW = width - rightW - leftPad - 24; // 24 = gap between cols
+        L.tabsY = 64;
+        L.tabH = 40;
+        L.tabW = 220;
         L.tabCharsX = leftPad;
         L.tabGraveX = leftPad + L.tabW + 8;
 
         L.listX = leftPad;
-        L.listY = L.tabsY + L.tabH + 8;
-        L.listW = leftW - leftPad;
-        L.listH = 380;
+        L.listY = L.tabsY + L.tabH + 12;
+        L.listW = leftW;
+        L.listH = 360;
         L.rowH = 84;
 
+        // Picker header sits ABOVE pickerY, so reserve space for the label
+        // height (~28px for the 1.8x font) plus a gap.
+        int pickerHeaderH = 32;
         L.pickerX = leftPad;
-        L.pickerY = L.listY + L.listH + 40;
-        L.pickerCellW = (L.listW) / 4;
-        L.pickerCellH = 44;
+        L.pickerY = L.listY + L.listH + 24 + pickerHeaderH;
+        L.pickerCellW = leftW / 4;
+        L.pickerCellH = 48;
 
         L.btnW = 160;
-        L.btnH = 32;
+        L.btnH = 40;
+        L.rightBtnW = rightW - 20; // 20 keeps the right-side gutter clear
         L.playX = leftPad;
-        L.playY = height - 56;
-        L.deleteX = leftPad + L.btnW + 8;
+        L.playY = height - L.btnH - 24;
+        L.deleteX = leftPad + L.btnW + 12;
         L.deleteY = L.playY;
-        L.createX = leftPad + 2 * (L.btnW + 8);
+        L.createX = leftPad + 2 * (L.btnW + 12);
         L.createY = L.playY;
 
-        // Right column
-        int rx = width - 340;
-        int ry = 56;
+        // Right column. Each "row" stacks: optional 24px label, then a 40px
+        // button, then a 16px gap.
+        int rx = width - rightW;
+        int ry = 64;
+        int labelH = 24;
+        int rowGap = 16;
+
+        // "Server: useast"
         L.serverX = rx;
         L.serverY = ry;
-        ry += L.btnH + 16;
-        L.addChestY = ry + 12; // leave room for label above
+        ry += L.btnH + rowGap;
+
+        // "Vault Chests: N/10" label, then "+ Add Chest" button below
         L.addChestX = rx;
-        ry = L.addChestY + L.btnH + 16;
+        L.addChestY = ry + labelH + 4;          // label sits above the button
+        ry = L.addChestY + L.btnH + rowGap;
+
+        // "Change Password" collapsible header
         L.changePwX = rx;
         L.changePwY = ry;
         ry += L.btnH + 8;
         L.pwFieldX = rx;
         L.pwFieldY = ry;
-        L.pwFieldW = 280;
+        L.pwFieldW = rightW - 60;
         L.pwSubmitX = rx;
-        L.pwSubmitY = ry + (this.changePwOpen ? 108 : 0);
+        L.pwSubmitY = ry + (this.changePwOpen ? 120 : 0);
         if (this.changePwOpen) ry = L.pwSubmitY + L.btnH + 24;
-        else ry += L.btnH + 8;
+        else ry += 8;
+
+        // Logout last in the account stack
         L.logoutX = rx;
         L.logoutY = ry;
-        // Leaderboard sits at the bottom of the right column.
-        L.lbW = 320;
+
+        // Leaderboard pinned to the bottom-right corner.
+        L.lbW = rightW - 20;
         L.lbH = 280;
         L.lbX = rx;
-        L.lbY = height - L.lbH - 16;
+        L.lbY = height - L.lbH - 24;
         return L;
     }
 
@@ -626,8 +762,12 @@ public class CharacterSelectState extends GameState {
 
     private void startGame(CharacterDto c) {
         SocketClient.CHARACTER_UUID = c.getCharacterUuid();
-        LoginState.applyServerSelection(SERVERS[this.serverIdx]);
-        SessionStore.get().setLastServer(SERVERS[this.serverIdx]);
+        // Take the user-typed server host as authoritative — overrides any
+        // previously cycled label.
+        String host = this.serverHostField.getText().trim();
+        if (host.isEmpty()) host = "openrealm.net";
+        SocketClient.SERVER_ADDR = host;
+        SessionStore.get().setLastServer(host);
         SessionStore.get().save();
         log.info("[CHARSELECT] starting PlayState with characterUuid={} server={}",
                 c.getCharacterUuid(), SocketClient.SERVER_ADDR);

@@ -103,11 +103,24 @@ public class PlayState extends GameState {
         try {
             this.doLogin();
         } catch (Exception e) {
-            log.error("Failed to send initial LoginRequest. Reason: {}", e);
-            System.exit(-1);
+            // Connection refused / unreachable host / etc. — don't kill the
+            // whole client; log it and bounce back to character-select so the
+            // user can change the game-server host and try again.
+            log.error("Failed to send initial LoginRequest, returning to character select. Reason: {}",
+                    e.getMessage());
+            this.connectError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            return;
         }
         WorkerThread.submitAndForkRun(this.realmManager);
     }
+
+    /**
+     * Set when the initial login send fails. The state's first update() tick
+     * detects this and pops PlayState back to CharacterSelectState with the
+     * message, so the user can edit the server host and retry.
+     */
+    private String connectError = null;
+    public String getConnectError() { return this.connectError; }
 
     public void loadClass(Player player, CharacterClass cls, boolean setEquipment) {
         if (setEquipment || (this.playerId == -1l)) {
@@ -145,6 +158,11 @@ public class PlayState extends GameState {
 
     @Override
     public void update(double time) {
+        // Bail out cleanly if the constructor couldn't reach the game server.
+        // CharacterSelectState's transition handler watches for this and pops
+        // PlayState back to CHARSELECT so the user isn't stranded on a black
+        // screen with a broken realm.
+        if (this.connectError != null) return;
 
         final Player player = this.realmManager.getRealm().getPlayer(this.realmManager.getCurrentPlayerId());
 

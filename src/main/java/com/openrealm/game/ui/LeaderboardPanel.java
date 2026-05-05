@@ -57,12 +57,18 @@ public class LeaderboardPanel {
         OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
         if (svc == null) return;
         try {
-            JsonNode body = svc.executeGet("data/leaderboard?limit=10", null, JsonNode.class);
+            // Real endpoint exposed by the data service:
+            //   GET /data/stats/top?count=N → List<LeaderboardEntryDto>
+            // (LeaderboardEntryDto has accountName, characterClass, level,
+            //  fame, equipment, stats — see openrealm-data).
+            JsonNode body = svc.executeGet("data/stats/top?count=10", null, JsonNode.class);
             java.util.List<Row> parsed = new java.util.ArrayList<>();
             if (body != null && body.isArray()) {
                 int rank = 1;
                 for (JsonNode entry : body) {
-                    String name = entry.has("name") ? entry.get("name").asText() : "?";
+                    String name = entry.has("accountName") ? entry.get("accountName").asText()
+                            : entry.has("name") ? entry.get("name").asText()
+                            : "?";
                     long fame = entry.has("fame") ? entry.get("fame").asLong() : 0L;
                     parsed.add(new Row(rank++, name, fame));
                 }
@@ -72,7 +78,7 @@ public class LeaderboardPanel {
         } catch (Exception e) {
             // Older servers may not expose this endpoint — treat as soft fail
             // so the rest of the screen renders normally.
-            log.debug("[LEADERBOARD] fetch failed: {}", e.getMessage());
+            log.warn("[LEADERBOARD] fetch failed: {}", e.getMessage());
             this.failed = true;
         }
     }

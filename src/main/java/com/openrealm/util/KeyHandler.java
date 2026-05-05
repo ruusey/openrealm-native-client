@@ -215,8 +215,23 @@ public class KeyHandler implements InputProcessor {
         return false;
     }
 
+    /**
+     * Mouse-wheel delta accumulated since the last consumer read it.
+     * Positive = scrolled down. {@link #consumeScroll()} returns and clears.
+     * Used by states (e.g. CharacterSelectState) to scroll their lists
+     * without each having to register its own InputProcessor.
+     */
+    private static volatile float pendingScrollY = 0f;
+
+    public static float consumeScroll() {
+        float v = pendingScrollY;
+        pendingScrollY = 0f;
+        return v;
+    }
+
     @Override
     public boolean scrolled(float amountX, float amountY) {
+        pendingScrollY += amountY;
         return false;
     }
 }
