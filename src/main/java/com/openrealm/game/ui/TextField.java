@@ -130,12 +130,14 @@ public class TextField {
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
-        // Background + border
+        // Light input background to match the web client's look. The card
+        // sits on a dark panel, so a near-white field with dark text reads
+        // like a real text input rather than an empty rectangle.
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.10f, 0.07f, 0.10f, 0.95f);
+        shapes.setColor(0.93f, 0.93f, 0.96f, 1f);
         shapes.rect(this.x, this.y, this.w, this.h);
         shapes.end();
         shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -149,30 +151,29 @@ public class TextField {
         boolean placeholderActive = this.buf.length() == 0;
         if (placeholderActive) {
             shown = this.placeholder == null ? "" : this.placeholder;
-            font.setColor(0.45f, 0.42f, 0.42f, 1f);
+            font.setColor(0.45f, 0.45f, 0.50f, 1f);
         } else if (this.password) {
             char[] dots = new char[this.buf.length()];
             for (int i = 0; i < dots.length; i++) dots[i] = '*';
             shown = new String(dots);
-            font.setColor(Color.WHITE);
+            font.setColor(0.10f, 0.10f, 0.15f, 1f);
         } else {
             shown = this.buf.toString();
-            font.setColor(Color.WHITE);
+            font.setColor(0.10f, 0.10f, 0.15f, 1f);
         }
-        // Draw text using the y-down (flipped) font that's the project default.
-        // Vertical center: baseline ~ top + h*0.65f.
-        float textY = this.y + this.h * 0.65f;
-        float textX = this.x + 8;
+        // Vertically center the text in the field box using a real measurement
+        // — the previous 0.65*h heuristic put the baseline below the box for
+        // the project's 1.8x-scaled flipped BitmapFont, which made the border
+        // line appear to slice through the text.
+        com.badlogic.gdx.graphics.g2d.GlyphLayout layout =
+                new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, shown.isEmpty() ? "X" : shown);
+        float textY = this.y + (this.h - layout.height) / 2f;
+        float textX = this.x + 10;
         font.draw(batch, shown, textX, textY);
-        if (this.focused && this.caretVisible && !placeholderActive) {
-            float caretX = textX + font.getRegion().getRegionWidth(); // approximate
-            // Simpler: place caret at end of drawn text using BitmapFont layout
-            com.badlogic.gdx.graphics.g2d.GlyphLayout layout =
-                    new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, shown);
-            caretX = textX + layout.width + 1;
-            font.draw(batch, "_", caretX, textY);
-        } else if (this.focused && this.caretVisible) {
-            font.draw(batch, "_", textX, textY);
+        if (this.focused && this.caretVisible) {
+            float caretX = placeholderActive ? textX
+                    : textX + new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, shown).width + 1;
+            font.draw(batch, "|", caretX, textY);
         }
         font.setColor(Color.WHITE);
     }

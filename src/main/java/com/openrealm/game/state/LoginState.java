@@ -153,56 +153,56 @@ public class LoginState extends GameState {
     public void input(MouseHandler mouse, KeyHandler key) {
         if (this.busy) return;
 
-        // Layout: card at center
-        int cardW = 480;
-        int cardH = this.mode == Mode.REGISTER ? 600 : 540;
+        // Layout matches render() — keep the two in sync. Web-client-style
+        // single-form layout: title block at the top of the card, then the
+        // form fields, then primary/secondary buttons, then a "Register"
+        // text link, then the server cycler, then the Discord footer.
+        int cardW = 460;
+        int cardH = this.mode == Mode.REGISTER ? 620 : 560;
         int cardX = (OpenRealmGame.width - cardW) / 2;
         int cardY = (OpenRealmGame.height - cardH) / 2;
-        int padX = cardX + 60;
-        int fieldW = cardW - 120;
-        int curY = cardY + 96;
+        int padX = cardX + 48;
+        int fieldW = cardW - 96;
 
-        // Tab bar
-        int tabW = (cardW - 120) / 2;
-        int loginTabX = padX;
-        int registerTabX = padX + tabW;
-        int tabY = curY;
-        int tabH = 32;
-        curY += tabH + 16;
+        // Title block (no input target) is fixed-height; layout pointer
+        // starts BELOW it.
+        int curY = cardY + 130;
 
-        // Field rects
-        int rowH = 36;
-        int fieldGap = 16;
-        int nameY = -1;
+        int rowH = 40;
+        int labelGap = 28;
+        int fieldGap = 18;
+
+        // Username field (register mode only)
         if (this.mode == Mode.REGISTER) {
-            nameY = curY;
-            this.nameField.setBounds(padX, curY, fieldW, rowH);
-            curY += rowH + fieldGap;
+            int nameFieldY = curY + labelGap;
+            this.nameField.setBounds(padX, nameFieldY, fieldW, rowH);
+            curY = nameFieldY + rowH + fieldGap;
         }
-        int emailY = curY; this.emailField.setBounds(padX, curY, fieldW, rowH);
-        curY += rowH + fieldGap;
-        int passY = curY; this.passwordField.setBounds(padX, curY, fieldW, rowH);
-        curY += rowH + fieldGap + 4;
-
-        // Server cycler button
-        int serverX = padX;
-        int serverY = curY;
-        int serverW = fieldW;
-        int serverH = 32;
-        curY += serverH + fieldGap;
+        int emailFieldY = curY + labelGap;
+        this.emailField.setBounds(padX, emailFieldY, fieldW, rowH);
+        curY = emailFieldY + rowH + fieldGap;
+        int passFieldY = curY + labelGap;
+        this.passwordField.setBounds(padX, passFieldY, fieldW, rowH);
+        curY = passFieldY + rowH + fieldGap + 4;
 
         // Submit button
-        int submitX = padX;
+        int submitH = 48;
         int submitY = curY;
-        int submitW = fieldW;
-        int submitH = 40;
-        curY += submitH + 8;
+        curY += submitH + 12;
 
         // Guest button (login mode only)
-        int guestX = padX;
+        int guestH = 44;
         int guestY = curY;
-        int guestW = fieldW;
-        int guestH = 36;
+        if (this.mode == Mode.LOGIN) curY += guestH + 16;
+
+        // "No account? Register" text link
+        int linkH = 24;
+        int linkY = curY;
+        curY += linkH + 16;
+
+        // Server cycler — small, below the link
+        int serverH = 28;
+        int serverY = curY;
 
         boolean mouseDown = mouse.isPressed(1);
         boolean justClicked = mouseDown && !this.prevMouseDown;
@@ -210,28 +210,22 @@ public class LoginState extends GameState {
         int mx = mouse.getX();
         int my = mouse.getY();
 
-        // Tab clicks
         if (justClicked) {
-            if (this.hit(mx, my, loginTabX, tabY, tabW, tabH)) {
-                this.mode = Mode.LOGIN;
-                this.error = "";
-                return;
-            }
-            if (this.hit(mx, my, registerTabX, tabY, tabW, tabH)) {
-                this.mode = Mode.REGISTER;
-                this.error = "";
-                return;
-            }
-            if (this.hit(mx, my, serverX, serverY, serverW, serverH)) {
-                this.serverIdx = (this.serverIdx + 1) % SERVERS.length;
-                return;
-            }
-            if (this.hit(mx, my, submitX, submitY, submitW, submitH)) {
+            if (this.hit(mx, my, padX, submitY, fieldW, submitH)) {
                 this.submit();
                 return;
             }
-            if (this.mode == Mode.LOGIN && this.hit(mx, my, guestX, guestY, guestW, guestH)) {
+            if (this.mode == Mode.LOGIN && this.hit(mx, my, padX, guestY, fieldW, guestH)) {
                 this.guestLogin();
+                return;
+            }
+            if (this.hit(mx, my, padX, linkY, fieldW, linkH)) {
+                this.mode = (this.mode == Mode.LOGIN) ? Mode.REGISTER : Mode.LOGIN;
+                this.error = "";
+                return;
+            }
+            if (this.hit(mx, my, padX, serverY, fieldW, serverH)) {
+                this.serverIdx = (this.serverIdx + 1) % SERVERS.length;
                 return;
             }
 
@@ -241,7 +235,6 @@ public class LoginState extends GameState {
             if (this.mode == Mode.REGISTER) this.nameField.handleClick(mx, my);
             else this.nameField.setFocused(false);
 
-            // Defocus on click outside any field
             boolean any = this.emailField.isFocused() || this.passwordField.isFocused()
                     || (this.mode == Mode.REGISTER && this.nameField.isFocused());
             if (!any) {
@@ -251,9 +244,7 @@ public class LoginState extends GameState {
             }
         }
 
-        // ESC quits the launcher (matches web client closing the tab).
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            // No confirm — closing the launcher window before login is harmless.
             Gdx.app.exit();
         }
     }
@@ -425,25 +416,23 @@ public class LoginState extends GameState {
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.08f, 0.07f, 0.10f, 1f);
+        shapes.setColor(0.10f, 0.07f, 0.10f, 1f);
         shapes.rect(0, 0, OpenRealmGame.width, OpenRealmGame.height);
         shapes.end();
         batch.begin();
 
-        // Title
-        font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "OpenRealm", OpenRealmGame.width / 2f - 80, 80);
-        font.setColor(0.55f, 0.50f, 0.45f, 1f);
-        font.draw(batch, "Native Launcher v" + GameLauncher.GAME_VERSION, OpenRealmGame.width / 2f - 110, 110);
-
-        // Card
-        int cardW = 480;
-        int cardH = this.mode == Mode.REGISTER ? 600 : 540;
+        // Card geometry — must match input() exactly.
+        int cardW = 460;
+        int cardH = this.mode == Mode.REGISTER ? 620 : 560;
         int cardX = (OpenRealmGame.width - cardW) / 2;
         int cardY = (OpenRealmGame.height - cardH) / 2;
+        int padX = cardX + 48;
+        int fieldW = cardW - 96;
+
+        // Card background + border
         batch.end();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.13f, 0.10f, 0.13f, 0.97f);
+        shapes.setColor(0.16f, 0.13f, 0.16f, 1f);
         shapes.rect(cardX, cardY, cardW, cardH);
         shapes.end();
         shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -452,55 +441,60 @@ public class LoginState extends GameState {
         shapes.end();
         batch.begin();
 
-        int padX = cardX + 60;
-        int fieldW = cardW - 120;
-        int curY = cardY + 96;
+        // Title block inside the card — mirrors the web client. Big gold
+        // "OpenRealm" and a small subtitle below it.
+        font.setColor(0.78f, 0.66f, 0.43f, 1f);
+        drawCenteredText(batch, font, "OpenRealm", cardX + cardW / 2f, cardY + 36);
+        font.setColor(0.55f, 0.50f, 0.45f, 1f);
+        drawCenteredText(batch, font, "Native Client", cardX + cardW / 2f, cardY + 80);
 
-        // Tab bar
-        int tabW = fieldW / 2;
-        int tabH = 32;
-        this.drawTab(batch, shapes, font, padX, curY, tabW, tabH, "LOGIN", this.mode == Mode.LOGIN);
-        this.drawTab(batch, shapes, font, padX + tabW, curY, tabW, tabH, "REGISTER", this.mode == Mode.REGISTER);
-        curY += tabH + 16;
+        int curY = cardY + 130;
+        int rowH = 40;
+        int labelGap = 28;
+        int fieldGap = 18;
 
-        int rowH = 36;
-        int fieldGap = 16;
         if (this.mode == Mode.REGISTER) {
-            font.setColor(0.78f, 0.66f, 0.43f, 1f);
-            font.draw(batch, "Username", padX, curY - 4);
-            this.nameField.setBounds(padX, curY, fieldW, rowH);
-            this.nameField.render(batch, shapes, font);
-            curY += rowH + fieldGap;
+            curY = drawLabeledField(batch, shapes, font, "Username", this.nameField,
+                    padX, curY, fieldW, rowH, labelGap, fieldGap);
         }
-        font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "Email", padX, curY - 4);
-        this.emailField.setBounds(padX, curY, fieldW, rowH);
-        this.emailField.render(batch, shapes, font);
-        curY += rowH + fieldGap;
+        curY = drawLabeledField(batch, shapes, font, "Email", this.emailField,
+                padX, curY, fieldW, rowH, labelGap, fieldGap);
+        curY = drawLabeledField(batch, shapes, font, "Password", this.passwordField,
+                padX, curY, fieldW, rowH, labelGap, fieldGap);
+        curY += 4;
 
-        font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "Password", padX, curY - 4);
-        this.passwordField.setBounds(padX, curY, fieldW, rowH);
-        this.passwordField.render(batch, shapes, font);
-        curY += rowH + fieldGap + 4;
-
-        // Server selector (cycle on click)
-        this.drawButton(batch, shapes, font, padX, curY, fieldW, 32,
-                "Game Server: " + SERVERS[this.serverIdx] + "  (click to change)",
-                false, false);
-        curY += 32 + fieldGap;
-
-        // Submit
+        // Submit (primary)
+        int submitH = 48;
         String submitLabel = this.mode == Mode.REGISTER
                 ? (this.busy ? "Registering..." : "Register")
                 : (this.busy ? "Logging in..."  : "Login");
-        this.drawButton(batch, shapes, font, padX, curY, fieldW, 40, submitLabel, true, this.busy);
-        curY += 40 + 8;
+        this.drawButton(batch, shapes, font, padX, curY, fieldW, submitH, submitLabel, true, this.busy);
+        curY += submitH + 12;
 
+        // Guest button (login mode only — registering inherently creates the
+        // account so guest doesn't apply)
         if (this.mode == Mode.LOGIN) {
-            this.drawButton(batch, shapes, font, padX, curY, fieldW, 36, "Play as Guest", false, this.busy);
-            curY += 36 + 8;
+            int guestH = 44;
+            this.drawButton(batch, shapes, font, padX, curY, fieldW, guestH, "Play as Guest", false, this.busy);
+            curY += guestH + 16;
         }
+
+        // "No account? Register" / "Already registered? Sign in" text link
+        int linkH = 24;
+        String linkText = this.mode == Mode.LOGIN
+                ? "No account? Register"
+                : "Already registered? Sign in";
+        font.setColor(0.55f, 0.50f, 0.45f, 1f);
+        drawCenteredText(batch, font, linkText, cardX + cardW / 2f, curY + 4);
+        curY += linkH + 16;
+
+        // Server selector (smaller, secondary). Kept since the native client
+        // can target multiple deployments unlike the web client.
+        int serverH = 28;
+        font.setColor(0.55f, 0.50f, 0.45f, 1f);
+        drawCenteredText(batch, font, "Server: " + SERVERS[this.serverIdx] + "  (click to change)",
+                cardX + cardW / 2f, curY + 4);
+        curY += serverH + 8;
 
         if (!this.error.isEmpty()) {
             font.setColor(0.95f, 0.45f, 0.45f, 1f);
@@ -508,29 +502,33 @@ public class LoginState extends GameState {
         }
 
         // Discord link footer
-        font.setColor(0.55f, 0.55f, 0.65f, 1f);
-        font.draw(batch, "Discord: https://discord.gg/NQ2hZZGR3",
-                cardX + 60, cardY + cardH - 16);
+        font.setColor(0.40f, 0.45f, 0.85f, 1f);
+        drawCenteredText(batch, font, "Join our Discord Community!",
+                cardX + cardW / 2f, cardY + cardH - 36);
 
         font.setColor(Color.WHITE);
     }
 
-    private void drawTab(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
-                         int x, int y, int w, int h, String label, boolean active) {
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        if (active) shapes.setColor(0.30f, 0.22f, 0.18f, 1f);
-        else shapes.setColor(0.14f, 0.11f, 0.13f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(active ? 0.78f : 0.30f, active ? 0.66f : 0.25f, 0.30f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        batch.begin();
-        font.setColor(active ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
-        font.draw(batch, label, x + (w / 2f) - (label.length() * 4f), y + h * 0.65f);
-        font.setColor(Color.WHITE);
+    /**
+     * Lay out a "Label\n[input field]" pair starting at curY (top of label).
+     * Returns the new curY, advanced past the field plus the inter-row gap.
+     */
+    private int drawLabeledField(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
+                                 String label, TextField field,
+                                 int padX, int curY, int fieldW, int rowH,
+                                 int labelGap, int fieldGap) {
+        font.setColor(0.78f, 0.66f, 0.43f, 1f);
+        font.draw(batch, label, padX, curY);
+        int fieldY = curY + labelGap;
+        field.setBounds(padX, fieldY, fieldW, rowH);
+        field.render(batch, shapes, font);
+        return fieldY + rowH + fieldGap;
+    }
+
+    /** Centers a string horizontally around `cx`, drawing its top at `topY`. */
+    private void drawCenteredText(SpriteBatch batch, BitmapFont font, String s, float cx, float topY) {
+        com.badlogic.gdx.graphics.g2d.GlyphLayout layout = new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, s);
+        font.draw(batch, s, cx - layout.width / 2f, topY);
     }
 
     private void drawButton(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
@@ -548,7 +546,22 @@ public class LoginState extends GameState {
         shapes.end();
         batch.begin();
         font.setColor(disabled ? Color.LIGHT_GRAY : Color.WHITE);
-        font.draw(batch, label, x + (w / 2f) - (label.length() * 4f), y + h * 0.65f);
+        drawTextCenteredInBox(batch, font, label, x, y, w, h);
         font.setColor(Color.WHITE);
+    }
+
+    /**
+     * Center a string both horizontally AND vertically inside a box. Uses
+     * GlyphLayout for an actual width measurement and font.getCapHeight() for
+     * vertical anchoring — the previous "y + h * 0.65" heuristic had the text
+     * baseline below the box bottom for a 1.8x-scaled font, which is what
+     * made every button look like it was struck through.
+     */
+    private void drawTextCenteredInBox(SpriteBatch batch, BitmapFont font,
+                                        String text, int x, int y, int w, int h) {
+        com.badlogic.gdx.graphics.g2d.GlyphLayout layout = new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, text);
+        float textX = x + (w - layout.width) / 2f;
+        float textY = y + (h - layout.height) / 2f;
+        font.draw(batch, text, textX, textY);
     }
 }

@@ -20,10 +20,17 @@ public class Sprite {
 
     private EffectEnum currentEffectEnum = EffectEnum.NORMAL;
 
+    public Sprite() {
+        // Empty sprite returned when the underlying texture is missing.
+        // region stays null so renderers can short-circuit with a null-check.
+    }
+
     public Sprite(TextureRegion region) {
         this.region = region;
-        this.w = region.getRegionWidth();
-        this.h = region.getRegionHeight();
+        if (region != null) {
+            this.w = region.getRegionWidth();
+            this.h = region.getRegionHeight();
+        }
     }
 
     public int getWidth() {

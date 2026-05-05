@@ -30,6 +30,11 @@ import lombok.extern.slf4j.Slf4j;
 public class GameSpriteManager {
 
     private static final String[] SPRITE_NAMES = {
+            // HUD chrome — fetched from /game-data/ui.png and /game-data/buttons.png
+            // which the data service serves out of openrealm-data's classpath:/ui/.
+            // Without these in the cache, GameStateManager's SpriteSheet ctor for
+            // "ui.png" / "buttons.png" hits a null Texture and crashes on startup.
+            "ui.png", "buttons.png",
             "rotmg-projectiles.png",
             "rotmg-bosses.png", "rotmg-bosses-1.png",
             "rotmg-items.png", "rotmg-items-1.png",
@@ -151,12 +156,27 @@ public class GameSpriteManager {
         return new Sprite(subRegion);
     }
 
+    /**
+     * HUD chrome that the GameStateManager constructs unconditionally on
+     * startup. These are guaranteed to be available because the native client
+     * bundles them under {@code resources/ui/} — we don't want a missing
+     * remote path or a stale data service to crash the launcher.
+     */
+    private static final java.util.Set<String> BUNDLED_HUD_SHEETS =
+            java.util.Set.of("ui.png", "buttons.png");
+
     public static void loadSpriteImages(boolean loadRemote) {
         GameSpriteManager.TEXTURE_CACHE = new HashMap<>();
         try {
             for (final String spriteKey : GameSpriteManager.SPRITE_NAMES) {
                 Texture texture = null;
-                if (loadRemote) {
+                // For HUD chrome, prefer the bundled copy outright. It's tiny,
+                // we always have it, and skipping the network avoids both a
+                // spurious miss-log and a startup-time stall when the data
+                // service is slow/unreachable.
+                if (BUNDLED_HUD_SHEETS.contains(spriteKey)) {
+                    texture = GameSpriteManager.loadTextureQuiet("ui/" + spriteKey);
+                } else if (loadRemote) {
                     texture = GameSpriteManager.loadTextureRemote(spriteKey);
                 } else {
                     texture = GameSpriteManager.loadTexture("entity/" + spriteKey);
@@ -167,6 +187,25 @@ public class GameSpriteManager {
         } catch (Exception e) {
             GameSpriteManager.log.error("Failed to load game sprites. Exiting. Reason: {}", e);
             System.exit(-1);
+        }
+    }
+
+    /**
+     * Like {@link #loadTexture(String)} but returns null silently on a miss,
+     * for paths we expect to fail sometimes (the bundled-fallback case).
+     */
+    private static Texture loadTextureQuiet(String file) {
+        try {
+            InputStream is = GameSpriteManager.class.getClassLoader().getResourceAsStream(file);
+            if (is == null) return null;
+            byte[] bytes = readAllBytes(is);
+            Pixmap pixmap = new Pixmap(bytes, 0, bytes.length);
+            Texture texture = new Texture(pixmap);
+            texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
+            pixmap.dispose();
+            return texture;
+        } catch (Exception e) {
+            return null;
         }
     }
 

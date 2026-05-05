@@ -15,8 +15,10 @@ import com.openrealm.game.model.SpriteModel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Data
+@Slf4j
 @AllArgsConstructor
 @NoArgsConstructor
 public class SpriteSheet {
@@ -42,6 +44,13 @@ public class SpriteSheet {
         this.spriteImageHeight = spriteHeight;
         this.spriteSheetTexture = texture;
         this.sprites = new ArrayList<>();
+        if (texture == null) {
+            // Stay alive in a degraded state — the renderer skips frames that
+            // come back null, so a missing sheet shows blank tiles instead of
+            // crashing the whole client. Caller already logged the cause.
+            this.spriteSheetRegions = new TextureRegion[0][0];
+            return;
+        }
         final int cols = texture.getWidth() / spriteImageWidth;
         final int rows = texture.getHeight() / spriteImageHeight;
         this.spriteSheetRegions = new TextureRegion[rows][cols];
@@ -52,19 +61,32 @@ public class SpriteSheet {
                 this.spriteSheetRegions[i][j].flip(false, true);
             }
         }
-        this.sprites.add(new Sprite(this.spriteSheetRegions[row][col]));
+        if (row < rows && col < cols) {
+            this.sprites.add(new Sprite(this.spriteSheetRegions[row][col]));
+        }
     }
 
     public SpriteSheet(String fileName, int spriteWidth, int spriteHeight, int col, int row) {
-        this(GameSpriteManager.TEXTURE_CACHE.get(fileName), spriteWidth, spriteHeight, col, row);
+        this(GameSpriteManager.TEXTURE_CACHE == null ? null : GameSpriteManager.TEXTURE_CACHE.get(fileName),
+                spriteWidth, spriteHeight, col, row);
+        if (GameSpriteManager.TEXTURE_CACHE == null || GameSpriteManager.TEXTURE_CACHE.get(fileName) == null) {
+            log.warn("[SPRITE] Missing texture '{}' — sheet will render blank", fileName);
+        }
     }
 
     public SpriteSheet(String fileName, int spriteWidth, int spriteHeight) {
-        Texture texture = GameSpriteManager.TEXTURE_CACHE.get(fileName);
         this.spriteImageWidth = spriteWidth;
         this.spriteImageHeight = spriteHeight;
-        this.spriteSheetTexture = texture;
         this.sprites = new ArrayList<>();
+        Texture texture = GameSpriteManager.TEXTURE_CACHE == null
+                ? null
+                : GameSpriteManager.TEXTURE_CACHE.get(fileName);
+        this.spriteSheetTexture = texture;
+        if (texture == null) {
+            log.warn("[SPRITE] Missing texture '{}' — sheet will render blank", fileName);
+            this.spriteSheetRegions = new TextureRegion[0][0];
+            return;
+        }
         final int cols = texture.getWidth() / spriteImageWidth;
         final int rows = texture.getHeight() / spriteImageHeight;
         this.spriteSheetRegions = new TextureRegion[rows][cols];
@@ -86,6 +108,10 @@ public class SpriteSheet {
         this.spriteImageHeight = spriteHeight;
         this.spriteSheetTexture = texture;
         this.sprites = new ArrayList<>();
+        if (texture == null) {
+            this.spriteSheetRegions = new TextureRegion[0][0];
+            return;
+        }
         final int cols = texture.getWidth() / spriteImageWidth;
         final int rows = texture.getHeight() / spriteImageHeight;
         this.spriteSheetRegions = new TextureRegion[rows][cols];
@@ -109,6 +135,13 @@ public class SpriteSheet {
     }
 
     public Sprite getSubSprite(int x, int y) {
+        if (this.spriteSheetRegions == null
+                || y >= this.spriteSheetRegions.length
+                || x >= (this.spriteSheetRegions.length == 0 ? 0 : this.spriteSheetRegions[0].length)) {
+            // Texture missing or out-of-range — return an empty Sprite so the
+            // caller's null-check on getRegion() short-circuits cleanly.
+            return new Sprite();
+        }
         return new Sprite(this.spriteSheetRegions[y][x]);
     }
 
