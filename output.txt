@@ -1,0 +1,25 @@
+read-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:33.145 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] current write rate = 11.875 kbit/s (wire), read rate = 0.0 kbit/s (wire)
+21:21:33.145 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] Outbound by packet type: HeartbeatPacket=0.2kbit/s PlayerPosAckPacket=1.5kbit/s LoadPacket=7.2kbit/s CreateEffectPacket=0.5kbit/s UnloadPacket=2.6kbit/s
+21:21:33.145 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] Inbound by packet type:  HeartbeatPacket=0.2kbit/s PlayerShootPacket=2.6kbit/s PlayerMovePacket=12.7kbit/s
+21:21:33.239 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:33.239 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] ticks this second: 63
+21:21:33.364 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:33.504 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:33.629 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:33.770 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:33.895 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.035 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.160 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.161 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] current write rate = 10.5390625 kbit/s (wire), read rate = 0.0 kbit/s (wire)
+21:21:34.161 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] Outbound by packet type: HeartbeatPacket=0.2kbit/s PlayerPosAckPacket=1.3kbit/s LoadPacket=6.3kbit/s CreateEffectPacket=0.5kbit/s UnloadPacket=2.6kbit/s
+21:21:34.162 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] Inbound by packet type:  HeartbeatPacket=0.2kbit/s PlayerShootPacket=2.6kbit/s PlayerMovePacket=12.7kbit/s
+21:21:34.254 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] ticks this second: 64
+21:21:34.301 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.426 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.567 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.707 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.832 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:34.973 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:35.098 [pool-2-thread-6] INFO  c.o.net.server.ServerGameLogic - [SHOOT] weapon=Dagger of Dire Hatred extraProjectiles=1 enchantsCount=1 enchants=[type=2 statId=0 mag=1]
+21:21:35.176 [pool-2-thread-6] INFO  c.o.net.realm.RealmManagerServer - [SERVER] current write rate = 11.8828125 kbit/s (wire), read rate = 0.0 kbit/s (wire)

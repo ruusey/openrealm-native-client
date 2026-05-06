@@ -31,6 +31,9 @@ import com.openrealm.net.client.packet.UnloadPacket;
 import com.openrealm.net.client.packet.UpdatePacket;
 import com.openrealm.net.client.packet.UpdatePlayerTradeSelectionPacket;
 import com.openrealm.net.client.packet.UpdateTradePacket;
+import com.openrealm.net.client.packet.PlayerPosAckPacket;
+import com.openrealm.net.client.packet.GlobalPlayerPositionPacket;
+import com.openrealm.net.entity.NetPlayerPosition;
 import com.openrealm.net.core.IOService;
 import com.openrealm.net.entity.NetBullet;
 import com.openrealm.net.entity.NetEnemy;
@@ -228,6 +231,67 @@ public class ClientGameLogic {
 		}
 	}
 
+	/**
+	 * Server's authoritative position for the LOCAL player. The server sends
+	 * this every tick when moving (and periodically when idle) so we can
+	 * pull predicted client position back if it has drifted ahead. Without
+	 * this handler the predicted position runs forever past where the
+	 * server thinks we are — at higher render frame rates the visual sprite
+	 * outruns the tile stream and bullets spawn from the server's last
+	 * known position (visibly behind the player).
+	 *
+	 * Strategy: pure snap. Cheap, robust, can't drift. Web client does a
+	 * smoother lerp + input-replay reconciliation but for a desync this
+	 * severe a snap is the right floor — no jitter once frame rate matches
+	 * the server's tick rate, and even at 144 FPS the snaps are a few px
+	 * each so they aren't visually disruptive.
+	 */
+	@PacketHandlerClient(PlayerPosAckPacket.class)
+	public static void handlePlayerPosAckClient(RealmManagerClient cli, Packet packet) {
+		try {
+			final PlayerPosAckPacket ack = (PlayerPosAckPacket) packet;
+			final Player local = cli.getRealm().getPlayer(cli.getCurrentPlayerId());
+			if (local == null || local.getPos() == null) return;
+			local.getPos().x = ack.getPosX();
+			local.getPos().y = ack.getPosY();
+			local.setLastProcessedInputSeq(ack.getSeq());
+			// Re-anchor the sub-tick interpolation so the next render
+			// frame's lerp starts from the SNAPPED position. Without this,
+			// a PosAck arriving mid-tick leaves interpFromX pointing at
+			// the pre-snap position; the camera lerps from old → new and
+			// shows a 1-2 px hop every server tick.
+			if (cli.getState() != null) {
+				cli.getState().resetInterpAnchor(ack.getPosX(), ack.getPosY());
+			}
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed PlayerPosAck handler. Reason: {}", e.getMessage());
+		}
+	}
+
+	/**
+	 * Server's authoritative positions for OTHER players (broadcast every
+	 * few ticks). Snap each remote player to the server-reported position
+	 * so we don't render them at stale interpolated positions when their
+	 * own input/server simulation has them somewhere else.
+	 */
+	@PacketHandlerClient(GlobalPlayerPositionPacket.class)
+	public static void handleGlobalPlayerPositionClient(RealmManagerClient cli, Packet packet) {
+		try {
+			final GlobalPlayerPositionPacket gp = (GlobalPlayerPositionPacket) packet;
+			if (gp.getPlayers() == null) return;
+			final long localId = cli.getCurrentPlayerId();
+			for (NetPlayerPosition p : gp.getPlayers()) {
+				if (p == null) continue;
+				final Player target = cli.getRealm().getPlayer(p.getPlayerId());
+				if (target == null || target.getPos() == null) continue;
+				target.getPos().x = p.getX();
+				target.getPos().y = p.getY();
+			}
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed GlobalPlayerPosition handler. Reason: {}", e.getMessage());
+		}
+	}
+
 	@PacketHandlerClient(com.openrealm.net.client.packet.OpenForgePacket.class)
 	public static void handleOpenForgeClient(RealmManagerClient cli, Packet packet) {
 		try {
@@ -314,7 +378,10 @@ public class ClientGameLogic {
 			}
 
 			for (final NetPortal portal : loadPacket.getPortals()) {
-				final Portal p = IOService.mapModel(portal, Portal.class);
+				// MUST go through asPortal() — IOService.mapModel() copies fields
+				// via reflection and silently skips the sprite-loading step,
+				// leaving every portal with sprite=null and rendering blank.
+				final Portal p = portal.asPortal();
 				cli.getRealm().addPortalIfNotExists(p);
 			}
 		} catch (Exception e) {

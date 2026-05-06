@@ -161,9 +161,51 @@ public abstract class GameObject {
      * instead since movePlayer() handles velocity advancement with collision checks.
      */
     public void extrapolate() {
-        // Advance position using current velocity
-        this.pos.x += this.dx;
-        this.pos.y += this.dy;
+        this.extrapolate(0f, 0f, true);
+    }
+
+    /**
+     * Extrapolate position using server-supplied velocity, with the same
+     * viewport gating the web client uses in game.js updateInterpolation().
+     *
+     * dx/dy from the server are in pixels-per-TICK at the server's 64 Hz
+     * simulation rate. Per-frame motion = dx * dt * 64 → per-second motion
+     * = dx * 64, matching the server regardless of render FPS.
+     *
+     * Viewport gate: server only sends ObjectMovePackets for entities
+     * within ~10 tiles of any player. The instant the entity crosses
+     * outside that radius, server updates dry up — extrapolating further
+     * is pure client fiction and produces a "drift then snap-back" jitter
+     * the moment an update lands. Pass the local player position so this
+     * method can freeze velocity outside the viewport.
+     *
+     * @param refX center X to gate against (e.g. local player center)
+     * @param refY center Y to gate against
+     * @param applyViewportGate true to freeze when outside ~10 tile radius
+     */
+    public void extrapolate(float refX, float refY, boolean applyViewportGate) {
+        if (applyViewportGate) {
+            final float halfSize = (this.size > 0) ? (this.size * 0.5f) : 16f;
+            final float ex = this.pos.x + halfSize;
+            final float ey = this.pos.y + halfSize;
+            final float ddx = ex - refX;
+            final float ddy = ey - refY;
+            // 10 tiles + 1/2 tile margin = matches web client.
+            final float VIEWPORT_FREEZE_PX = 10 * 32 + 16;
+            if (ddx * ddx + ddy * ddy > VIEWPORT_FREEZE_PX * VIEWPORT_FREEZE_PX) {
+                this.dx = 0f;
+                this.dy = 0f;
+                this.blendCorrectionOffset();
+                return;
+            }
+        }
+        final float TICK_RATE = 64f;
+        float dt = com.badlogic.gdx.Gdx.graphics != null
+                ? Math.min(com.badlogic.gdx.Gdx.graphics.getDeltaTime(), 1f / 30f)
+                : 1f / 60f;
+        float scale = dt * TICK_RATE;
+        this.pos.x += this.dx * scale;
+        this.pos.y += this.dy * scale;
 
         // Blend correction offset
         this.blendCorrectionOffset();

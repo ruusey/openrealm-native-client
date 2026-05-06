@@ -634,13 +634,14 @@ public class PlayerUI {
         this.mp.renderShapes(shapes);
         this.xp.renderShapes(shapes);
 
-        // Difficulty + Account Fame badges (top of right HUD column).
-        // Mirrors the web client's HUD: skull glyph + difficulty number,
-        // star glyph + lifetime account fame.
+        // Difficulty + Account Fame badges. Positioned at the very TOP of
+        // the right HUD column (above the player name+level row), matching
+        // the web client's layout. The previous code put them at the bottom
+        // of the screen which read as mystery red/gold strips below the
+        // inventory.
         int badgeW = (panelWidth - 12) / 2;
         int badgeH = 22;
-        int badgeY = OpenRealmGame.height - badgeH - 4;
-        // Difficulty (left badge): red gradient by value
+        int badgeY = 2;
         float diffVal = 0f;
         try {
             if (this.playState != null && this.playState.getRealmManager() != null
@@ -651,9 +652,21 @@ public class PlayerUI {
         float diffShade = Math.max(0f, Math.min(1f, diffVal / 10f));
         shapes.setColor(0.55f + 0.35f * diffShade, 0.10f, 0.10f, 0.85f);
         shapes.rect(startX + 4, badgeY, badgeW, badgeH);
-        // Fame (right badge): gold
         shapes.setColor(0.55f, 0.45f, 0.05f, 0.85f);
         shapes.rect(startX + 8 + badgeW, badgeY, badgeW, badgeH);
+
+        // HP / MP potion quick-slot backgrounds — sit directly below the
+        // bag rows so they match the web client's "potions under inventory"
+        // layout. Two 64x64 buckets, side by side, with a small gap.
+        int potionY = 580;
+        int potionSize = 64;
+        int potionGapX = 12;
+        // HP potion (Z) — red
+        shapes.setColor(0.55f, 0.10f, 0.10f, 0.95f);
+        shapes.rect(startX + 8, potionY, potionSize, potionSize);
+        // MP potion (X) — blue
+        shapes.setColor(0.10f, 0.18f, 0.55f, 0.95f);
+        shapes.rect(startX + 8 + potionSize + potionGapX, potionY, potionSize, potionSize);
 
         shapes.end();
         com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
@@ -672,6 +685,23 @@ public class PlayerUI {
         font.setColor(this.activeBag == 1 ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
         font.draw(batch, "BAG 2", tabStartX + 8 + tabLabelW + tabLabelW / 2 - 18, 420 + 18);
         font.setColor(Color.WHITE);
+
+        // HP / MP potion labels + hotkey hints (Z drinks HP, X drinks MP).
+        // Counts come from the player's potion stocks.
+        int potTextStartX = OpenRealmGame.width - tabPanelW + 8;
+        int potTextY = 580 + 24;
+        int hpCount = 0, mpCount = 0;
+        try {
+            if (this.playState.getPlayer() != null) {
+                hpCount = this.playState.getPlayer().getHpPotions();
+                mpCount = this.playState.getPlayer().getMpPotions();
+            }
+        } catch (Exception ignored) { /* potion fields may not exist on older builds */ }
+        font.setColor(Color.WHITE);
+        font.draw(batch, "HP", potTextStartX + 16, potTextY);
+        font.draw(batch, "x" + hpCount + " [Z]", potTextStartX + 8, potTextY + 24);
+        font.draw(batch, "MP", potTextStartX + 16 + 64 + 12, potTextY);
+        font.draw(batch, "x" + mpCount + " [X]", potTextStartX + 8 + 64 + 12, potTextY + 24);
 
         // Equipment items
         for (int i = 0; i < equips.length; i++) {
@@ -712,7 +742,12 @@ public class PlayerUI {
         } catch (Exception ignored) {}
         int badgeWText = (panelWidth - 12) / 2;
         int badgeHText = 22;
-        int badgeYText = OpenRealmGame.height - badgeHText - 4;
+        // Match the SHAPES pass which draws the badge backgrounds at y=2.
+        // The previous "height - badgeH - 4" rendered the TEXT at the
+        // bottom of the screen while the rects were at the top, producing
+        // the orphan red "X 1.0" / gold "* 0" pills the user saw cut off
+        // along the bottom edge.
+        int badgeYText = 2;
         font.setColor(Color.WHITE);
         font.draw(batch, String.format("X %.1f", diffValText), startX + 8, badgeYText + badgeHText - 6);
         font.draw(batch, "* " + fameVal, startX + 12 + badgeWText, badgeYText + badgeHText - 6);
@@ -731,6 +766,7 @@ public class PlayerUI {
 
         this.renderPlayerTooltip(batch, shapes, font);
         this.renderStats(batch, font);
+        this.renderPortalPrompt(batch, font);
         this.playerChat.render(batch, shapes, font);
 
         if (this.minimap.isInitialized()) {
@@ -1140,13 +1176,49 @@ public class PlayerUI {
         }
     }
 
+    /**
+     * Bottom-center "[Space] Use [Portal Name]" prompt — appears whenever
+     * the local player is within ~32 px (1 tile) of a portal. Mirrors the
+     * web client's nearby-portal interaction prompt. Press Space (or F2)
+     * to enter the portal.
+     */
+    private void renderPortalPrompt(SpriteBatch batch, BitmapFont font) {
+        if (this.playState == null || this.playState.getPlayer() == null) return;
+        try {
+            final Vector2f pPos = this.playState.getPlayer().getPos();
+            if (pPos == null) return;
+            final com.openrealm.game.entity.Portal nearest = this.playState.getClosestPortal(pPos, 32f);
+            if (nearest == null) return;
+            String name = "Portal";
+            try {
+                final com.openrealm.game.model.PortalModel pm = GameDataManager.PORTALS != null
+                        ? GameDataManager.PORTALS.get((int) nearest.getPortalId()) : null;
+                if (pm != null && pm.getPortalName() != null && !pm.getPortalName().isEmpty()) {
+                    name = pm.getPortalName();
+                } else if (pm != null && pm.getLabel() != null && !pm.getLabel().isEmpty()) {
+                    name = pm.getLabel();
+                }
+            } catch (Exception ignored) { /* fall back to generic label */ }
+            final String prompt = "[Space] Use " + name;
+            // Centered horizontally, ~80 px above the bottom of the screen.
+            final int promptY = OpenRealmGame.height - 96;
+            final int approxWidth = prompt.length() * 7;
+            final int promptX = Math.max(0, OpenRealmGame.width / 2 - approxWidth / 2);
+            font.setColor(0.95f, 0.85f, 0.45f, 1f);
+            font.draw(batch, prompt, promptX, promptY);
+            font.setColor(Color.WHITE);
+        } catch (Exception ignored) { /* never block render on a UI hint */ }
+    }
+
     private void renderStats(SpriteBatch batch, BitmapFont font) {
         if (this.playState.getPlayer() != null) {
             int panelWidth = (OpenRealmGame.width / 5);
             int startX = (OpenRealmGame.width - panelWidth) + 8;
             int xOffset = 128;
-            int yOffset = 42;
-            int startY = 350;
+            // Tighter line spacing so the 3-row stats block (att/def, spd/dex,
+            // vit/wis) clears the BAG 1/BAG 2 tab strip below at y=420.
+            int yOffset = 22;
+            int startY = 330;
 
             Stats stats = this.playState.getPlayer().getComputedStats();
             int nameLvlX = (OpenRealmGame.width - panelWidth) + 8;

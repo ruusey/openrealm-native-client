@@ -54,9 +54,19 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 		p.setToRealmId(this.getToRealmId());
 		p.setExpires(this.getExpires());
 		p.setPos(this.getPos());
-		
+		// Load sprite — Portal.render() short-circuits when sprite is null,
+		// so without this every portal stays invisible despite being in the
+		// realm. Mirrors NetEnemy / NetBullet sprite resolution.
+		try {
+			com.openrealm.game.model.PortalModel model =
+					com.openrealm.game.data.GameDataManager.PORTALS != null
+							? com.openrealm.game.data.GameDataManager.PORTALS.get((int) this.getPortalId())
+							: null;
+			if (model != null) {
+				p.setSprite(com.openrealm.game.data.GameSpriteManager.loadSprite(model));
+			}
+		} catch (Exception ignored) { /* portal renders blank rather than crashing */ }
 		return p;
-		
 	}
 
 }

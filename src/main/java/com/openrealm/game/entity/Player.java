@@ -402,39 +402,40 @@ public class Player extends Entity {
 
 		this.updateEffectState();
 
-		// Draw outline: 4 offset black silhouettes
 		TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
 		if (frame != null) {
 			int rs = GlobalConstants.PLAYER_RENDER_SIZE;
 			float offset = (rs - this.size) / 2f;
 			float wx = this.pos.getWorldVar().x - offset;
 			float wy = this.pos.getWorldVar().y - offset;
-			float ox = 2.5f;
+
+			// Soft drop shadow under the sprite. A flat dark ellipse in
+			// world-space, drawn as a stretched silhouette of the texture
+			// shifted down by ~3 px. Mirrors the web client's small shadow
+			// disc at the player's feet — gives depth without the chunky
+			// 4-direction silhouette outline the legacy code used.
 			com.openrealm.game.graphics.ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
+			batch.setColor(0f, 0f, 0f, 0.35f);
+			float shadowYOffset = 3f;
 			if (this.left) {
-				batch.draw(frame, wx + rs + ox, wy, -rs, rs);
-				batch.draw(frame, wx + rs - ox, wy, -rs, rs);
-				batch.draw(frame, wx + rs, wy + ox, -rs, rs);
-				batch.draw(frame, wx + rs, wy - ox, -rs, rs);
+				batch.draw(frame, wx + rs, wy + shadowYOffset, -rs, rs);
 			} else {
-				batch.draw(frame, wx + ox, wy, rs, rs);
-				batch.draw(frame, wx - ox, wy, rs, rs);
-				batch.draw(frame, wx, wy + ox, rs, rs);
-				batch.draw(frame, wx, wy - ox, rs, rs);
+				batch.draw(frame, wx, wy + shadowYOffset, rs, rs);
 			}
+			batch.setColor(1f, 1f, 1f, 1f);
 			com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
 
-			// Apply shader effect
+			// (Outline pass removed per user request — only shadow + body.)
+
+			// Body sprite with whatever effect tint is active (POISONED,
+			// HEALING, etc. or NORMAL).
 			Sprite.EffectEnum currentEffect = this.getSpriteSheet().getCurrentEffect();
 			com.openrealm.game.graphics.ShaderManager.applyEffect(batch, currentEffect);
-
 			if (this.left) {
 				batch.draw(frame, wx + rs, wy, -rs, rs);
 			} else {
 				batch.draw(frame, wx, wy, rs, rs);
 			}
-
-			// Clear shader
 			com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
 		}
 	}

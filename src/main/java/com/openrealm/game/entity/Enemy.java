@@ -749,9 +749,21 @@ public class Enemy extends Entity {
         if (this.stats != null && this.stats.getMp() > 0) {
             this.manapercent = (float) this.getMana() / (float) this.stats.getMp();
         }
-        // Dead reckoning: extrapolate position using velocity between server corrections.
-        // Server now only sends corrections when actual position diverges from predicted,
-        // so the client must advance entities locally to maintain smooth movement.
+        // Dead reckoning extrapolation, viewport-gated so off-screen
+        // enemies don't drift while the server has stopped updating them.
+        // Pass the local player center as the gate reference.
+        float refX = 0f, refY = 0f;
+        try {
+            final com.openrealm.game.entity.Player local = mgr != null && mgr.getState() != null
+                    ? mgr.getState().getPlayer() : null;
+            if (local != null && local.getPos() != null) {
+                final float halfSize = (local.getSize() > 0 ? local.getSize() : 32) * 0.5f;
+                refX = local.getPos().x + halfSize;
+                refY = local.getPos().y + halfSize;
+                this.extrapolate(refX, refY, true);
+                return;
+            }
+        } catch (Exception ignored) { /* fall through to ungated extrapolation */ }
         this.extrapolate();
     }
 

@@ -116,12 +116,38 @@ public class PlayerChat {
         font.getData().setScale(1.0f);
 
         float lineHeight = 14f;
+        // Web-parity: chat panel pinned to 1/5 of total screen width.
+        final float chatWidth = OpenRealmGame.width / 5f;
         font.setColor(Color.WHITE);
 
         int index = PlayerChat.CHAT_SIZE;
         for (Map.Entry<String, TextPacket> packet : this.playerChat.entrySet()) {
+            final TextPacket pkt = packet.getValue();
+            final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
+            final String body = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
             float y = OpenRealmGame.height - (index * lineHeight) - 100;
-            font.draw(batch, packet.getKey(), 8, y);
+
+            // Sender name colored by chatRole (sysadmin red, admin blue,
+            // mod green, editor purple, demo gray, default off-white).
+            // Looks up the player by name in the realm; if not found
+            // (e.g. system messages, players who left) falls back to the
+            // default off-white color so the row still renders.
+            final Color nameColor = roleColorByName(fromName);
+            font.setColor(nameColor);
+            font.draw(batch, "[" + fromName + "]: ", 8, y);
+            // Approx pixel width of the prefix so the message body draws
+            // immediately after the colored name; default BitmapFont at
+            // 1.0 scale is ~6 px per char.
+            float prefixWidth = ("[" + fromName + "]: ").length() * 6f;
+            font.setColor(Color.WHITE);
+            // Truncate the body to fit the 1/5 screen width — overflow
+            // would either wrap (LibGDX BitmapFont doesn't auto-wrap with
+            // draw()) or crash into the right HUD.
+            final int maxBodyChars = Math.max(0, (int) ((chatWidth - prefixWidth - 16) / 6f));
+            String shownBody = body.length() > maxBodyChars
+                    ? body.substring(0, Math.max(0, maxBodyChars - 1)) + "…"
+                    : body;
+            font.draw(batch, shownBody, 8 + prefixWidth, y);
             index--;
         }
 
@@ -129,7 +155,7 @@ public class PlayerChat {
             // Draw dark semi-transparent background behind chat input
             float inputY = OpenRealmGame.height - lineHeight - 4;
             float inputHeight = lineHeight + 8;
-            float inputWidth = OpenRealmGame.width / 2f;
+            float inputWidth = chatWidth;
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(new Color(0f, 0f, 0f, 0.6f));
@@ -143,5 +169,32 @@ public class PlayerChat {
 
         // Restore original scale
         font.getData().setScale(originalScale);
+    }
+
+    /**
+     * Look up the chatRole of a player by name and return the matching
+     * Color. Mirrors the web client's GameRenderer.getNameColorHex.
+     * Falls back to the default off-white for system messages or unknown
+     * senders.
+     */
+    private Color roleColorByName(String name) {
+        if (name == null || name.isEmpty()) return new Color(0.93f, 0.93f, 0.93f, 1f);
+        try {
+            for (com.openrealm.game.entity.Player p : this.state.getRealmManager().getRealm().getPlayers().values()) {
+                if (p == null || p.getName() == null) continue;
+                if (!name.equals(p.getName())) continue;
+                final String role = p.getChatRole();
+                if (role == null) break;
+                switch (role) {
+                    case "sysadmin": return new Color(1.00f, 0.25f, 0.25f, 1f);
+                    case "admin":    return new Color(0.25f, 0.50f, 0.88f, 1f);
+                    case "mod":      return new Color(0.25f, 0.75f, 0.25f, 1f);
+                    case "editor":   return new Color(0.63f, 0.25f, 0.75f, 1f);
+                    case "demo":     return new Color(0.80f, 0.80f, 0.80f, 1f);
+                    default:         return new Color(0.93f, 0.93f, 0.93f, 1f);
+                }
+            }
+        } catch (Exception ignored) { /* fall through to default */ }
+        return new Color(0.93f, 0.93f, 0.93f, 1f);
     }
 }

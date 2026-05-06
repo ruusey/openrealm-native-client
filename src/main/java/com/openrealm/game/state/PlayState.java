@@ -168,21 +168,6 @@ public class PlayState extends GameState {
 
         if (player == null)
             return;
-        // The world camera ortho viewport is `width / WORLD_SCALE` wide and
-        // `height / WORLD_SCALE` tall (zoomed-in world rendering). To center
-        // the player we offset by HALF that, not half the window width — the
-        // earlier math was using full window coords and put the player in
-        // the bottom-right of the visible world. Slight south-bias of 12.5%
-        // mirrors the web client (more headroom above the player than below).
-        final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
-        final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
-        float targetMapX = player.getPos().x - (worldViewW / 2f);
-        float targetMapY = player.getPos().y - (worldViewH * 0.625f);
-        // Snap camera directly to player - no lerp lag, keeps movement feeling crisp
-        PlayState.map.x = targetMapX;
-        PlayState.map.y = targetMapY;
-
-        Vector2f.setWorldVar(PlayState.map.x, PlayState.map.y);
         if (!this.gsm.isStateActive(GameStateManager.PAUSE)) {
             // Process all client-side updates inline — these are fast and
             // pool dispatch overhead exceeds the work itself
@@ -218,6 +203,33 @@ public class PlayState extends GameState {
 
             player.update(time);
             this.movePlayer(player);
+
+            // Camera follow MUST run AFTER movePlayer so the lerp from
+            // interpFromX → current pos has actually advanced. Otherwise
+            // the camera reads the pre-tick position while interpFromX
+            // still points at the same pre-tick position, the lerp
+            // always evaluates to that single value, and the camera
+            // appears to teleport once per tick instead of sliding
+            // smoothly across the tick window.
+            final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
+            final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
+            float renderX = player.getPos().x;
+            float renderY = player.getPos().y;
+            if (this.hasInterpAnchor) {
+                final float TICK_DT = 1f / 64f;
+                float interpFrac = Math.max(0f, Math.min(1f, this.moveAccumulator / TICK_DT));
+                renderX = this.interpFromX + (player.getPos().x - this.interpFromX) * interpFrac;
+                renderY = this.interpFromY + (player.getPos().y - this.interpFromY) * interpFrac;
+            }
+            // Center on the visible playable area (everything left of the
+            // right-side HUD panel). The HUD is width/5 of the window, so
+            // shift the camera left by half that. True vertical center;
+            // no south-bias.
+            final float hudPanelWorldW = (OpenRealmGame.width / 5f) / OpenRealmGame.WORLD_SCALE;
+            PlayState.map.x = renderX - (worldViewW - hudPanelWorldW) / 2f;
+            PlayState.map.y = renderY - (worldViewH * 0.5f);
+            Vector2f.setWorldVar(PlayState.map.x, PlayState.map.y);
+
             if (this.pui != null) {
                 this.pui.update(time);
             }
@@ -366,13 +378,52 @@ public class PlayState extends GameState {
                 final Map<Cardinality, Boolean> lastDirectionTempMap = new HashMap<>();
                 player.input(mouse, key);
                 Cardinality c = null;
-                // RotMG speed formula: tiles/sec = 4 + 5.6 * (spd_stat / 75)
-                // Convert to pixels/frame: tiles/sec * tile_size / fps
+                // FIXED-TICK simulation: server runs movement at exactly 64
+                // Hz. Client must apply movement at the SAME rate or the
+                // predictive position diverges from the server's authority,
+                // even with a dt-scaled per-frame step (floating-point
+                // accumulation + the fact that the server only consumes
+                // input at tick boundaries causes drift).
+                //
+                // Pattern: accumulate render-frame dt, then drain whole
+                // ticks of fixed length and apply per-tick movement only on
+                // those drains. Anything left in the accumulator carries
+                // into the next render frame. At 144 FPS this means the
+                // player only moves when ~16.6 ms have passed in real time,
+                // not on every render frame.
+                final float TICK_RATE = 64f;
+                final float TICK_DT = 1f / TICK_RATE;
+                float frameDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
+                this.moveAccumulator += frameDt;
+                // Cap to prevent spiral of death (e.g. tabbed out for
+                // multiple seconds). Matches web client cap of 250 ms.
+                if (this.moveAccumulator > 0.25f) this.moveAccumulator = 0.25f;
+
+                int ticks = 0;
+                while (this.moveAccumulator >= TICK_DT) {
+                    this.moveAccumulator -= TICK_DT;
+                    ticks++;
+                }
+                // Anchor the sub-tick lerp BEFORE the next movement actually
+                // applies. update().movePlayer adds dx to pos on the next
+                // frame, so today's pos is the "from" anchor for the lerp
+                // that'll progress over the upcoming TICK_DT seconds.
+                if (ticks > 0) {
+                    this.interpFromX = player.getPos().x;
+                    this.interpFromY = player.getPos().y;
+                    this.hasInterpAnchor = true;
+                }
+                // RotMG speed formula: tiles/sec = 4 + 5.6 * (spd_stat / 75).
+                // tilesPerSec * 32 px/tile / 64 ticks/sec = px-per-tick.
                 float tilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
                 if (player.hasEffect(StatusEffectType.SPEEDY)) {
                     tilesPerSec *= 1.5f;
                 }
-                float spd = tilesPerSec * 32.0f / 60.0f;
+                float spd = tilesPerSec * 32.0f / TICK_RATE * ticks;
+                // If less than one full tick has passed since the last frame,
+                // 'ticks' is 0 and the player simply doesn't advance this
+                // render frame — exactly like the web client at sub-tick
+                // intervals.
                 if (player.getIsUp()) {
                     player.setDy(-spd);
                     c = Cardinality.NORTH;
@@ -458,7 +509,13 @@ public class PlayState extends GameState {
                 }
             }
             boolean canUsePortal = (System.currentTimeMillis() - this.lastPortalTick) > PORTAL_COOLDOWN_MS;
-            if (key.f2.clicked && canUsePortal) {
+            // Space also triggers nearest-portal use, mirroring web client
+            // hotkey behaviour. attack.tick() runs in the key.attack
+            // pipeline above (KeyHandler binds Space → key.attack), so
+            // attack.clicked is edge-triggered just like f2.clicked.
+            key.attack.tick();
+            boolean portalKeyClicked = key.f2.clicked || key.attack.clicked;
+            if (portalKeyClicked && canUsePortal) {
                 try {
                     Portal closestPortal = this.realmManager.getState().getClosestPortal(this.getPlayerPos(), 32);
                     if (closestPortal != null) {
@@ -563,16 +620,23 @@ public class PlayState extends GameState {
         // Pass mouse screen position for aim-based attack animation direction
         player.setAimX(mouse.getX());
         player.setAimY(mouse.getY());
+        // Mouse → world conversion: the world camera is zoomed 2× via
+        // OpenRealmGame.WORLD_SCALE, so 1 screen pixel == 1/WORLD_SCALE world
+        // pixels. Without dividing here, every shot/ability targets a world
+        // point twice as far from the player as the cursor visually points
+        // to — the aim drifts further off-target the further from screen
+        // center the cursor is.
+        final float invScale = 1f / OpenRealmGame.WORLD_SCALE;
         if (clickingWorld && canShoot) {
             this.lastShotTick = System.currentTimeMillis();
-            Vector2f dest = new Vector2f(mouse.getX(), mouse.getY());
+            Vector2f dest = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
             dest.addX(PlayState.map.x);
             dest.addY(PlayState.map.y);
             this.shotDestQueue.add(dest);
         }
         if ((mouse.isPressed(3)) && canUseAbility && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))) {
             try {
-                Vector2f pos = new Vector2f(mouse.getX(), mouse.getY());
+                Vector2f pos = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
                 pos.addX(PlayState.map.x);
                 pos.addY(PlayState.map.y);
                 UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos);
@@ -650,6 +714,37 @@ public class PlayState extends GameState {
 
     /** Frame counter for periodic debug logging. */
     private long frameCounter = 0;
+    /**
+     * Accumulator (seconds) for the fixed-tick movement loop. Render frames
+     * deposit dt here; whole 1/64-s ticks are drained off and applied at
+     * the server's authoritative rate, so 144 FPS rendering doesn't cause
+     * the client to predict 2.4× faster than the server simulates.
+     */
+    private float moveAccumulator = 0f;
+    /**
+     * Sub-tick interpolation state. Mirrors the web client's
+     * {@code _interpFromX/_interpToX/_renderX} system in main.js. Visual
+     * position lerps from the pre-tick to post-tick simulation positions
+     * over each 1/64 s tick window, so 144 FPS rendering stays smooth even
+     * though simulation is fixed at 64 Hz.
+     */
+    private float interpFromX, interpFromY;
+    private float interpToX, interpToY;
+    private boolean hasInterpAnchor = false;
+
+    /**
+     * Reset the sub-tick interpolation anchor to the given position.
+     * Called from {@code ClientGameLogic.handlePlayerPosAckClient} when
+     * the server's authoritative position snaps the local player — the
+     * old interpFromX/Y would otherwise still point at the pre-snap
+     * position and the next render frame would lerp the camera from old
+     * → new, showing a visible hop every server tick.
+     */
+    public void resetInterpAnchor(float x, float y) {
+        this.interpFromX = x;
+        this.interpFromY = y;
+        this.hasInterpAnchor = true;
+    }
 
     @Override
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
@@ -771,10 +866,21 @@ public class PlayState extends GameState {
 
         if (this.pui == null)
             return;
-        // Switch back to the UI camera (1:1 screen pixels) so PlayerUI's
-        // HUD layout uses the actual window-pixel coords it was designed
-        // for. Stays on UI camera for the rest of the frame — that's the
-        // default OpenRealmGame.render() picks for the next frame anyway.
+
+        // Damage text uses WORLD coords (sourcePos - Vector2f.worldX/Y),
+        // so render it BEFORE flipping to the UI camera. Otherwise the
+        // numbers paint at world-pixel positions through the UI projection
+        // — which puts a hit that occurred at world (300, 200) at screen
+        // (300, 200) instead of at the actual sprite location. Flush the
+        // batch first so any prior world-space draws complete before the
+        // next pass starts.
+        for (EffectText text : this.getDamageText()) {
+            text.render(batch, font);
+        }
+
+        // Switch to the UI camera (1:1 screen pixels) so PlayerUI's HUD
+        // layout uses window-pixel coords. Stays on UI camera for the
+        // rest of the frame.
         if (game.getUiCamera() != null) {
             game.getUiCamera().update();
             batch.setProjectionMatrix(game.getUiCamera().combined);
@@ -783,10 +889,6 @@ public class PlayState extends GameState {
         this.pui.render(batch, shapes, font);
 
         this.renderCloseLoot(batch);
-
-        for (EffectText text : this.getDamageText()) {
-            text.render(batch, font);
-        }
 
         if (this.debugMode) {
             this.renderDebugTileOverlay(batch, shapes, font, player);
