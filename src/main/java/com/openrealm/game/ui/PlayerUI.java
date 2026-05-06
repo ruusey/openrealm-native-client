@@ -90,6 +90,30 @@ public class PlayerUI {
     private final OptionsWindow optionsWindow = new OptionsWindow();
     private final RealmTransitionState realmTransition = new RealmTransitionState();
 
+    // Right-sidebar layout, mirroring the webclient #hud column order:
+    //   [name+lvl header] [fame badge] [square minimap] [HP/MP/XP bars]
+    //   [stats grid] [Equipment label + 4 slots] [Bag tabs + 8 slots]
+    //   [Potion row] [Players Nearby]
+    // Constants below are referenced by both render() and the slot/click
+    // hit-test helpers so visual + hit bounds stay in sync.
+    private static final int PANEL_INSET     = 8;
+    private static final int SLOT_SIZE       = 56;
+    private static final int SLOT_GAP        = 4;
+    private static final int HEADER_Y        = 16;   // name + level baseline
+    private static final int FAME_Y          = 28;   // fame badge top
+    private static final int FAME_H          = 24;
+    // Anchors recomputed per frame from these
+    private int layoutMinimapY  = 60;
+    private int layoutMinimapBot = 260;
+    private int layoutBarsY     = 264;
+    private int layoutStatsY    = 348;
+    private int layoutEquipY    = 408;
+    private int layoutBagTabY   = 478;
+    private int layoutBag1Y     = 506;
+    private int layoutBag2Y     = 506 + SLOT_SIZE + SLOT_GAP;
+    private int layoutPotionY   = 506 + (SLOT_SIZE + SLOT_GAP) * 2 + 8;
+    private int layoutNearbyY   = 506 + (SLOT_SIZE + SLOT_GAP) * 2 + 8 + SLOT_SIZE + 16;
+
     public PlayerUI(PlayState p) {
         int panelWidth = OpenRealmGame.width / 5;
         int startX = OpenRealmGame.width - panelWidth;
@@ -108,6 +132,46 @@ public class PlayerUI {
         this.inventory = new Slots[20];
         this.playerChat = new PlayerChat(p);
         this.minimap = new Minimap(p);
+    }
+
+    /**
+     * Recompute the right-sidebar Y anchors based on the current window size.
+     * The webclient layout (name → fame → minimap → bars → stats → equip →
+     * bags → potions → nearby) collapses gracefully on shorter windows; we
+     * mirror that by deriving everything from the panel width / window height.
+     */
+    private void recomputeLayout() {
+        final int panelW = OpenRealmGame.width / 5;
+        final int minimapSize = Math.max(96, Math.min(panelW - 2 * PANEL_INSET,
+                OpenRealmGame.height / 4));
+        this.layoutMinimapY = FAME_Y + FAME_H + 6;
+        this.layoutMinimapBot = this.layoutMinimapY + minimapSize;
+        this.layoutBarsY    = this.layoutMinimapBot + 6;          // 3 bars * 22 = 66
+        this.layoutStatsY   = this.layoutBarsY + 22 * 3 + 8;      // 3-row stats
+        this.layoutEquipY   = this.layoutStatsY + 22 * 3 + 14;
+        this.layoutBagTabY  = this.layoutEquipY + SLOT_SIZE + 10;
+        this.layoutBag1Y    = this.layoutBagTabY + 24 + 4;
+        this.layoutBag2Y    = this.layoutBag1Y + SLOT_SIZE + SLOT_GAP;
+        this.layoutPotionY  = this.layoutBag2Y + SLOT_SIZE + 10;
+        this.layoutNearbyY  = this.layoutPotionY + 56 + 14;
+    }
+
+    /** Screen X for the given slot column 0..3, evenly distributed across
+     *  the right HUD column width with a small inset. */
+    private int slotX(int col) {
+        final int panelW = OpenRealmGame.width / 5;
+        final int startX = OpenRealmGame.width - panelW;
+        final int usable = panelW - 2 * PANEL_INSET;
+        final int totalSlots = 4 * SLOT_SIZE + 3 * SLOT_GAP;
+        final int leftPad = (usable - totalSlots) / 2;
+        return startX + PANEL_INSET + leftPad + col * (SLOT_SIZE + SLOT_GAP);
+    }
+
+    private int groundLootRowY(int row) {
+        // Ground loot anchors to the bottom of the screen so it doesn't fight
+        // the rest of the (taller) sidebar layout. Two rows of four 56 px slots.
+        final int bottom = OpenRealmGame.height - 16;
+        return bottom - (2 - row) * (SLOT_SIZE + SLOT_GAP);
     }
 
     public Slots getSlot(int slot) {
@@ -221,18 +285,14 @@ public class PlayerUI {
     }
 
     private void buildGroundLootSlotButton(int index, GameItem item) {
-        int panelWidth = (OpenRealmGame.width / 5);
-        int startX = OpenRealmGame.width - panelWidth;
-
-        int yOffset = index > 3 ? 64 : 0;
+        this.recomputeLayout();
         if (item != null) {
             final int actualIdx = index;
-            Button b;
-            if (index > 3) {
-                b = new Button(new Vector2f(startX + ((actualIdx - 4) * 64), 650 + yOffset), 64);
-            } else {
-                b = new Button(new Vector2f(startX + (actualIdx * 64), 650 + yOffset), 64);
-            }
+            final int row = (index > 3) ? 1 : 0;
+            final int col = (index > 3) ? index - 4 : index;
+            final int x = this.slotX(col);
+            final int y = this.groundLootRowY(row);
+            Button b = new Button(new Vector2f(x, y), SLOT_SIZE);
 
             b.onMouseUp(event -> {
                 // Don't allow picking up items from ground loot area during trade
@@ -267,14 +327,13 @@ public class PlayerUI {
     }
 
     private void buildEquipmentSlotButton(int idx, GameItem item) {
-        final int panelWidth = (OpenRealmGame.width / 5);
-        final int startX = OpenRealmGame.width - panelWidth;
+        this.recomputeLayout();
         if (item != null) {
             int actualIdx = (int) item.getTargetSlot();
             if (actualIdx == -1) {
                 actualIdx = idx;
             }
-            Button b = new Button(new Vector2f(startX + (actualIdx * 64), 256), 64);
+            Button b = new Button(new Vector2f(this.slotX(actualIdx), this.layoutEquipY), SLOT_SIZE);
 
             b.onRightClick(event -> {
                 // Don't allow equipment swaps during trade
@@ -300,18 +359,14 @@ public class PlayerUI {
     }
 
     private void buildInventorySlotsButton(int index, GameItem item) {
+        this.recomputeLayout();
         final int inventoryOffset = 4;
-        final int panelWidth = (OpenRealmGame.width / 5);
-        final int startX = OpenRealmGame.width - panelWidth;
 
         if (item != null) {
             final int actualIdx = index + inventoryOffset;
-            Button b;
-            if (index > 3) {
-                b = new Button(new Vector2f(startX + ((index - 4) * 64), 516), 64);
-            } else {
-                b = new Button(new Vector2f(startX + (index * 64), 450), 64);
-            }
+            final int col = (index > 3) ? index - 4 : index;
+            final int y = (index > 3) ? this.layoutBag2Y : this.layoutBag1Y;
+            Button b = new Button(new Vector2f(this.slotX(col), y), SLOT_SIZE);
 
             b.onRightClick(event -> {
                 if (this.isTrading) {
@@ -393,6 +448,12 @@ public class PlayerUI {
         // math mirrors the render() tab strip exactly so click bounds and
         // visual bounds line up.
         this.handleBagTabClick(mouse);
+
+        // Minimap zoom + click-to-teleport — runs before drag-drop so a
+        // click that lands on the minimap doesn't get consumed by a slot.
+        if (this.minimap != null) {
+            this.minimap.input(mouse);
+        }
 
         this.handleDragAndDrop(mouse);
 
@@ -542,21 +603,34 @@ public class PlayerUI {
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        this.recomputeLayout();
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
+
+        // Reposition HP/MP/XP bars + size to match new layout.
+        // Bar width = panel width - 2 * inset; height fixed at 22 px each.
+        final int barX = startX + PANEL_INSET;
+        final int barW = panelWidth - 2 * PANEL_INSET;
+        final int barH = 22;
+        if (this.hp != null) { this.hp.getPos().x = barX;  this.hp.getPos().y = this.layoutBarsY;          this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
+        if (this.mp != null) { this.mp.getPos().x = barX;  this.mp.getPos().y = this.layoutBarsY + barH;   this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
+        if (this.xp != null) { this.xp.getPos().x = barX;  this.xp.getPos().y = this.layoutBarsY + barH*2; this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
 
         // Web-parity inventory: 4 equipment + 8 BAG 1 + 8 BAG 2 = 20 slots.
         // Only the currently-active bag's 8 slots are rendered, the other
         // bag is hidden behind its tab.
         Slots[] equips = this.getSlots(0, 4);
         final int bagBase = (this.activeBag == 0) ? 4 : 12;
-        Slots[] bagRow1 = this.getSlots(bagBase,     bagBase + 4);
-        Slots[] bagRow2 = this.getSlots(bagBase + 4, bagBase + 8);
-        // Aliased to old names so the rest of render() keeps compiling. The
-        // visual stays as two rows of four — the only difference vs before
-        // is which 8 slots the rows are bound to.
-        Slots[] inv1 = bagRow1;
-        Slots[] inv2 = bagRow2;
+        Slots[] inv1 = this.getSlots(bagBase,     bagBase + 4);
+        Slots[] inv2 = this.getSlots(bagBase + 4, bagBase + 8);
+
+        // Color palette — mirrors webclient style.css (#1a1218cc panels,
+        // #3a2a38 borders, #c8a86e tan accent). Pulled here so any tweak
+        // touches one spot.
+        final Color cPanel  = new Color(0.10f, 0.07f, 0.09f, 0.95f);
+        final Color cBorder = new Color(0.23f, 0.16f, 0.22f, 1f);
+        final Color cAccent = new Color(0.78f, 0.66f, 0.43f, 1f);
+        final Color cMuted  = new Color(0.53f, 0.47f, 0.41f, 1f);
 
         // ====== SHAPES PASS: all backgrounds in one ShapeRenderer batch ======
         batch.end();
@@ -565,9 +639,20 @@ public class PlayerUI {
                 GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // Panel background
-        shapes.setColor(Color.GRAY);
+        // Sidebar background — dark plum, not the legacy grey, to match the
+        // webclient's almost-black HUD column.
+        shapes.setColor(0.07f, 0.05f, 0.06f, 0.96f);
         shapes.rect(startX, 0, panelWidth, OpenRealmGame.height);
+
+        // Fame badge background (tan, will hold "+N FAME" text in sprite pass)
+        shapes.setColor(0.20f, 0.15f, 0.10f, 0.95f);
+        shapes.rect(startX + PANEL_INSET, FAME_Y, panelWidth - 2 * PANEL_INSET, FAME_H);
+
+        // Stats panel background (between bars and equipment)
+        shapes.setColor(cPanel);
+        final int statsH = 22 * 3 + 8;
+        shapes.rect(startX + PANEL_INSET, this.layoutStatsY - 4,
+                panelWidth - 2 * PANEL_INSET, statsH);
 
         // Equipment slot backgrounds
         for (int i = 0; i < equips.length; i++) {
@@ -575,27 +660,30 @@ public class PlayerUI {
             if (curr != null) {
                 Vector2f pos = slotPositions[i];
                 if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                else { pos.x = startX + (i * 64); pos.y = 256; }
+                else { pos.x = this.slotX(i); pos.y = this.layoutEquipY; }
                 curr.renderBackground(shapes, pos);
             }
         }
 
-        // BAG 1 / BAG 2 tab strip — sits 4 px above the bag rows. Click
-        // routing is in handleBagTabClick(); render here just paints the
-        // active tab in tan and the inactive tab in muted grey.
-        int tabY = 420;
-        int tabH = 24;
-        int tabW = (panelWidth / 2) - 8;
+        // BAG 1 / BAG 2 tab strip — split-tab look (active = tan, inactive = muted)
+        final int tabY = this.layoutBagTabY;
+        final int tabH = 24;
+        final int tabW = (panelWidth - 2 * PANEL_INSET) / 2;
+        final int tab1X = startX + PANEL_INSET;
+        final int tab2X = startX + PANEL_INSET + tabW;
         // BAG 1 tab
-        shapes.setColor(this.activeBag == 0 ? 0.55f : 0.20f,
-                        this.activeBag == 0 ? 0.45f : 0.18f,
-                        this.activeBag == 0 ? 0.18f : 0.20f, 1f);
-        shapes.rect(startX + 4, tabY, tabW, tabH);
+        shapes.setColor(this.activeBag == 0 ? 0.20f : 0.10f,
+                        this.activeBag == 0 ? 0.15f : 0.08f,
+                        this.activeBag == 0 ? 0.10f : 0.10f, 0.95f);
+        shapes.rect(tab1X, tabY, tabW, tabH);
         // BAG 2 tab
-        shapes.setColor(this.activeBag == 1 ? 0.55f : 0.20f,
-                        this.activeBag == 1 ? 0.45f : 0.18f,
-                        this.activeBag == 1 ? 0.18f : 0.20f, 1f);
-        shapes.rect(startX + 8 + tabW, tabY, tabW, tabH);
+        shapes.setColor(this.activeBag == 1 ? 0.20f : 0.10f,
+                        this.activeBag == 1 ? 0.15f : 0.08f,
+                        this.activeBag == 1 ? 0.10f : 0.10f, 0.95f);
+        shapes.rect(tab2X, tabY, tabW, tabH);
+        // Tab underline for the active tab
+        shapes.setColor(cAccent);
+        shapes.rect(this.activeBag == 0 ? tab1X : tab2X, tabY + tabH - 2, tabW, 2);
 
         // Inventory row 1 backgrounds (top row of the active bag)
         for (int i = 0; i < inv1.length; i++) {
@@ -603,7 +691,7 @@ public class PlayerUI {
             if (curr != null) {
                 Vector2f pos = slotPositions[4 + i];
                 if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                else { pos.x = startX + (i * 64); pos.y = 450; }
+                else { pos.x = this.slotX(i); pos.y = this.layoutBag1Y; }
                 curr.renderBackground(shapes, pos);
             }
         }
@@ -614,12 +702,12 @@ public class PlayerUI {
             if (curr != null) {
                 Vector2f pos = slotPositions[8 + i];
                 if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                else { pos.x = startX + (i * 64); pos.y = 516; }
+                else { pos.x = this.slotX(i); pos.y = this.layoutBag2Y; }
                 curr.renderBackground(shapes, pos);
             }
         }
 
-        // Ground loot slot backgrounds
+        // Ground loot slot backgrounds (anchored to bottom of screen)
         if (!this.isTrading) {
             for (int i = 0; i < this.groundLoot.length; i++) {
                 Slots curr = this.groundLoot[i];
@@ -628,7 +716,7 @@ public class PlayerUI {
                     int row = i > 3 ? 1 : 0;
                     int col = i > 3 ? i - 4 : i;
                     if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                    else { pos.x = startX + (col * 64); pos.y = 650 + (row * 64); }
+                    else { pos.x = this.slotX(col); pos.y = this.groundLootRowY(row); }
                     curr.renderBackground(shapes, pos);
                 }
             }
@@ -639,72 +727,75 @@ public class PlayerUI {
         this.mp.renderShapes(shapes);
         this.xp.renderShapes(shapes);
 
-        // (Difficulty + Fame badge bars removed — they overlapped the player
-        // name / role text rendered at the top of the HUD column and read
-        // as random red/gold pills. Difficulty is shown in the realm
-        // transition splash; account fame is shown on the char-select
-        // screen, which matches the web client's HUD layout more closely.)
-
-        // HP / MP potion quick-slot backgrounds — sit directly below the
-        // bag rows so they match the web client's "potions under inventory"
-        // layout. Two 64x64 buckets, side by side, with a small gap.
-        int potionY = 580;
-        int potionSize = 64;
-        int potionGapX = 12;
-        // HP potion (Z) — red
+        // HP / MP potion quick-slot backgrounds, side by side under the bags.
+        final int potionY = this.layoutPotionY;
+        final int potionSize = SLOT_SIZE;
+        final int potionGapX = 12;
+        final int potionTotalW = potionSize * 2 + potionGapX;
+        final int potionStartX = startX + (panelWidth - potionTotalW) / 2;
+        // HP potion (Z) — red, blue stripe like webclient #hp-potion-slot
         shapes.setColor(0.55f, 0.10f, 0.10f, 0.95f);
-        shapes.rect(startX + 8, potionY, potionSize, potionSize);
+        shapes.rect(potionStartX, potionY, potionSize, potionSize);
         // MP potion (X) — blue
         shapes.setColor(0.10f, 0.18f, 0.55f, 0.95f);
-        shapes.rect(startX + 8 + potionSize + potionGapX, potionY, potionSize, potionSize);
+        shapes.rect(potionStartX + potionSize + potionGapX, potionY, potionSize, potionSize);
 
+        shapes.end();
+
+        // Light pass for borders / dividers — gives the panels a webclient-y
+        // outline without forcing every rect to be a stroked rect above.
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(cBorder);
+        shapes.rect(startX + PANEL_INSET, FAME_Y, panelWidth - 2 * PANEL_INSET, FAME_H);
+        shapes.rect(startX + PANEL_INSET, this.layoutStatsY - 4,
+                panelWidth - 2 * PANEL_INSET, statsH);
+        // Equipment row underline (separates from bag rows below)
+        shapes.line(startX + PANEL_INSET, this.layoutEquipY + SLOT_SIZE + 4,
+                    startX + panelWidth - PANEL_INSET, this.layoutEquipY + SLOT_SIZE + 4);
         shapes.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
 
         // ====== SPRITE PASS: all item sprites + text in one SpriteBatch ======
         batch.begin();
 
-        // BAG tab labels — must be in the sprite pass since text rendering
-        // can only happen between batch.begin/end. Center each label inside
-        // its tab rect using GlyphLayout so a font swap doesn't drift the
-        // labels off-center the way a hard-coded "-18" pixel offset did.
-        int tabPanelW = (OpenRealmGame.width / 5);
-        int tabStartX = OpenRealmGame.width - tabPanelW;
-        int tabLabelW = (tabPanelW / 2) - 8;
-        int tabRowY = 420;
-        int tabRowH = 24;
+        // EQUIPMENT label (small caps, muted)
+        font.setColor(cMuted);
+        font.draw(batch, "EQUIPMENT", startX + PANEL_INSET, this.layoutEquipY - 6);
+        font.setColor(Color.WHITE);
+
+        // BAG tab labels — centered with GlyphLayout
         GlyphLayout gl = new GlyphLayout();
-        // y baseline math: BitmapFont with the project's flipped (y-down)
-        // ortho needs the baseline near the bottom of the tab rect. The
-        // legacy "+18" landed about there for the previous font, so keep
-        // that as the baseline and only fix horizontal centering here.
-        float bagY = tabRowY + 18;
-        font.setColor(this.activeBag == 0 ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
+        float bagY = tabY + 16;
+        font.setColor(this.activeBag == 0 ? cAccent : cMuted);
         gl.setText(font, "BAG 1");
-        float bag1X = tabStartX + 4 + (tabLabelW - gl.width) / 2f;
+        float bag1X = tab1X + (tabW - gl.width) / 2f;
         font.draw(batch, "BAG 1", bag1X, bagY);
-        font.setColor(this.activeBag == 1 ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
+        font.setColor(this.activeBag == 1 ? cAccent : cMuted);
         gl.setText(font, "BAG 2");
-        float bag2X = tabStartX + 8 + tabLabelW + (tabLabelW - gl.width) / 2f;
+        float bag2X = tab2X + (tabW - gl.width) / 2f;
         font.draw(batch, "BAG 2", bag2X, bagY);
         font.setColor(Color.WHITE);
 
-        // HP / MP potion labels + hotkey hints (Z drinks HP, X drinks MP).
-        // Counts come from the player's potion stocks.
-        int potTextStartX = OpenRealmGame.width - tabPanelW + 8;
-        int potTextY = 580 + 24;
+        // HP / MP potion labels + counts + hotkey hints (Z drinks HP, X drinks MP).
         int hpCount = 0, mpCount = 0;
         try {
             if (this.playState.getPlayer() != null) {
                 hpCount = this.playState.getPlayer().getHpPotions();
                 mpCount = this.playState.getPlayer().getMpPotions();
             }
-        } catch (Exception ignored) { /* potion fields may not exist on older builds */ }
+        } catch (Exception ignored) { }
         font.setColor(Color.WHITE);
-        font.draw(batch, "HP", potTextStartX + 16, potTextY);
-        font.draw(batch, "x" + hpCount + " [Z]", potTextStartX + 8, potTextY + 24);
-        font.draw(batch, "MP", potTextStartX + 16 + 64 + 12, potTextY);
-        font.draw(batch, "x" + mpCount + " [X]", potTextStartX + 8 + 64 + 12, potTextY + 24);
+        font.draw(batch, "HP",        potionStartX + 18, potionY + 22);
+        font.draw(batch, "x" + hpCount,  potionStartX + 14, potionY + 42);
+        font.setColor(cMuted);
+        font.draw(batch, "[Z]",       potionStartX + 18, potionY + 56);
+        font.setColor(Color.WHITE);
+        final int potMpX = potionStartX + potionSize + potionGapX;
+        font.draw(batch, "MP",        potMpX + 18, potionY + 22);
+        font.draw(batch, "x" + mpCount,  potMpX + 14, potionY + 42);
+        font.setColor(cMuted);
+        font.draw(batch, "[X]",       potMpX + 18, potionY + 56);
+        font.setColor(Color.WHITE);
 
         // Equipment items
         for (int i = 0; i < equips.length; i++) {
@@ -769,20 +860,13 @@ public class PlayerUI {
         this.playerChat.render(batch, shapes, font);
 
         if (this.minimap.isInitialized()) {
-            // Anchor the minimap to the top of the right-side HUD column so it
-            // sits above the HP / MP / XP bars, mirroring the web client's
-            // #minimap-container at the top of #hud. Square aspect ratio with
-            // small inset margins. Recomputed each frame so window resize
-            // reflows the layout.
+            // Square minimap at the top of the right HUD column (under the
+            // name + fame badge), mirroring the webclient #minimap-container.
             final int hudPanelW = OpenRealmGame.width / 5;
             final int hudPanelX = OpenRealmGame.width - hudPanelW;
-            final int inset = 8;
-            // Cap minimap height so it doesn't push HP/MP/XP bars off-screen
-            // on short windows. Keep square — use the smaller of the available
-            // width and a quarter of the screen height.
-            final int size = Math.max(64, Math.min(hudPanelW - 2 * inset,
+            final int size = Math.max(96, Math.min(hudPanelW - 2 * PANEL_INSET,
                     OpenRealmGame.height / 4));
-            this.minimap.setLayout(hudPanelX + inset, inset, size);
+            this.minimap.setLayout(hudPanelX + PANEL_INSET, this.layoutMinimapY, size);
             this.minimap.update();
             this.minimap.render(batch, shapes);
         }
@@ -912,7 +996,7 @@ public class PlayerUI {
             return;
         }
 
-        int headerY = this.isTrading ? 840 : 830;
+        int headerY = this.layoutNearbyY;
         int iconSize = 20;
         int entryHeight = 26;
         int colWidth = (panelWidth - 12) / 2;
@@ -953,7 +1037,7 @@ public class PlayerUI {
 
         if (this.nearbyPlayerList.isEmpty()) return;
 
-        int headerY = this.isTrading ? 840 : 830;
+        int headerY = this.layoutNearbyY;
         font.setColor(Color.WHITE);
         font.draw(batch, "Nearby Players", startX + 4, headerY);
 
@@ -1062,17 +1146,20 @@ public class PlayerUI {
         this.prevTabMouseDown = down;
         if (!justClicked) return;
 
+        this.recomputeLayout();
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
-        int tabY = 420;
+        int tabY = this.layoutBagTabY;
         int tabH = 24;
-        int tabW = (panelWidth / 2) - 8;
+        int tabW = (panelWidth - 2 * PANEL_INSET) / 2;
+        int tab1X = startX + PANEL_INSET;
+        int tab2X = startX + PANEL_INSET + tabW;
         int mx = (int) mouse.getX();
         int my = (int) mouse.getY();
         if (my < tabY || my > tabY + tabH) return;
-        if (mx >= startX + 4 && mx <= startX + 4 + tabW) {
+        if (mx >= tab1X && mx <= tab1X + tabW) {
             this.activeBag = 0;
-        } else if (mx >= startX + 8 + tabW && mx <= startX + 8 + 2 * tabW) {
+        } else if (mx >= tab2X && mx <= tab2X + tabW) {
             this.activeBag = 1;
         }
     }
@@ -1139,35 +1226,28 @@ public class PlayerUI {
     }
 
     private int findSlotAtPositionByLayout(int mouseX, int mouseY) {
+        this.recomputeLayout();
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
-
-        // Must be within the panel
         if (mouseX < startX || mouseX > OpenRealmGame.width) return -1;
 
-        int col = (mouseX - startX) / 64;
-        if (col < 0 || col > 3) return -1;
+        // Find which slot column the cursor is over by hit-testing each
+        // possible column rect (slotX is non-uniform vs startX since we
+        // center the row inside the panel).
+        int col = -1;
+        for (int c = 0; c < 4; c++) {
+            int sx = this.slotX(c);
+            if (mouseX >= sx && mouseX < sx + SLOT_SIZE) { col = c; break; }
+        }
+        if (col < 0) return -1;
 
-        // Equipment row: Y=256, height=64
-        if (mouseY >= 256 && mouseY < 320) {
-            return col; // 0-3
-        }
-        // Inventory row 1: Y=450, height=64
-        if (mouseY >= 450 && mouseY < 514) {
-            return 4 + col; // 4-7
-        }
-        // Inventory row 2: Y=516, height=64
-        if (mouseY >= 516 && mouseY < 580) {
-            return 8 + col; // 8-11
-        }
-        // Ground loot row 1: Y=650, height=64
-        if (mouseY >= 650 && mouseY < 714) {
-            return 20 + col; // 20-23
-        }
-        // Ground loot row 2: Y=714, height=64
-        if (mouseY >= 714 && mouseY < 778) {
-            return 24 + col; // 24-27
-        }
+        if (mouseY >= this.layoutEquipY && mouseY < this.layoutEquipY + SLOT_SIZE) return col;
+        if (mouseY >= this.layoutBag1Y  && mouseY < this.layoutBag1Y  + SLOT_SIZE) return 4 + col;
+        if (mouseY >= this.layoutBag2Y  && mouseY < this.layoutBag2Y  + SLOT_SIZE) return 8 + col;
+        int gl0 = this.groundLootRowY(0);
+        int gl1 = this.groundLootRowY(1);
+        if (mouseY >= gl0 && mouseY < gl0 + SLOT_SIZE) return 20 + col;
+        if (mouseY >= gl1 && mouseY < gl1 + SLOT_SIZE) return 24 + col;
         return -1;
     }
 
@@ -1232,42 +1312,49 @@ public class PlayerUI {
     }
 
     private void renderStats(SpriteBatch batch, BitmapFont font) {
-        if (this.playState.getPlayer() != null) {
-            int panelWidth = (OpenRealmGame.width / 5);
-            int startX = (OpenRealmGame.width - panelWidth) + 8;
-            int xOffset = 128;
-            // Tighter line spacing so the 3-row stats block (att/def, spd/dex,
-            // vit/wis) clears the BAG 1/BAG 2 tab strip below at y=420.
-            int yOffset = 22;
-            int startY = 330;
+        if (this.playState.getPlayer() == null) return;
+        this.recomputeLayout();
+        final int panelWidth = OpenRealmGame.width / 5;
+        final int panelStartX = OpenRealmGame.width - panelWidth;
+        final int textX = panelStartX + PANEL_INSET;
+        // Two columns inside the panel; right column starts halfway across
+        final int colGap = (panelWidth - 2 * PANEL_INSET) / 2;
+        final int yOffset = 22;
+        final int startY = this.layoutStatsY + 14;
 
-            Stats stats = this.playState.getPlayer().getComputedStats();
-            int nameLvlX = (OpenRealmGame.width - panelWidth) + 8;
-            int nameLvlY = 20;
-
-            font.setColor(Color.WHITE);
-            long fame = GameDataManager.EXPERIENCE_LVLS.getBaseFame(this.playState.getPlayer().getExperience());
-            if (fame == 0l) {
-                font.draw(batch,
-                        this.playState.getPlayer().getName() + "   Lv. "
-                                + GameDataManager.EXPERIENCE_LVLS.getLevel(this.playState.getPlayer().getExperience()),
-                        nameLvlX, nameLvlY);
-            } else {
-                font.draw(batch, this.playState.getPlayer().getName() + "   Lv. 20", nameLvlX, nameLvlY);
-            }
-
-            font.setColor(this.playState.getPlayer().isStatMaxed(3) ? Color.YELLOW : Color.WHITE);
-            font.draw(batch, "att :" + stats.getAtt(), startX, startY);
-            font.setColor(this.playState.getPlayer().isStatMaxed(4) ? Color.YELLOW : Color.WHITE);
-            font.draw(batch, "spd :" + stats.getSpd(), startX, startY + (1 * yOffset));
-            font.setColor(this.playState.getPlayer().isStatMaxed(6) ? Color.YELLOW : Color.WHITE);
-            font.draw(batch, "vit :" + stats.getVit(), startX, startY + (2 * yOffset));
-            font.setColor(this.playState.getPlayer().isStatMaxed(2) ? Color.YELLOW : Color.WHITE);
-            font.draw(batch, "def :" + stats.getDef(), startX + xOffset, startY);
-            font.setColor(this.playState.getPlayer().isStatMaxed(5) ? Color.YELLOW : Color.WHITE);
-            font.draw(batch, "dex :" + stats.getDex(), startX + xOffset, startY + (1 * yOffset));
-            font.setColor(this.playState.getPlayer().isStatMaxed(7) ? Color.YELLOW : Color.WHITE);
-            font.draw(batch, "wis :" + stats.getWis(), startX + xOffset, startY + (2 * yOffset));
+        // Player name + level header (top of HUD column)
+        font.setColor(new Color(0.78f, 0.66f, 0.43f, 1f));
+        long fame = GameDataManager.EXPERIENCE_LVLS.getBaseFame(this.playState.getPlayer().getExperience());
+        final String header;
+        if (fame == 0L) {
+            header = this.playState.getPlayer().getName() + "   Lv. "
+                    + GameDataManager.EXPERIENCE_LVLS.getLevel(this.playState.getPlayer().getExperience());
+        } else {
+            header = this.playState.getPlayer().getName() + "   Lv. 20";
         }
+        font.draw(batch, header, textX, HEADER_Y);
+
+        // Fame badge text — centered inside the gold pill drawn earlier
+        font.setColor(new Color(1.00f, 0.85f, 0.42f, 1f));
+        final String fameStr = (fame > 0L) ? ("+ " + fame + " FAME") : "+ 0 FAME";
+        GlyphLayout fameLayout = new GlyphLayout(font, fameStr);
+        float fameTextX = panelStartX + (panelWidth - fameLayout.width) / 2f;
+        font.draw(batch, fameStr, fameTextX, FAME_Y + FAME_H - 7);
+        font.setColor(Color.WHITE);
+
+        Stats stats = this.playState.getPlayer().getComputedStats();
+        font.setColor(this.playState.getPlayer().isStatMaxed(3) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "ATT " + stats.getAtt(), textX, startY);
+        font.setColor(this.playState.getPlayer().isStatMaxed(4) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "SPD " + stats.getSpd(), textX, startY + (1 * yOffset));
+        font.setColor(this.playState.getPlayer().isStatMaxed(6) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "VIT " + stats.getVit(), textX, startY + (2 * yOffset));
+        font.setColor(this.playState.getPlayer().isStatMaxed(2) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "DEF " + stats.getDef(), textX + colGap, startY);
+        font.setColor(this.playState.getPlayer().isStatMaxed(5) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "DEX " + stats.getDex(), textX + colGap, startY + (1 * yOffset));
+        font.setColor(this.playState.getPlayer().isStatMaxed(7) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "WIS " + stats.getWis(), textX + colGap, startY + (2 * yOffset));
+        font.setColor(Color.WHITE);
     }
 }

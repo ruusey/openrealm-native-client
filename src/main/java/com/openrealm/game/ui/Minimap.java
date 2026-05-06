@@ -3,201 +3,406 @@ package com.openrealm.game.ui;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.entity.Player;
+import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.MapModel;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.game.tile.Tile;
+import com.openrealm.game.tile.TileData;
 import com.openrealm.game.tile.TileManager;
 import com.openrealm.game.tile.TileMap;
+import com.openrealm.net.messaging.CommandType;
+import com.openrealm.net.messaging.ServerCommandMessage;
+import com.openrealm.net.server.packet.CommandPacket;
+import com.openrealm.util.KeyHandler;
+import com.openrealm.util.MouseHandler;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Square minimap that mirrors the PixiJS webclient: renders the WHOLE realm
+ * (downsampled into a cached Pixmap/Texture once per map load), supports
+ * mouse-wheel zoom, and click-to-teleport via the existing /tp server command.
+ *
+ * Coordinate model matches the webclient's minimap.js: pixel-per-tile scaling
+ * with a square src-rect that pans to keep the local player centered when
+ * zoomed in.
+ */
 @Data
 @Slf4j
 public class Minimap {
-    /** Default size + margin used when no explicit position is supplied.
-     *  The actual render now anchors to the top of the right-side HUD
-     *  column to match the web client's layout (#minimap-container at the
-     *  top of #hud, full HUD width, square aspect-ratio). PlayerUI sets
-     *  drawX/drawY/sizePx before calling render(). */
     private static final int DEFAULT_SIZE_PX = 200;
     private static final int DEFAULT_MARGIN = 10;
-    private static final int DISCOVER_RADIUS = 12;
 
-    /** Position + size for the minimap render, in screen pixels (Y-down).
-     *  Set by PlayerUI on each render so the minimap tracks the HUD
-     *  column's actual width / window resize. Defaults match the legacy
-     *  top-left corner placement used before the HUD repositioning. */
     private int drawX = DEFAULT_MARGIN;
     private int drawY = DEFAULT_MARGIN;
     private int sizePx = DEFAULT_SIZE_PX;
 
-    /** Anchor the minimap to a screen-space rectangle. Called from
-     *  PlayerUI.render so the panel reflows on window resize without
-     *  Minimap needing to know about HUD layout constants. */
     public void setLayout(int x, int y, int size) {
         this.drawX = x;
         this.drawY = y;
         this.sizePx = Math.max(32, size);
     }
 
-    private static final Color FLOOR_COLOR_0 = new Color(0.45f, 0.38f, 0.30f, 1f);
-    private static final Color FLOOR_COLOR_1 = new Color(0.50f, 0.42f, 0.33f, 1f);
-    private static final Color FLOOR_COLOR_2 = new Color(0.40f, 0.35f, 0.28f, 1f);
-    private static final Color WALL_COLOR = new Color(1f, 1f, 1f, 1f);
-    private static final Color PLAYER_COLOR = new Color(0.2f, 1f, 0.2f, 1f);
-    private static final Color BG_COLOR = new Color(0f, 0f, 0f, 0.7f);
-    private static final Color BORDER_COLOR = new Color(1f, 1f, 1f, 0.8f);
+    private static final Color BG_COLOR     = new Color(0.04f, 0.03f, 0.05f, 0.95f);
+    private static final Color BORDER_COLOR = new Color(0.23f, 0.16f, 0.22f, 1f);
+    private static final Color LOCAL_COLOR  = new Color(0.25f, 1.00f, 0.25f, 1f);
+    private static final Color OTHER_COLOR  = new Color(1.00f, 0.86f, 0.27f, 1f);
 
-    private PlayState playState;
-    private boolean[][] discovered;
+    // Tile palette (matches webclient minimap.js TILE_COLORS)
+    private static final int COL_VOID  = 0x000000ff;
+    private static final int COL_WALL  = 0xaaaaaaff;
+    private static final int COL_SAND  = 0xc8b888ff;
+    private static final int COL_GRASS = 0x4a7a45ff;
+    private static final int COL_STONE = 0x606068ff;
+    private static final int COL_WATER = 0x3060a0ff;
+    private static final int COL_LAVA  = 0xc04020ff;
+    private static final int COL_DARK  = 0x2a2030ff;
+    private static final int COL_DEFAULT = 0x3a3a38ff;
+
+    private final PlayState playState;
     private int mapWidth;
     private int mapHeight;
-    private int zoomLevel = 40;
+    private Integer cachedMapId = null;
+
+    private Pixmap mapPixmap;
+    private Texture mapTexture;
+    /** When true, rebuild the cached pixmap on next render. Set on map load
+     *  (tile data may not be present yet at initializeMap time) and on
+     *  periodic refresh so streamed chunks become visible. */
+    private boolean dirty = true;
+    private long lastRebuildMs = 0L;
+
+    /** zoom = visible fraction of the map. 1.0 = whole map; lower = zoomed in. */
+    private float zoom = 1.0f;
+    private static final float MIN_ZOOM = 0.10f;
+    private static final float MAX_ZOOM = 1.00f;
+
     private boolean visible = true;
+
+    // Hover state: index of the nearby player under the cursor (or -1).
+    private int hoveredOtherIdx = -1;
+    private String hoveredOtherName = null;
+    private float[] cursorOnMapTile = new float[2]; // tile-coords under cursor
+    private boolean cursorInside = false;
+    private boolean prevMouseDown = false;
 
     public Minimap(final PlayState playState) {
         this.playState = playState;
     }
 
     public boolean isInitialized() {
-        return this.discovered != null && this.mapWidth > 0 && this.mapHeight > 0;
+        return this.mapWidth > 0 && this.mapHeight > 0;
     }
 
     public void initializeMap(final Integer mapId) {
+        if (this.cachedMapId != null && this.cachedMapId.equals(mapId)) {
+            // Same map; just request a refresh so streamed chunks redraw.
+            this.dirty = true;
+            return;
+        }
         final MapModel mapModel = GameDataManager.MAPS.get(mapId);
         this.mapWidth = mapModel.getWidth();
         this.mapHeight = mapModel.getHeight();
-        this.discovered = new boolean[this.mapHeight][this.mapWidth];
-        this.zoomLevel = 40;
+        this.cachedMapId = mapId;
+        this.zoom = 1.0f;
+        this.dirty = true;
+        // Drop any stale texture from a previous realm so we don't render it
+        // while waiting for the new one to build.
+        this.dispose();
     }
 
-    public void toggle() {
-        this.visible = !this.visible;
-    }
+    /**
+     * Build a 1px-per-tile snapshot of the entire realm map. Cached as a
+     * Texture so per-frame render is a single textured quad — matches the
+     * webclient's offscreen-canvas tile cache.
+     */
+    private void rebuildMapTexture() {
+        if (this.mapTexture != null) {
+            this.mapTexture.dispose();
+            this.mapTexture = null;
+        }
+        if (this.mapPixmap != null) {
+            this.mapPixmap.dispose();
+            this.mapPixmap = null;
+        }
 
-    public void zoomIn() {
-        this.zoomLevel = Math.max(10, this.zoomLevel - 1);
-    }
+        final TileManager tm;
+        try {
+            tm = this.playState.getRealmManager().getRealm().getTileManager();
+        } catch (Exception e) {
+            return;
+        }
+        if (tm == null) return;
+        final TileMap baseLayer = tm.getBaseLayer();
+        final TileMap collLayer = tm.getCollisionLayer();
+        if (baseLayer == null || collLayer == null) return;
 
-    public void zoomOut() {
-        this.zoomLevel = Math.min(Math.max(this.mapWidth, this.mapHeight) / 2, this.zoomLevel + 1);
-    }
+        final Tile[][] base = baseLayer.getBlocks();
+        final Tile[][] coll = collLayer.getBlocks();
+        if (base == null || coll == null) return;
 
-    public void update() {
-        if (!this.isInitialized()) return;
+        final int w = this.mapWidth;
+        final int h = this.mapHeight;
+        this.mapPixmap = new Pixmap(w, h, Pixmap.Format.RGBA8888);
+        this.mapPixmap.setColor(0, 0, 0, 1);
+        this.mapPixmap.fill();
 
-        final Player player = this.playState.getPlayer();
-        if (player == null) return;
-
-        final int tileSize = GlobalConstants.BASE_TILE_SIZE;
-        final int playerTileX = (int) (player.getPos().x + player.getSize() / 2f) / tileSize;
-        final int playerTileY = (int) (player.getPos().y + player.getSize() / 2f) / tileSize;
-
-        final int minY = Math.max(0, playerTileY - DISCOVER_RADIUS);
-        final int maxY = Math.min(this.mapHeight - 1, playerTileY + DISCOVER_RADIUS);
-        final int minX = Math.max(0, playerTileX - DISCOVER_RADIUS);
-        final int maxX = Math.min(this.mapWidth - 1, playerTileX + DISCOVER_RADIUS);
-
-        for (int y = minY; y <= maxY; y++) {
-            for (int x = minX; x <= maxX; x++) {
-                this.discovered[y][x] = true;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                final Tile collTile = (y < coll.length && x < coll[y].length) ? coll[y][x] : null;
+                final Tile baseTile = (y < base.length && x < base[y].length) ? base[y][x] : null;
+                int rgba = COL_VOID;
+                if (collTile != null && !collTile.isVoid()) {
+                    final TileData d = collTile.getData();
+                    rgba = (d != null && d.isWall()) ? COL_WALL : COL_STONE;
+                } else if (baseTile != null && !baseTile.isVoid()) {
+                    rgba = pickBaseColor(baseTile);
+                }
+                this.mapPixmap.drawPixel(x, y, rgba);
             }
         }
+
+        this.mapTexture = new Texture(this.mapPixmap);
+        this.mapTexture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
+    }
+
+    private static int pickBaseColor(Tile t) {
+        final TileData d = t.getData();
+        if (d != null) {
+            if (d.slows() && !d.hasCollision()) return COL_WATER;
+            if (d.damaging()) return COL_LAVA;
+        }
+        // fallback hash by tileId — keeps unknown tiles distinguishable
+        final int id = t.getTileId();
+        if (id <= 0) return COL_VOID;
+        // bias toward grass/sand greens-and-tans for variety
+        final int variant = id % 4;
+        switch (variant) {
+            case 0: return COL_GRASS;
+            case 1: return COL_SAND;
+            case 2: return COL_STONE;
+            default: return COL_DEFAULT;
+        }
+    }
+
+    public void toggle() { this.visible = !this.visible; }
+
+    public void update() {
+        // No discovery-mask update needed — the cached texture already holds
+        // the whole map, matching the webclient's "show entire realm" rule.
+    }
+
+    /**
+     * Process mouse-wheel zoom + click-to-teleport. Should be called once per
+     * frame from PlayerUI.input(), AFTER tab/drag handling so the minimap
+     * doesn't steal scroll from a list element overlapping it (in practice
+     * nothing else uses scroll on the right HUD column).
+     */
+    public void input(MouseHandler mouse) {
+        if (!this.isInitialized() || !this.visible) return;
+        final int mx = mouse.getX();
+        final int my = mouse.getY();
+        final boolean inside = mx >= this.drawX && mx <= this.drawX + this.sizePx
+                && my >= this.drawY && my <= this.drawY + this.sizePx;
+        this.cursorInside = inside;
+
+        // Mouse-wheel zoom, mirroring webclient (deltaY > 0 = zoom out).
+        if (inside) {
+            float wheel = KeyHandler.consumeScroll();
+            if (wheel != 0f) {
+                this.zoom = clamp(this.zoom + (wheel > 0 ? 0.10f : -0.10f), MIN_ZOOM, MAX_ZOOM);
+            }
+        }
+
+        // Hover detection: compute current src rect, find closest other player.
+        this.hoveredOtherIdx = -1;
+        this.hoveredOtherName = null;
+        if (inside) {
+            final float[] src = this.computeSrcRect();
+            final float srcX = src[0], srcY = src[1], viewW = src[2], viewH = src[3];
+            final float scaleX = this.sizePx / viewW;
+            final float scaleY = this.sizePx / viewH;
+
+            // tile coords under cursor (used for tile-teleport on click)
+            final float tileX = srcX + (mx - this.drawX) / scaleX;
+            final float tileY = srcY + (my - this.drawY) / scaleY;
+            this.cursorOnMapTile[0] = tileX;
+            this.cursorOnMapTile[1] = tileY;
+
+            try {
+                final Player local = this.playState.getPlayer();
+                final long localId = local != null ? local.getId() : -1;
+                final java.util.Set<Player> others = this.playState.getRealmManager().getRealm()
+                        .getPlayersExcept(localId);
+                if (others != null) {
+                    int idx = 0;
+                    int bestIdx = -1;
+                    String bestName = null;
+                    float bestDistSq = 64f; // 8 px hit radius
+                    for (Player p : others) {
+                        final int ts = GlobalConstants.BASE_TILE_SIZE;
+                        final float pxTile = p.getPos().x / ts;
+                        final float pyTile = p.getPos().y / ts;
+                        final float sx = this.drawX + (pxTile - srcX) * scaleX;
+                        final float sy = this.drawY + (pyTile - srcY) * scaleY;
+                        final float dx = sx - mx, dy = sy - my;
+                        final float d2 = dx * dx + dy * dy;
+                        if (d2 < bestDistSq) {
+                            bestDistSq = d2;
+                            bestIdx = idx;
+                            bestName = p.getName();
+                        }
+                        idx++;
+                    }
+                    this.hoveredOtherIdx = bestIdx;
+                    this.hoveredOtherName = bestName;
+                }
+            } catch (Exception ignored) { /* realm may not be ready yet */ }
+        }
+
+        // Click-to-teleport: edge-triggered on left-mouse press inside the map.
+        final boolean down = mouse.isPressed(1);
+        final boolean justClicked = down && !this.prevMouseDown;
+        this.prevMouseDown = down;
+        if (justClicked && inside) {
+            if (this.hoveredOtherName != null) {
+                this.sendTpCommand("/tp " + this.hoveredOtherName);
+            } else {
+                final int worldX = (int) (this.cursorOnMapTile[0] * GlobalConstants.BASE_TILE_SIZE);
+                final int worldY = (int) (this.cursorOnMapTile[1] * GlobalConstants.BASE_TILE_SIZE);
+                if (worldX > 0 && worldY > 0) {
+                    this.sendTpCommand("/tp " + worldX + " " + worldY);
+                }
+            }
+        }
+    }
+
+    private void sendTpCommand(String cmd) {
+        try {
+            final ServerCommandMessage scm = ServerCommandMessage.parseFromInput(cmd);
+            final CommandPacket pkt = CommandPacket.create(this.playState.getPlayer(),
+                    CommandType.SERVER_COMMAND, scm);
+            this.playState.getRealmManager().getClient().sendRemote(pkt);
+        } catch (Exception e) {
+            log.error("Minimap teleport send failed: {}", e.toString());
+        }
+    }
+
+    private float[] computeSrcRect() {
+        final Player player = this.playState.getPlayer();
+        final int ts = GlobalConstants.BASE_TILE_SIZE;
+        float pTileX = this.mapWidth * 0.5f;
+        float pTileY = this.mapHeight * 0.5f;
+        if (player != null) {
+            pTileX = (player.getPos().x + player.getSize() / 2f) / ts;
+            pTileY = (player.getPos().y + player.getSize() / 2f) / ts;
+        }
+        final float viewW = Math.max(1f, this.mapWidth * this.zoom);
+        final float viewH = Math.max(1f, this.mapHeight * this.zoom);
+        float srcX = pTileX - viewW / 2f;
+        float srcY = pTileY - viewH / 2f;
+        // Clamp so the view never falls off the cached texture
+        srcX = Math.max(0, Math.min(srcX, this.mapWidth - viewW));
+        srcY = Math.max(0, Math.min(srcY, this.mapHeight - viewH));
+        return new float[] { srcX, srcY, viewW, viewH };
+    }
+
+    private static float clamp(float v, float lo, float hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes) {
         if (!this.visible || !this.isInitialized()) return;
 
-        final Player player = this.playState.getPlayer();
-        if (player == null) return;
+        // Rebuild the cached map texture lazily — initializeMap() runs before
+        // tile chunks are merged, so the first build would be all-void. Also
+        // re-run every ~2s so newly-streamed regions show up on the map.
+        final long now = System.currentTimeMillis();
+        if (this.dirty || (this.mapTexture == null) || (now - this.lastRebuildMs > 2000L)) {
+            this.rebuildMapTexture();
+            this.dirty = false;
+            this.lastRebuildMs = now;
+        }
+        if (this.mapTexture == null) return;
 
-        final TileManager tm = this.playState.getRealmManager().getRealm().getTileManager();
-        final TileMap baseLayer = tm.getBaseLayer();
-        final TileMap collisionLayer = tm.getCollisionLayer();
+        final float[] src = this.computeSrcRect();
+        final float srcX = src[0], srcY = src[1], viewW = src[2], viewH = src[3];
 
-        final int tileSize = GlobalConstants.BASE_TILE_SIZE;
-        final int centerTileX = (int) (player.getPos().x + player.getSize() / 2f) / tileSize;
-        final int centerTileY = (int) (player.getPos().y + player.getSize() / 2f) / tileSize;
-
-        // Calculate view bounds clamped to map and discovered array bounds
-        final int discoveredH = this.discovered.length;
-        final int discoveredW = (discoveredH > 0) ? this.discovered[0].length : 0;
-        final int safeWidth = Math.min(this.mapWidth, discoveredW);
-        final int safeHeight = Math.min(this.mapHeight, discoveredH);
-        int viewStartX = Math.max(0, centerTileX - this.zoomLevel);
-        int viewEndX = Math.min(safeWidth, centerTileX + this.zoomLevel);
-        int viewStartY = Math.max(0, centerTileY - this.zoomLevel);
-        int viewEndY = Math.min(safeHeight, centerTileY + this.zoomLevel);
-
-        int viewWidth = viewEndX - viewStartX;
-        int viewHeight = viewEndY - viewStartY;
-        if (viewWidth <= 0 || viewHeight <= 0) return;
-
-        float pixelsPerTileX = this.sizePx / (float) viewWidth;
-        float pixelsPerTileY = this.sizePx / (float) viewHeight;
-
+        // Square dark background + border, mirroring #minimap-container
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-
-        float mapCenterX = this.drawX + this.sizePx / 2f;
-        float mapCenterY = this.drawY + this.sizePx / 2f;
-        float mapRadius = this.sizePx / 2f;
-
-        // Draw circular dark background
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(BG_COLOR);
-        shapes.circle(mapCenterX, mapCenterY, mapRadius);
+        shapes.rect(this.drawX - 1, this.drawY - 1, this.sizePx + 2, this.sizePx + 2);
+        shapes.end();
+        batch.begin();
 
-        // Draw tiles
-        final Tile[][] baseTiles = baseLayer.getBlocks();
-        final Tile[][] collTiles = collisionLayer.getBlocks();
+        // Draw the cached map portion (whole-realm view, scaled to the panel).
+        // SpriteBatch.draw with srcX/srcY/srcWidth/srcHeight pulls a sub-rect.
+        batch.draw(this.mapTexture,
+                this.drawX, this.drawY, this.sizePx, this.sizePx,
+                Math.round(srcX), Math.round(srcY),
+                Math.max(1, Math.round(viewW)), Math.max(1, Math.round(viewH)),
+                false, false);
 
-        for (int y = viewStartY; y < viewEndY; y++) {
-            for (int x = viewStartX; x < viewEndX; x++) {
-                if (!this.discovered[y][x]) continue;
+        // Player dots overlay
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final float scaleX = this.sizePx / viewW;
+        final float scaleY = this.sizePx / viewH;
 
-                float screenX = this.drawX + (x - viewStartX) * pixelsPerTileX;
-                float screenY = this.drawY + (y - viewStartY) * pixelsPerTileY;
-                float tileCenterX = screenX + pixelsPerTileX / 2f;
-                float tileCenterY = screenY + pixelsPerTileY / 2f;
-                float dx = tileCenterX - mapCenterX;
-                float dy = tileCenterY - mapCenterY;
-                if (dx * dx + dy * dy > mapRadius * mapRadius) continue;
-
-                Tile collTile = (y < collTiles.length && x < collTiles[y].length) ? collTiles[y][x] : null;
-                Tile baseTile = (y < baseTiles.length && x < baseTiles[y].length) ? baseTiles[y][x] : null;
-
-                if (collTile != null && !collTile.isVoid()) {
-                    shapes.setColor(WALL_COLOR);
-                } else if (baseTile != null && !baseTile.isVoid()) {
-                    int variant = baseTile.getTileId() % 3;
-                    if (variant == 0) shapes.setColor(FLOOR_COLOR_0);
-                    else if (variant == 1) shapes.setColor(FLOOR_COLOR_1);
-                    else shapes.setColor(FLOOR_COLOR_2);
-                } else {
-                    continue;
+        final Player local = this.playState.getPlayer();
+        try {
+            final long localId = local != null ? local.getId() : -1;
+            final java.util.Set<Player> others = this.playState.getRealmManager().getRealm()
+                    .getPlayersExcept(localId);
+            if (others != null) {
+                shapes.setColor(OTHER_COLOR);
+                for (Player p : others) {
+                    final int ts = GlobalConstants.BASE_TILE_SIZE;
+                    final float tx = p.getPos().x / ts;
+                    final float ty = p.getPos().y / ts;
+                    final float sx = this.drawX + (tx - srcX) * scaleX;
+                    final float sy = this.drawY + (ty - srcY) * scaleY;
+                    if (sx < this.drawX - 4 || sx > this.drawX + this.sizePx + 4) continue;
+                    if (sy < this.drawY - 4 || sy > this.drawY + this.sizePx + 4) continue;
+                    shapes.circle(sx, sy, 3f);
                 }
-
-                shapes.rect(screenX, screenY, pixelsPerTileX, pixelsPerTileY);
             }
+        } catch (Exception ignored) { }
+
+        // Local player on top, green
+        if (local != null) {
+            final int ts = GlobalConstants.BASE_TILE_SIZE;
+            final Vector2f pos = local.getPos();
+            final float tx = (pos.x + local.getSize() / 2f) / ts;
+            final float ty = (pos.y + local.getSize() / 2f) / ts;
+            final float sx = this.drawX + (tx - srcX) * scaleX;
+            final float sy = this.drawY + (ty - srcY) * scaleY;
+            shapes.setColor(LOCAL_COLOR);
+            shapes.circle(sx, sy, 4f);
         }
 
-        // Draw player dot
-        float playerScreenX = this.drawX + (centerTileX - viewStartX) * pixelsPerTileX;
-        float playerScreenY = this.drawY + (centerTileY - viewStartY) * pixelsPerTileY;
-        shapes.setColor(PLAYER_COLOR);
-        shapes.circle(playerScreenX, playerScreenY, Math.max(3f, pixelsPerTileX));
-
+        // Outline last so it sits on top of dots
+        shapes.set(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(BORDER_COLOR);
+        shapes.rect(this.drawX, this.drawY, this.sizePx, this.sizePx);
         shapes.end();
-
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
+    }
+
+    public void dispose() {
+        if (this.mapTexture != null) { this.mapTexture.dispose(); this.mapTexture = null; }
+        if (this.mapPixmap != null) { this.mapPixmap.dispose(); this.mapPixmap = null; }
     }
 }
