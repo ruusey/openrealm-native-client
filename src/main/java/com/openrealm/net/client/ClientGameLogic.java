@@ -379,8 +379,39 @@ public class ClientGameLogic {
 			}
 
 			for (final NetEnemy enemy : loadPacket.getEnemies()) {
-				final Enemy e = enemy.asEnemy();
-				cli.getRealm().addEnemyIfNotExists(e);
+				// Web parity (game.js LoadPacket handler): the server now
+				// re-broadcasts the full enemy set every LoadPacket. For an
+				// already-tracked enemy, refresh authoritative dx/dy/health
+				// + serverPos/lastVelUpdate WITHOUT touching pos — the
+				// per-frame extrapolator walks pos toward targetX/Y. Re-
+				// instantiating via asEnemy() and overwriting pos every
+				// LoadPacket is what produced the visible teleport-back-
+				// to-spawn rubber-band on the native client. targetX/Y is
+				// only refreshed when the server's reported position has
+				// genuinely diverged from our last snapshot — sub-pixel
+				// jitter is suppressed so we don't reset the close-step
+				// every tick.
+				final Enemy existing = cli.getRealm().getEnemy(enemy.getId());
+				if (existing != null) {
+					existing.setEnemyId(enemy.getEnemyId());
+					existing.setWeaponId(enemy.getWeaponId());
+					if (enemy.getSize() > 0) existing.setSize(enemy.getSize());
+					existing.setDifficulty(enemy.getDifficulty());
+					if (enemy.getHealth() > 0) {
+						existing.setHealth(enemy.getHealth());
+						if (enemy.getMaxHealth() > 0) {
+							existing.setHealthpercent(
+									(float) enemy.getHealth() / (float) enemy.getMaxHealth());
+						}
+					}
+					// Re-prime dead-reckoning state without snapping pos.
+					existing.refreshFromLoadPacket(
+							enemy.getPos().x, enemy.getPos().y,
+							enemy.getDX(), enemy.getDY());
+				} else {
+					final Enemy e = enemy.asEnemy();
+					cli.getRealm().addEnemyIfNotExists(e);
+				}
 				// Register short ID mapping for compact movement packets
 				if (enemy.getShortId() != 0) {
 					cli.getShortIdToLongId().put(enemy.getShortId(), enemy.getId());
