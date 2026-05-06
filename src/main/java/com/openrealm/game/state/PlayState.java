@@ -215,9 +215,19 @@ public class PlayState extends GameState {
                 } else if (gameObject[i] instanceof Player && gameObject[i].getId() != player.getId()) {
                     final Player playerOther = (Player) gameObject[i];
                     playerOther.update(time);
-                    this.movePlayer(playerOther);
-                    // Blend dead reckoning correction offset for other players
-                    playerOther.blendCorrectionOffset();
+                    // Mirror webclient's per-frame extrapolation for remote
+                    // entities: lerp pos toward targetX/Y at the velocity
+                    // the server reported. Without this we'd just sit at
+                    // the LoadPacket spawn pos forever (movePlayer would
+                    // burn CPU on dx/dy without smoothing toward the
+                    // authoritative target). refX/refY is the local
+                    // player center for the viewport gate so a
+                    // far-away remote freezes instead of drifting off-map
+                    // in the few seconds after we leave them behind.
+                    final float localHalf = (player.getSize() > 0 ? player.getSize() : 32) * 0.5f;
+                    final float refX = player.getPos().x + localHalf;
+                    final float refY = player.getPos().y + localHalf;
+                    playerOther.extrapolate(refX, refY, true);
                 }
             }
 
@@ -1000,7 +1010,7 @@ public class PlayState extends GameState {
             // but spriteSheet is null / pos is off-map / etc.).
             try {
                 final long localId = this.realmManager.getCurrentPlayerId();
-                final java.util.Collection<Player> ps =
+                final Collection<Player> ps =
                         this.realmManager.getRealm().getPlayers().values();
                 final StringBuilder sb = new StringBuilder();
                 sb.append("[RENDER] players(").append(ps.size()).append(")=");

@@ -1,10 +1,21 @@
 package com.openrealm.game;
 
+import java.awt.Font;
+import java.awt.GraphicsEnvironment;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.http.HttpClient;
 import java.time.Instant;
+
+import javax.swing.JDialog;
+import javax.swing.JOptionPane;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
 
 import com.badlogic.gdx.Files;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
@@ -40,13 +51,18 @@ public class GameLauncher {
         // with no console by default, so an unhandled exception during
         // LWJGL native loading, font init, etc. would otherwise produce
         // a silent process exit and leave the user with nothing to debug.
+        // We also pop a Swing dialog so the trace stays visible after the
+        // jpackage console window auto-closes — that window dies the
+        // moment the JVM exits, taking any stderr printout with it.
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             writeCrashLog("Uncaught in thread " + t.getName(), e);
+            showCrashDialog("Uncaught in thread " + t.getName(), e);
         });
         try {
             launch(args);
         } catch (Throwable t) {
             writeCrashLog("Fatal in main()", t);
+            showCrashDialog("Fatal in main()", t);
             System.exit(-1);
         }
     }
@@ -65,6 +81,54 @@ public class GameLauncher {
         } catch (Exception ignored) { /* nothing else we can do */ }
         try { t.printStackTrace(System.err); } catch (Exception ignored) {}
         try { GameLauncher.log.error("Fatal: {}", t.toString(), t); } catch (Exception ignored) {}
+    }
+
+    /**
+     * Pop a modal Swing dialog showing the stack trace + a "Copy" button.
+     * Survives the jpackage console window auto-closing on exit — without
+     * this, a crash inside the LibGDX render loop closes the console
+     * before the user can read or copy anything. Synchronous so the JVM
+     * doesn't exit until the user dismisses it.
+     */
+    private static void showCrashDialog(String header, Throwable t) {
+        try {
+            // No-op in headless / scripted launches.
+            if (GraphicsEnvironment.isHeadless()) return;
+            final StringWriter sw = new StringWriter();
+            sw.append("OpenRealm Native Client crashed.\n\n");
+            sw.append(header).append("\n\n");
+            t.printStackTrace(new PrintWriter(sw));
+            sw.append("\nFull crash log: ")
+              .append(System.getProperty("user.home", "."))
+              .append("/.openrealm/crash.log");
+            final String msg = sw.toString();
+
+            final JTextArea area = new JTextArea(msg, 20, 100);
+            area.setEditable(false);
+            area.setFont(new Font("Monospaced", Font.PLAIN, 11));
+            area.setCaretPosition(0);
+            final JScrollPane scroll = new JScrollPane(area);
+
+            // Modal on the AWT event thread. invokeAndWait so the JVM
+            // doesn't exit while the dialog is up.
+            SwingUtilities.invokeAndWait(() -> {
+                final JOptionPane pane = new JOptionPane(
+                        scroll, JOptionPane.ERROR_MESSAGE,
+                        JOptionPane.DEFAULT_OPTION, null,
+                        new Object[] { "Copy to clipboard", "Close" });
+                final JDialog dlg = pane.createDialog(null, "OpenRealm crash");
+                dlg.setAlwaysOnTop(true);
+                dlg.setVisible(true);
+                final Object choice = pane.getValue();
+                if ("Copy to clipboard".equals(choice)) {
+                    try {
+                        Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                                new StringSelection(msg), null);
+                    } catch (Exception ignored) {}
+                }
+                dlg.dispose();
+            });
+        } catch (Exception ignored) { /* dialog is best-effort */ }
     }
 
     private static void launch(String[] args) {

@@ -280,17 +280,18 @@ public abstract class GameObject {
 
         // Move target to the server's reported position. pos is left alone
         // — extrapolate() will smoothly nudge it toward target each frame.
+        // Mirrors the web client's handleObjectMove for remote entities,
+        // which sets targetX/Y + dx/dy and NEVER touches pos. The previous
+        // hard-snap-on-large-gap branch here was the real cause of the
+        // "remote player drawing at (0,0)" bug: any time a packet's pos
+        // diverged from the local pos by more than ~3 tiles (which can
+        // happen on first-after-realm-transition frames when the local
+        // entry hadn't yet been refreshed) the snap teleported pos to the
+        // packet pos. Web client doesn't do this — it just lets the close
+        // step in extrapolate() catch up at constant speed.
         this.targetX = packet.getPosX();
         this.targetY = packet.getPosY();
-
-        // Hard snap if the target jumped a long way (teleport, realm tx).
-        final float gapX = this.targetX - this.pos.x;
-        final float gapY = this.targetY - this.pos.y;
-        if (gapX * gapX + gapY * gapY > CORRECTION_SNAP_THRESHOLD_SQ) {
-            this.pos.x = this.targetX;
-            this.pos.y = this.targetY;
-        }
-        this.bounds = new Rectangle(this.pos, this.size, this.size);
+        this.refreshBounds();
     }
 
     /**

@@ -39,6 +39,7 @@ import com.openrealm.game.entity.item.Enchantment;
 import com.openrealm.game.graphics.ShaderManager;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Slf4j
@@ -456,8 +457,8 @@ public class Player extends Entity {
 	 *  output is bounded. Static map keeps Player free of an extra
 	 *  Lombok-tracked field that would otherwise propagate into
 	 *  @AllArgsConstructor. */
-	private static final java.util.concurrent.ConcurrentHashMap<Long, Byte> RENDER_DBG =
-			new java.util.concurrent.ConcurrentHashMap<>();
+	private static final ConcurrentHashMap<Long, Byte> RENDER_DBG =
+			new ConcurrentHashMap<>();
 	private static final byte DBG_NULL_SHEET   = 1;
 	private static final byte DBG_NULL_FRAME   = 2;
 	private static final byte DBG_RENDERED_OK  = 4;
@@ -520,8 +521,13 @@ public class Player extends Entity {
 		final float wx = (px - Vector2f.worldX) - offset;
 		final float wy = (py - Vector2f.worldY) - offset;
 		if (dbgFirstSeen(this.getId(), DBG_RENDERED_OK)) {
-			log.info("[RENDER] Player {} ({}) drawing at world({}, {}) -> screen({}, {}) size={} rs={}",
-					this.getId(), this.getName(), px, py, wx, wy, this.size, rs);
+			log.info("[RENDER] Player {} ({}) drawing at effRender({}, {}) pos=({}, {}) renderXY=({}, {}) size={} rs={}",
+					this.getId(), this.getName(),
+					px, py,
+					this.pos == null ? Float.NaN : this.pos.x,
+					this.pos == null ? Float.NaN : this.pos.y,
+					this.renderX, this.renderY,
+					this.size, rs);
 		}
 		if (this.left) {
 			batch.draw(frame, wx + rs, wy, -rs, rs);
