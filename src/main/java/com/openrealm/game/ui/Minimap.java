@@ -392,8 +392,12 @@ public class Minimap {
             shapes.circle(sx, sy, 4f);
         }
 
-        // Outline last so it sits on top of dots
-        shapes.set(ShapeRenderer.ShapeType.Line);
+        // Close the Filled pass before switching to Line — ShapeRenderer.set()
+        // requires autoShapeType to be enabled, which we don't set, so a
+        // direct .set(Line) throws IllegalStateException. End + begin is the
+        // safe transition.
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(BORDER_COLOR);
         shapes.rect(this.drawX, this.drawY, this.sizePx, this.sizePx);
         shapes.end();

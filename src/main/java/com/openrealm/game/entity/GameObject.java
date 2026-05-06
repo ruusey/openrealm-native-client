@@ -245,6 +245,18 @@ public abstract class GameObject {
     }
 
     public synchronized void applyServerCorrection(NetObjectMovement packet) {
+        // Defensive: ignore packets whose pos is exactly (0, 0). That's
+        // almost never a real entity position — it's the server's
+        // uninitialized-Vector2f sentinel, and accepting it snaps the
+        // entity into the corner of the map and out of view. Observed
+        // in the wild for remote players whose ObjectMovePacket arrived
+        // before the server finished setting up their realm-spawn pos.
+        // If the server legitimately spawns something at (0, 0) it will
+        // re-broadcast on the next tick and a non-zero corrective
+        // packet will land within ~16 ms.
+        if (packet.getPosX() == 0f && packet.getPosY() == 0f) {
+            return;
+        }
         // Velocity drives future extrapolation — always update.
         this.dx = packet.getVelX();
         this.dy = packet.getVelY();
