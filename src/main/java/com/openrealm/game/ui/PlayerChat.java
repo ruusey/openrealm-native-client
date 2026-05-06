@@ -53,6 +53,8 @@ public class PlayerChat {
     private boolean collapsed = false;
     private boolean lastTildeDown = false;
     private PlayState state;
+    // WHY: stash the KeyHandler from input() so render() can read caret/selection without changing the call signature.
+    private KeyHandler lastKey;
 
     /** Per-render scratch buffers for the wrap-aware message layout pass.
      *  Allocated once and cleared every render — previously these were
@@ -87,6 +89,7 @@ public class PlayerChat {
     }
 
     public void input(MouseHandler mouse, KeyHandler key, SocketClient client) {
+        this.lastKey = key;
         // Backtick (`) toggles collapsed/expanded. Edge-detected so holding
         // the key doesn't flicker. Suppressed while typing a message so the
         // user can include backticks in chat.
@@ -319,9 +322,45 @@ public class PlayerChat {
         // ---- Input field (always visible — web parity) ----
         if (this.chatOpen) {
             font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
-            font.draw(batch, "> " + this.currentMessage + "_",
-                    PANEL_X + TEXT_PAD_X + 2,
-                    inputBoxBottom - 8);
+            final String prompt = "> ";
+            final float textOriginX = PANEL_X + TEXT_PAD_X + 2;
+            final float textY = inputBoxBottom - 8;
+            this.layout.setText(font, prompt);
+            final float promptWidth = this.layout.width;
+
+            KeyHandler kh = this.lastKey;
+            int caret = kh != null ? kh.captureCaret : this.currentMessage.length();
+            int selAnchor = kh != null ? kh.captureSelAnchor : -1;
+            if (caret < 0) caret = 0;
+            if (caret > this.currentMessage.length()) caret = this.currentMessage.length();
+
+            // Selection highlight
+            if (selAnchor >= 0 && selAnchor != caret) {
+                int s = Math.min(caret, selAnchor);
+                int e = Math.max(caret, selAnchor);
+                if (s < 0) s = 0;
+                if (e > this.currentMessage.length()) e = this.currentMessage.length();
+                this.layout.setText(font, this.currentMessage.substring(0, s));
+                float pre = this.layout.width;
+                this.layout.setText(font, this.currentMessage.substring(s, e));
+                float selW = this.layout.width;
+                batch.end();
+                Gdx.gl.glEnable(GL20.GL_BLEND);
+                Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+                shapes.begin(ShapeRenderer.ShapeType.Filled);
+                shapes.setColor(0.40f, 0.60f, 0.95f, 0.35f);
+                shapes.rect(textOriginX + promptWidth + pre,
+                        inputBoxTop + 4, selW, INPUT_H - 8);
+                shapes.end();
+                batch.begin();
+                font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
+            }
+
+            font.draw(batch, prompt + this.currentMessage, textOriginX, textY);
+            // Caret indicator at the right index. Blink-free for simplicity — chat input is short-lived.
+            this.layout.setText(font, this.currentMessage.substring(0, caret));
+            float caretX = textOriginX + promptWidth + this.layout.width;
+            font.draw(batch, "|", caretX, textY);
         } else {
             // Placeholder text — web ships "Press Enter to chat..."
             font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);

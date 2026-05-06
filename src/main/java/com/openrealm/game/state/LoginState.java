@@ -209,14 +209,48 @@ public class LoginState extends GameState {
             return;
         }
 
-        // Caret blink + keyboard-driven editing
-        boolean enterEmail = this.emailField.update();
-        boolean enterPassword = this.passwordField.update();
-        boolean enterName = this.mode == Mode.REGISTER && this.nameField.update();
-        if (enterEmail || enterPassword || enterName) {
-            // Enter from any field submits the form.
+        TextField.UpdateResult emailRes = this.emailField.update();
+        TextField.UpdateResult passRes = this.passwordField.update();
+        TextField.UpdateResult nameRes = this.mode == Mode.REGISTER
+                ? this.nameField.update() : TextField.UpdateResult.NONE;
+        if (emailRes == TextField.UpdateResult.SUBMIT
+                || passRes == TextField.UpdateResult.SUBMIT
+                || nameRes == TextField.UpdateResult.SUBMIT) {
             this.submit();
+            return;
         }
+        TextField.UpdateResult tabSignal = TextField.UpdateResult.NONE;
+        if (emailRes == TextField.UpdateResult.TAB || passRes == TextField.UpdateResult.TAB
+                || nameRes == TextField.UpdateResult.TAB) {
+            tabSignal = TextField.UpdateResult.TAB;
+        } else if (emailRes == TextField.UpdateResult.SHIFT_TAB || passRes == TextField.UpdateResult.SHIFT_TAB
+                || nameRes == TextField.UpdateResult.SHIFT_TAB) {
+            tabSignal = TextField.UpdateResult.SHIFT_TAB;
+        }
+        if (tabSignal != TextField.UpdateResult.NONE) {
+            this.advanceFocus(tabSignal == TextField.UpdateResult.SHIFT_TAB);
+        }
+    }
+
+    /**
+     * Cycle keyboard focus between visible fields. Order:
+     *   REGISTER: name -> email -> password -> name
+     *   LOGIN:    email -> password -> email
+     * Shift+Tab walks the same ring backward.
+     */
+    private void advanceFocus(boolean reverse) {
+        TextField[] ring = this.mode == Mode.REGISTER
+                ? new TextField[] { this.nameField, this.emailField, this.passwordField }
+                : new TextField[] { this.emailField, this.passwordField };
+        int idx = -1;
+        for (int i = 0; i < ring.length; i++) {
+            if (ring[i].isFocused()) { idx = i; break; }
+        }
+        // WHY: nothing focused yet -> tab lands on first, shift+tab on last.
+        int next = idx < 0
+                ? (reverse ? ring.length - 1 : 0)
+                : (reverse ? (idx - 1 + ring.length) % ring.length : (idx + 1) % ring.length);
+        for (int i = 0; i < ring.length; i++) ring[i].setFocused(i == next);
     }
 
     @Override
@@ -278,9 +312,21 @@ public class LoginState extends GameState {
 
         boolean mouseDown = mouse.isPressed(1);
         boolean justClicked = mouseDown && !this.prevMouseDown;
+        boolean justReleased = !mouseDown && this.prevMouseDown;
         this.prevMouseDown = mouseDown;
         int mx = mouse.getX();
         int my = mouse.getY();
+
+        if (mouseDown && !justClicked) {
+            if (this.emailField.isFocused()) this.emailField.handleDrag(mx, my);
+            else if (this.passwordField.isFocused()) this.passwordField.handleDrag(mx, my);
+            else if (this.mode == Mode.REGISTER && this.nameField.isFocused()) this.nameField.handleDrag(mx, my);
+        }
+        if (justReleased) {
+            this.emailField.handleRelease();
+            this.passwordField.handleRelease();
+            this.nameField.handleRelease();
+        }
 
         if (justClicked) {
             if (this.hit(mx, my, padX, submitY, fieldW, submitH)) {
