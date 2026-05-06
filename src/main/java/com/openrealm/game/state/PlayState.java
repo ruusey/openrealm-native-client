@@ -3,6 +3,7 @@ package com.openrealm.game.state;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -114,6 +115,11 @@ public class PlayState extends GameState {
     // a busy realm. PlayState input/render run on the GL thread so a
     // single field is safe.
     private final Vector2f movePlayerScratch = new Vector2f();
+
+    // Scratch GlyphLayout reused for nameplate measurement / centering in
+    // the world-camera render pass. Without this each name draw allocated
+    // a fresh GlyphLayout (one per visible player per frame).
+    private final GlyphLayout nameLayoutScratch = new GlyphLayout();
 
     public PlayState(GameStateManager gsm, Camera cam) {
         super(gsm);
@@ -1184,20 +1190,32 @@ public class PlayState extends GameState {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Player nameplates (rendered with the world-camera batch so they
-        // anchor to the entity, not the screen). Color follows chatRole
-        // exactly like webclient renderer.js getNameColorHex —
-        // sysadmin/red, admin/blue, mod/green, editor/purple, demo/gray,
-        // default/off-white. Drawn 2px above the HP bar.
+        // Player nameplates — rendered with the world-camera batch so the
+        // text anchors to the entity. Font is dropped to 0.5x so the
+        // nameplate matches the webclient's small overhead label
+        // (~10-12px) instead of the default 16-20px which covered the
+        // whole sprite. Color follows chatRole exactly like webclient
+        // renderer.js getNameColorHex (sysadmin/red, admin/blue,
+        // mod/green, editor/purple, demo/gray, default/off-white).
+        // Use GlyphLayout to center the name horizontally on the sprite.
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(0.5f);
         for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
             final String nm = rp.getName();
             if (nm == null || nm.isEmpty()) continue;
             final int s = rp.getSize() > 0 ? rp.getSize() : 32;
             final float wx = rp.getPos().getWorldVar().x;
             final float wy = rp.getPos().getWorldVar().y;
+            this.nameLayoutScratch.setText(font, nm);
             font.setColor(roleColorFor(rp.getChatRole()));
-            font.draw(batch, nm, wx + (s * 0.5f) - (nm.length() * 3f), wy - 14);
+            // y = top of HP bar minus 2px gap. HP bar sits at wy - 10, so
+            // the name's bottom baseline is at wy - 12. Add the layout
+            // height since GlyphLayout uses a top-anchor in flipped ortho.
+            font.draw(batch, this.nameLayoutScratch,
+                    wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
+                    wy - 12 - this.nameLayoutScratch.height);
         }
+        font.getData().setScale(origScale);
         font.setColor(Color.WHITE);
 
         Collection<Portal> portals = this.realmManager.getRealm().getPortals().values();

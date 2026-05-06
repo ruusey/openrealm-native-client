@@ -132,6 +132,26 @@ public class OpenRealmGame implements ApplicationListener {
 
     @Override
     public void render() {
+        try {
+            this.renderFrame();
+        } catch (Throwable t) {
+            // jpackage --win-console swallows stack traces when the JVM
+            // exits, and Lwjgl3Application.loop()'s wrapper bubbles a
+            // render exception straight into JVM exit. Log to crash.log
+            // ourselves and keep the process alive — recovers from
+            // transient render-state issues (e.g. mid-realm-transition
+            // tile arrays, half-built Pixmaps) without taking the game
+            // down. If the same frame keeps throwing every render call,
+            // the user sees one slow stutter while we log on a budget,
+            // not a hard crash.
+            GameLauncher.writeCrashLog("Render failure (recovering)", t);
+            // Best-effort batch cleanup so the next frame starts in a
+            // sane GL/batch state.
+            try { if (this.batch.isDrawing()) this.batch.end(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private void renderFrame() {
         float delta = Gdx.graphics.getDeltaTime();
 
         // Clear screen with dark background

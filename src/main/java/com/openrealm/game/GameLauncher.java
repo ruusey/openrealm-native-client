@@ -67,7 +67,7 @@ public class GameLauncher {
         }
     }
 
-    private static void writeCrashLog(String header, Throwable t) {
+    public static void writeCrashLog(String header, Throwable t) {
         try {
             File dir = new File(System.getProperty("user.home", "."), ".openrealm");
             if (!dir.exists()) dir.mkdirs();
