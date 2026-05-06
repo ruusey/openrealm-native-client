@@ -60,6 +60,13 @@ public class Chest extends LootContainer {
         super.render(batch);
     }
 
+    /** Chests render at full 32px tile size (vault set-piece). Drop bags
+     *  inherit the smaller 16px size from LootContainer. */
+    @Override
+    protected int getDrawSize() {
+        return 32;
+    }
+
     @Override
     public String toString() {
         return (this.getLootContainerId() + " " + this.getPos() + " isChest=" + (this instanceof Chest));

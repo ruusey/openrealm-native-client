@@ -1,7 +1,6 @@
 package com.openrealm.game.ui;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 import com.badlogic.gdx.graphics.Color;
@@ -158,10 +157,14 @@ public class PlayerChat {
         font.getData().setScale(1.0f);
 
         final int PANEL_X      = 10;
-        final int PANEL_W      = 360;
+        // Expanded panel widens to 600 px (vs collapsed 360) so longer chat
+        // messages have room to wrap without being clipped. Web parity has
+        // a fluid width; native picks two breakpoints to keep the layout
+        // simple and the input field aligned.
+        final int PANEL_W      = this.collapsed ? 360 : 600;
         final int PANEL_BOTTOM_MARGIN = 10;
         final int INPUT_H      = 28;
-        final int MSG_H        = 140;
+        final int MSG_H        = 220;
         final int TOGGLE_W     = 22;
         final int TOGGLE_H     = 18;
         final float LINE_H     = font.getLineHeight();           // matches web's line-height:1.5
@@ -218,40 +221,72 @@ public class PlayerChat {
 
         // ---- Messages, only rendered when expanded ----
         if (!this.collapsed) {
-            // How many lines fit in 140 px? floor((MSG_H - 2*pad) / LINE_H).
+            // Two-pass render. We allow wrapping on the body, so a single
+            // message can occupy 1..N rows. Walk the chat NEWEST-first,
+            // accumulating row counts, until we've used up the available
+            // vertical space. Then render forward (oldest of the picked
+            // window first) bottom-up.
             final int maxRows = Math.max(1, (int) ((MSG_H - 2 * TEXT_PAD_Y) / LINE_H));
             final int totalMessages = this.playerChat.size();
-            final int visibleRows = Math.min(maxRows, totalMessages);
-            final int skip = Math.max(0, totalMessages - visibleRows);
 
-            // Latest message anchored at the BOTTOM of the box. Each older
-            // message draws one LINE_H higher.
-            int seen = 0;
-            int slot = visibleRows;          // bottom row = slot 1
-            final Iterator<TextPacket> it = this.playerChat.iterator();
-            while (it.hasNext()) {
-                final TextPacket pkt = it.next();
-                if (seen++ < skip) continue;
+            // Walk newest -> oldest, build the list of messages that fit.
+            final List<TextPacket> picked = new ArrayList<>();
+            final List<Integer> rowCounts = new ArrayList<>();
+            int rowsAccum = 0;
+            for (int i = totalMessages - 1; i >= 0; i--) {
+                final TextPacket pkt = this.playerChat.get(i);
                 final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
                 final String body     = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
-
-                // Baseline: msgBoxBottom - pad - (slot - 1) * lineH
-                float y = msgBoxBottom - TEXT_PAD_Y - (slot - 1) * LINE_H;
-                slot--;
-
-                // Sender prefix in role color (web's .msg-name styling).
-                final Color nameColor = roleColorByName(fromName);
-                font.setColor(nameColor);
-                final String prefix = "[" + fromName + "]: ";
+                final String prefix   = "[" + fromName + "]: ";
                 this.layout.setText(font, prefix);
                 final float prefixWidth = this.layout.width;
-                font.draw(batch, this.layout, PANEL_X + TEXT_PAD_X, y);
+                final float bodyMaxWidth = PANEL_W - prefixWidth - 2 * TEXT_PAD_X;
+                // setText with wrap=true splits body across as many lines
+                // as needed. layout.runs.size is unreliable for run count;
+                // count newline characters in the formatted text via the
+                // public glyph runs list size.
+                this.layout.setText(font, body, 0, body.length(), font.getColor(),
+                        Math.max(1f, bodyMaxWidth),
+                        com.badlogic.gdx.utils.Align.left, true, null);
+                final int wrapLines = Math.max(1, this.layout.runs.size);
+                if (rowsAccum + wrapLines > maxRows && !picked.isEmpty()) break;
+                picked.add(pkt);
+                rowCounts.add(wrapLines);
+                rowsAccum += wrapLines;
+                if (rowsAccum >= maxRows) break;
+            }
 
-                // Body in #e0d8c8 (web .msg-player), or #c8a86e (.msg-system)
-                // when sender is "SYSTEM". Truncate to the available width
-                // by measuring with the same GlyphLayout — char-count
-                // heuristics produced the prefix/body collisions visible
-                // in earlier screenshots.
+            // Render oldest-of-picked first so newest ends up at the bottom.
+            // Each message renders as: prefix on the top row of its row-block,
+            // body wrapped beneath/right of it. We anchor each message at
+            // its TOP row in flipped-ortho coords, then walk down by LINE_H
+            // for each subsequent body row.
+            //
+            // Compute the y of the TOP row of the LAST (newest) message, then
+            // walk upward by each message's row count for older ones.
+            // bottomRowY is the y of the single bottom-most line.
+            float topOfNextBlock = msgBoxBottom - TEXT_PAD_Y - (rowsAccum - 1) * LINE_H;
+            for (int idx = picked.size() - 1; idx >= 0; idx--) {
+                final TextPacket pkt = picked.get(idx);
+                final int rows = rowCounts.get(idx);
+                final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
+                final String body     = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
+                final String prefix   = "[" + fromName + "]: ";
+
+                // Top line y for this message block.
+                final float blockTopY = topOfNextBlock;
+
+                // Prefix in role color.
+                final Color nameColor = roleColorByName(fromName);
+                font.setColor(nameColor);
+                this.layout.setText(font, prefix);
+                final float prefixWidth = this.layout.width;
+                font.draw(batch, this.layout, PANEL_X + TEXT_PAD_X, blockTopY);
+
+                // Body wrapped, starting on the SAME line as the prefix and
+                // continuing below if needed. font.draw of a multi-line
+                // GlyphLayout grows downward in flipped-ortho — same direction
+                // we lay out subsequent rows.
                 if ("SYSTEM".equalsIgnoreCase(fromName)) {
                     font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
                 } else {
@@ -259,10 +294,14 @@ public class PlayerChat {
                 }
                 final float bodyMaxWidth = PANEL_W - prefixWidth - 2 * TEXT_PAD_X;
                 this.layout.setText(font, body, 0, body.length(), font.getColor(),
-                        Math.max(0f, bodyMaxWidth),
-                        com.badlogic.gdx.utils.Align.left, false, "...");
+                        Math.max(1f, bodyMaxWidth),
+                        com.badlogic.gdx.utils.Align.left, true, null);
                 font.draw(batch, this.layout,
-                        PANEL_X + TEXT_PAD_X + prefixWidth, y);
+                        PANEL_X + TEXT_PAD_X + prefixWidth, blockTopY);
+
+                // Move topOfNextBlock up by this message's height so the
+                // older message above sits flush.
+                topOfNextBlock -= rows * LINE_H;
             }
         }
 

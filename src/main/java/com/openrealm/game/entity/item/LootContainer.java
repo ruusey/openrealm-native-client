@@ -227,11 +227,29 @@ public class LootContainer {
             if (!this.isPublicLoot()) {
                 batch.setColor(1.0f, 0.55f, 0.55f, 1.0f);
             }
-            batch.draw(this.sprite.getRegion(), this.pos.getWorldVar().x, this.pos.getWorldVar().y, 32, 32);
+            // Regular loot bags render at half-tile (16px) so they read as
+            // pickups rather than environment props. Chests override this in
+            // Chest.render to keep their full 32px footprint, since chests
+            // are an interactive set-piece (vault) and need to be visually
+            // distinct from drop bags.
+            final int draw = this.getDrawSize();
+            // Center the smaller sprite inside the tile so the visual
+            // anchor matches the underlying tile pos.
+            final float offset = (32 - draw) / 2f;
+            batch.draw(this.sprite.getRegion(),
+                    this.pos.getWorldVar().x + offset,
+                    this.pos.getWorldVar().y + offset,
+                    draw, draw);
             if (!this.isPublicLoot()) {
                 batch.setColor(1.0f, 1.0f, 1.0f, 1.0f);
             }
         }
+    }
+
+    /** Render footprint in world pixels. Subclasses override (e.g. Chest)
+     *  when they need a different size from a regular drop bag. */
+    protected int getDrawSize() {
+        return 16;
     }
 
     public int getNonEmptySlotCount() {

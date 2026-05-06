@@ -726,6 +726,23 @@ public class PlayerUI {
             }
         }
 
+        // Stack-count overlays — drawn AFTER all sprites so the "xN" text
+        // sits on top of the slot icon. Web parity: main.js' updateInventoryUI
+        // draws the .item-stack span over the item face for stackable items
+        // with count > 1. Only inventory + ground-loot stacks make sense
+        // (equipment is non-stackable in the current item set).
+        for (int i = 0; i < inv1.length; i++) {
+            if (inv1[i] != null) inv1[i].renderStackCount(batch, font, slotPositions[4 + i]);
+        }
+        for (int i = 0; i < inv2.length; i++) {
+            if (inv2[i] != null) inv2[i].renderStackCount(batch, font, slotPositions[8 + i]);
+        }
+        if (!this.isTrading) {
+            for (int i = 0; i < this.groundLoot.length; i++) {
+                if (this.groundLoot[i] != null) this.groundLoot[i].renderStackCount(batch, font, groundLootPositions[i]);
+            }
+        }
+
         // HP/MP/XP bar text
         this.hp.renderText(batch, font);
         this.mp.renderText(batch, font);

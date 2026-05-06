@@ -1,6 +1,7 @@
 package com.openrealm.game.ui;
 
 import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -76,6 +77,23 @@ public class Slots {
             this.button.render(batch);
         }
         batch.draw(itemRegion, pos.x, pos.y, 64, 64);
+    }
+
+    /**
+     * Draw the "xN" overlay on stackable items with count > 1. Mirrors the
+     * web client's {@code .item-stack} badge in main.js' updateInventoryUI
+     * (~line 3311). Call AFTER renderItem so the text sits on top of the
+     * sprite. The slot is 64x64 and the overlay anchors to the bottom-right
+     * corner so it doesn't obscure the item face. Skipped silently when the
+     * item is not stackable or only has a single unit.
+     */
+    public void renderStackCount(SpriteBatch batch, BitmapFont font, Vector2f pos) {
+        if (this.getItem() == null) return;
+        if (!this.getItem().isStackable()) return;
+        final int count = this.getItem().getStackCount();
+        if (count <= 1) return;
+        font.setColor(Color.WHITE);
+        font.draw(batch, "x" + count, pos.x + 36, pos.y + 60);
     }
 
     /** @deprecated Use renderBackground() + renderItem() for batched rendering */

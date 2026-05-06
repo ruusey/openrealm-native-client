@@ -643,7 +643,10 @@ public class PlayState extends GameState {
 
         // Toggle the in-game options window with O — mirrors the web client's
         // gear-icon shortcut. Doesn't conflict with PauseState (ESC).
-        if (this.pui != null && Gdx.input.isKeyJustPressed(Input.Keys.O)) {
+        // Suppressed while chat input is capturing keys so the user can type
+        // 'o' in messages without flickering the options window.
+        if (this.pui != null && !key.captureMode
+                && Gdx.input.isKeyJustPressed(Input.Keys.O)) {
             this.pui.getOptionsWindow().toggle();
         }
 
