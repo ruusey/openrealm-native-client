@@ -151,6 +151,13 @@ public class Minimap {
 
         final int w = this.mapWidth;
         final int h = this.mapHeight;
+        // mapWidth / mapHeight are 0 between the moment Realm.loadMap()
+        // wipes tile state and the moment initializeMap() finishes for the
+        // new map. The Pixmap ctor blows up on a 0-dim allocation, so the
+        // first render frame after a portal enter would crash with no
+        // visible recovery path. Bail out cleanly and let the next render
+        // tick try again once the realm has filled in.
+        if (w <= 0 || h <= 0) return;
         this.mapPixmap = new Pixmap(w, h, Pixmap.Format.RGBA8888);
         this.mapPixmap.setColor(0, 0, 0, 1);
         this.mapPixmap.fill();

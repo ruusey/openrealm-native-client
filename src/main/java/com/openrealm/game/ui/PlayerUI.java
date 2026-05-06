@@ -883,8 +883,19 @@ public class PlayerUI {
             final int size = Math.max(96, Math.min(hudPanelW - 2 * PANEL_INSET,
                     OpenRealmGame.height / 4));
             this.minimap.setLayout(hudPanelX + PANEL_INSET, this.layoutMinimapY, size);
-            this.minimap.update();
-            this.minimap.render(batch, shapes);
+            // Wrap update + render in a try/catch so a transient failure
+            // inside the minimap (e.g. mid-realm-transition state where the
+            // Pixmap rebuild touches still-clearing tile data) doesn't
+            // propagate into the LWJGL render loop and kill the whole game.
+            // The portal-enter crash was a NullPointerException / Pixmap
+            // size assertion fired here; without this guard the JVM exits
+            // before the user can see anything.
+            try {
+                this.minimap.update();
+                this.minimap.render(batch, shapes);
+            } catch (Throwable t) {
+                log.warn("Minimap render failed (recovering): {}", t.toString());
+            }
         }
 
         // Web-parity overlays render last so they sit on top of the HUD.

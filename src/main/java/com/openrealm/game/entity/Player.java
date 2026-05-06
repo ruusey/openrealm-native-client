@@ -128,6 +128,18 @@ public class Player extends Entity {
 
 	public Player() {
 		super(0, null, 0);
+		// CRITICAL: explicitly initialise renderX/Y to NaN here. The field
+		// declarations have `= Float.NaN` inline, but Lombok's
+		// @Builder.Default annotation captures that initialiser for the
+		// generated builder and strips the inline init from the class
+		// itself. With the no-arg ctor invoked via NetPlayer.toPlayer,
+		// renderX/Y end up at Java's float default of 0.0f, not NaN —
+		// which made getEffectiveRenderX() return 0.0 instead of pos.x
+		// for every remote player. Result: every other player rendered
+		// at world (0, 0). Fix: set the canonical default in the ctor
+		// body so it's not at the mercy of Lombok's processor.
+		this.renderX = Float.NaN;
+		this.renderY = Float.NaN;
 	}
 
 	public Player(GameItem[] inventory, long lastStatsTime, LootContainer currentLootContainer, int classId,
