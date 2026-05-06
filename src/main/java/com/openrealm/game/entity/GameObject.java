@@ -71,6 +71,17 @@ public abstract class GameObject {
     }
 
     public synchronized void setPos(Vector2f pos) {
+        // Diagnostic: ANY setPos that lands at (0,0) for a Player is almost
+        // certainly a bug — the local player spawns away from origin and
+        // remote players' wire pos is never (0,0) under normal play. Log
+        // once per id+(0,0) combo so the next reproduction surfaces the
+        // call site.
+        if (pos != null && pos.x == 0f && pos.y == 0f
+                && this instanceof Player) {
+            // Stack trace via a throwable so we see the caller chain in logs.
+            log.warn("[POS-DEBUG] setPos(0,0) on Player id={} — likely the cause of invisible-remote-player bug",
+                    this.id, new Throwable("setPos(0,0)"));
+        }
         this.pos = pos;
         this.bounds = new Rectangle(pos, this.size, this.size);
         this.teleported = true;

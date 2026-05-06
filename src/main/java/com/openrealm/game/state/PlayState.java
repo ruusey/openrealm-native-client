@@ -174,8 +174,24 @@ public class PlayState extends GameState {
     }
     
     public void doLogin() throws Exception {
-        final LoginRequestMessage login = LoginRequestMessage.builder().characterUuid(SocketClient.CHARACTER_UUID)
-                .email(SocketClient.PLAYER_EMAIL).password(SocketClient.PLAYER_PASSWORD).build();
+        // Mirror webclient main.js (~line 1548): when an existing session
+        // token is available, send THAT and let the game server resolve it
+        // via /admin/account/token/resolve — same as the webclient's
+        // network.sendLogin(uuid, '', '', token) path. The previous code
+        // always sent email/password from SocketClient.PLAYER_EMAIL/PASSWORD
+        // which are null when the user came in via the auto-login token
+        // path (form login was skipped). Server then logged
+        //   LoginRequestMessage(email=null, password=null, token=null)
+        // and /admin/account/login returned 400 ("originalPassword is null").
+        final String sessionToken = ClientGameLogic.DATA_SERVICE.getSessionToken();
+        final LoginRequestMessage.LoginRequestMessageBuilder builder =
+                LoginRequestMessage.builder().characterUuid(SocketClient.CHARACTER_UUID);
+        if (sessionToken != null && !sessionToken.isEmpty()) {
+            builder.token(sessionToken);
+        } else {
+            builder.email(SocketClient.PLAYER_EMAIL).password(SocketClient.PLAYER_PASSWORD);
+        }
+        final LoginRequestMessage login = builder.build();
         final CommandPacket loginPacket = CommandPacket.from(CommandType.LOGIN_REQUEST, login);
         this.realmManager.getClient().sendRemote(loginPacket);
     }
