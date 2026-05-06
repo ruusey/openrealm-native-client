@@ -34,12 +34,14 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.extern.slf4j.Slf4j;
 import com.openrealm.game.entity.item.Enchantment;
 import com.openrealm.game.graphics.ShaderManager;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
+@Slf4j
 @Data
 @Builder
 @EqualsAndHashCode(callSuper = false)
@@ -450,17 +452,52 @@ public class Player extends Entity {
 	 * Non-local players have renderX=NaN → effective position falls back
 	 * to pos.x / pos.y, identical to the old behaviour.
 	 */
+	/** One-shot warn log per (player-id, state-bit) so the diagnostic
+	 *  output is bounded. Static map keeps Player free of an extra
+	 *  Lombok-tracked field that would otherwise propagate into
+	 *  @AllArgsConstructor. */
+	private static final java.util.concurrent.ConcurrentHashMap<Long, Byte> RENDER_DBG =
+			new java.util.concurrent.ConcurrentHashMap<>();
+	private static final byte DBG_NULL_SHEET   = 1;
+	private static final byte DBG_NULL_FRAME   = 2;
+	private static final byte DBG_RENDERED_OK  = 4;
+
+	private boolean dbgFirstSeen(long id, byte bit) {
+		final Byte cur = RENDER_DBG.get(id);
+		final byte b = cur == null ? 0 : cur;
+		if ((b & bit) != 0) return false;
+		RENDER_DBG.put(id, (byte) (b | bit));
+		return true;
+	}
+
 	@Override
 	public void renderBody(SpriteBatch batch) {
-		if (this.getSpriteSheet() == null) return;
+		if (this.getSpriteSheet() == null) {
+			if (dbgFirstSeen(this.getId(), DBG_NULL_SHEET)) {
+				log.warn("[RENDER] Player {} ({}) skipped: spriteSheet=null classId={}",
+						this.getId(), this.getName(), this.classId);
+			}
+			return;
+		}
 		final TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
-		if (frame == null) return;
+		if (frame == null) {
+			if (dbgFirstSeen(this.getId(), DBG_NULL_FRAME)) {
+				log.warn("[RENDER] Player {} ({}) skipped: currentFrame=null classId={} frameCount={}",
+						this.getId(), this.getName(), this.classId,
+						this.getSpriteSheet().getFrameCount());
+			}
+			return;
+		}
 		final int rs = GlobalConstants.PLAYER_RENDER_SIZE;
 		final float offset = (rs - this.size) / 2f;
 		final float px = this.getEffectiveRenderX();
 		final float py = this.getEffectiveRenderY();
 		final float wx = (px - Vector2f.worldX) - offset;
 		final float wy = (py - Vector2f.worldY) - offset;
+		if (dbgFirstSeen(this.getId(), DBG_RENDERED_OK)) {
+			log.info("[RENDER] Player {} ({}) drawing at world({}, {}) -> screen({}, {}) size={} rs={}",
+					this.getId(), this.getName(), px, py, wx, wy, this.size, rs);
+		}
 		if (this.left) {
 			batch.draw(frame, wx + rs, wy, -rs, rs);
 		} else {

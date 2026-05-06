@@ -713,8 +713,10 @@ public class PlayState extends GameState {
 
             if (this.pui != null) {
                 if (key.m.clicked) this.pui.getMinimap().toggle();
-                if (key.plus.down) this.pui.getMinimap().zoomIn();
-                if (key.minus.down) this.pui.getMinimap().zoomOut();
+                // Zoom is driven by the minimap's own mouse-wheel handler now
+                // (see Minimap input pass) — the +/- keyboard fallback was
+                // removed alongside the textured-quad rewrite. Keep this
+                // input branch in case future layouts re-add keyboard zoom.
             }
         }
 
