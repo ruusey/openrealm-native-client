@@ -14,15 +14,34 @@ import com.openrealm.account.dto.SessionTokenDto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 
 @AllArgsConstructor
 @Data
+@Slf4j
 public class OpenRealmServerDataService implements OpenRealmDataService{
     private static final transient ObjectMapper REQUEST_MAPPER = new ObjectMapper();
     private HttpClient httpClient;
     private String baseUrl;
-    
+
+    /**
+     * Log elapsed time for a single REST round-trip from the game server to
+     * the data service. Mirrors the format used by OpenRealmClientDataService
+     * so log lines are filterable with the same grep, and matches the
+     * server-side request filter in openrealm-data. Slow calls (&gt;250 ms)
+     * escalate to WARN.
+     */
+    private static void logTiming(String method, String path, int status, long startNanos) {
+        final long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+        if (elapsedMs >= 250) {
+            log.warn("[DATA-CALL] {} {} -> {} in {} ms (slow)", method, path, status, elapsedMs);
+        } else {
+            log.info("[DATA-CALL] {} {} -> {} in {} ms", method, path, status, elapsedMs);
+        }
+    }
+
     public <T> T executeDelete(String path, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
                 .uri(targetURI).DELETE();
@@ -30,6 +49,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
 
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
                 HttpResponse.BodyHandlers.ofString());
+        logTiming("DELETE", path, response.statusCode(), t0);
         if (response.statusCode() != 200)
             throw new IOException(response.body());
 
@@ -37,6 +57,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
     }
 
     public <T> T executePost(String path, Object object, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final BodyPublisher body = HttpRequest.BodyPublishers
                 .ofString(OpenRealmServerDataService.REQUEST_MAPPER.writeValueAsString(object));
@@ -45,6 +66,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
 
 
         HttpResponse<String> response = this.httpClient.send(httpRequest.build(), HttpResponse.BodyHandlers.ofString());
+        logTiming("POST", path, response.statusCode(), t0);
         if (response.statusCode() != 200)
             throw new IOException(response.body());
 
@@ -52,6 +74,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
     }
 
     public <T> T executePut(String path, Object object, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final BodyPublisher body = HttpRequest.BodyPublishers
                 .ofString(OpenRealmServerDataService.REQUEST_MAPPER.writeValueAsString(object));
@@ -61,6 +84,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
 
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
                 HttpResponse.BodyHandlers.ofString());
+        logTiming("PUT", path, response.statusCode(), t0);
         if (response.statusCode() != 200)
             throw new IOException(response.body());
 
@@ -68,12 +92,14 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
     }
 
     public String executeGet(String path, Map<String, String> queryParams) throws Exception {
+        final long t0 = System.nanoTime();
         URI targetURI = new URI(this.baseUrl + path);
         HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
                 .uri(targetURI).GET();
         HttpResponse<String> response = this.httpClient.send(httpRequest.build(), HttpResponse.BodyHandlers.ofString());
 
 
+        logTiming("GET", path, response.statusCode(), t0);
         // TODO: Add query params
         if (response.statusCode() != 200)
             throw new IOException(response.body());
@@ -82,12 +108,14 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
     }
 
     public <T> T executeGet(String path, Map<String, String> queryParams, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
                 .uri(targetURI).GET();
 
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
                 HttpResponse.BodyHandlers.ofString());
+        logTiming("GET", path, response.statusCode(), t0);
         // TODO: Add query params
         if (response.statusCode() != 200)
             throw new IOException(response.body());
@@ -96,6 +124,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
     }
 
     public <T> T executeGetWithToken(String path, String token, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest request = HttpRequest.newBuilder()
                 .uri(targetURI)
@@ -104,6 +133,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
                 .header("Authorization", token)
                 .build();
         final HttpResponse<String> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        logTiming("GET", path, response.statusCode(), t0);
         if (response.statusCode() >= 400) {
             throw new IOException(response.body());
         }

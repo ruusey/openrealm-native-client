@@ -80,6 +80,42 @@ flowchart LR
 | openrealm game server (WS)   | 2223         | hardcoded          |
 | MongoDB (used by data svc)   | 27017        | spring config      |
 
+## Performance instrumentation
+
+Every cross-service REST call is instrumented at both ends with a uniform
+log line. Format:
+
+```
+[DATA-CALL] <METHOD> <PATH> -> <STATUS> in <ELAPSED_MS> ms
+```
+
+Calls slower than **250 ms** escalate to `WARN` and gain a `(slow)` suffix
+so they're easy to grep out of long logs.
+
+| Side | Where | Source |
+|------|-------|--------|
+| Outbound from native client | `OpenRealmClientDataService.logTiming` | wraps every `executeGet/Post/Put/Delete` |
+| Outbound from game server   | `OpenRealmServerDataService.logTiming` | same wrapper, separate copy in `openrealm/` |
+| Inbound at data service     | `RequestTimingFilter` (Servlet filter, `Order=HIGHEST_PRECEDENCE`) | logs every REST request the data service serves |
+
+Static / asset routes (`/game-data/*`, `/webclient/*`, `/static/*`, etc.)
+are excluded from the inbound filter — they fire by the hundred at client
+boot and bury account / vault traffic otherwise.
+
+Use this to triangulate where time is being spent on a slow login or a
+character save:
+
+- Outbound time on the consumer side AND inbound time on the data service
+  side roughly equal → DB / data-service work is the bottleneck.
+- Outbound time much larger than inbound → network or HTTP-client overhead
+  (sometimes JSON marshalling on a hot path).
+
+A typical grep (after copying logs side-by-side):
+
+```bash
+grep '\[DATA-CALL\]' app.log | sort -t'>' -k2 -n   # by status, then time-ish
+```
+
 ## Repo responsibilities
 
 - **`openrealm-data`** — Spring Boot service. Owns the database. Serves the web client

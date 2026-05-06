@@ -20,10 +20,12 @@ import com.openrealm.account.dto.SessionTokenDto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import java.util.Collections;
 
 @AllArgsConstructor
 @Data
+@Slf4j
 public class OpenRealmClientDataService implements OpenRealmDataService{
     // TODO: make POST/GET methods private
     // and expose public routine specific methods.
@@ -33,7 +35,25 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     private String baseUrl;
     private String sessionToken;
 
+    /**
+     * Log the elapsed time for a single REST round-trip. Format chosen so log
+     * lines can be grep'd downstream (e.g. <code>grep '\[DATA-CALL\]' app.log
+     * | sort -k? -n</code>) and so the client-side and server-side numbers
+     * line up — the data service uses the same prefix in its request filter.
+     * Slow calls (&gt;250 ms) escalate to WARN so they stand out without
+     * needing to scan INFO output.
+     */
+    private static void logTiming(String method, String path, int status, long startNanos) {
+        final long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+        if (elapsedMs >= 250) {
+            log.warn("[DATA-CALL] {} {} -> {} in {} ms (slow)", method, path, status, elapsedMs);
+        } else {
+            log.info("[DATA-CALL] {} {} -> {} in {} ms", method, path, status, elapsedMs);
+        }
+    }
+
     public <T> T executeDelete(String path, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
                 .uri(targetURI).DELETE();
@@ -41,6 +61,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
 
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
                 HttpResponse.BodyHandlers.ofString());
+        logTiming("DELETE", path, response.statusCode(), t0);
         if (response.statusCode() != 200)
             throw new IOException(response.body());
 
@@ -48,6 +69,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     }
 
     public <T> T executePost(String path, Object object, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final BodyPublisher body = HttpRequest.BodyPublishers
                 .ofString(OpenRealmClientDataService.REQUEST_MAPPER.writeValueAsString(object));
@@ -56,6 +78,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         this.setAuth(httpRequest);
 
         HttpResponse<String> response = this.httpClient.send(httpRequest.build(), HttpResponse.BodyHandlers.ofString());
+        logTiming("POST", path, response.statusCode(), t0);
         if (response.statusCode() != 200)
             throw new IOException(response.body());
 
@@ -63,6 +86,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     }
 
     public <T> T executePut(String path, Object object, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final BodyPublisher body = HttpRequest.BodyPublishers
                 .ofString(OpenRealmClientDataService.REQUEST_MAPPER.writeValueAsString(object));
@@ -72,6 +96,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
 
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
                 HttpResponse.BodyHandlers.ofString());
+        logTiming("PUT", path, response.statusCode(), t0);
         if (response.statusCode() != 200)
             throw new IOException(response.body());
 
@@ -79,12 +104,14 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     }
 
     public String executeGet(String path, Map<String, String> queryParams) throws Exception {
+        final long t0 = System.nanoTime();
         URI targetURI = new URI(this.baseUrl + path);
         HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
                 .uri(targetURI).GET();
         HttpResponse<String> response = this.httpClient.send(httpRequest.build(), HttpResponse.BodyHandlers.ofString());
         this.setAuth(httpRequest);
 
+        logTiming("GET", path, response.statusCode(), t0);
         // TODO: Add query params
         if (response.statusCode() != 200)
             throw new IOException(response.body());
@@ -93,12 +120,14 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     }
 
     public <T> T executeGet(String path, Map<String, String> queryParams, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
                 .uri(targetURI).GET();
         this.setAuth(httpRequest);
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
                 HttpResponse.BodyHandlers.ofString());
+        logTiming("GET", path, response.statusCode(), t0);
         // TODO: Add query params
         if (response.statusCode() != 200)
             throw new IOException(response.body());
@@ -107,6 +136,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     }
 
     public <T> T executeGetWithToken(String path, String token, Class<T> responseClass) throws Exception {
+        final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest request = HttpRequest.newBuilder()
                 .uri(targetURI)
@@ -115,6 +145,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
                 .header("Authorization", token)
                 .build();
         final HttpResponse<String> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        logTiming("GET", path, response.statusCode(), t0);
         if (response.statusCode() >= 400) {
             throw new IOException(response.body());
         }
