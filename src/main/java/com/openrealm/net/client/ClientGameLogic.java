@@ -373,18 +373,40 @@ public class ClientGameLogic {
 				if (p.getId() == cli.getCurrentPlayerId()) {
 					continue;
 				}
+				// Defensive: skip remote players whose LoadPacket pos is
+				// exactly (0, 0). That's the server's
+				// uninitialized-Vector2f sentinel — typically observed when
+				// a remote join races our LoadPacket assembly. The next
+				// LoadPacket (server re-broadcasts every couple seconds)
+				// will deliver the real spawn pos and add them properly.
+				// Without this gate the player gets stuck at (0, 0) for
+				// the whole session because addPlayerIfNotExists is a
+				// no-op once the entry is present.
+				if (p.getPos() != null
+						&& p.getPos().x == 0f && p.getPos().y == 0f) {
+					continue;
+				}
+				final boolean wasNew = cli.getRealm().getPlayer(p.getId()) == null;
 				cli.getRealm().addPlayerIfNotExists(p);
 				// Register short ID mapping for compact movement packets
 				if (player.getShortId() != 0) {
 					cli.getShortIdToLongId().put(player.getShortId(), player.getId());
 				}
-				// If this player was already in the realm but has no sprite
-				// sheet (added during boot before ANIMATIONS data loaded, or
-				// before the texture cache was populated), re-attempt the
-				// sprite load now using the freshly-built `p` instance —
-				// addPlayerIfNotExists is a no-op so we do this manually to
-				// recover. Without this, remote players added too early stay
-				// invisible forever even after the sheets are available.
+				// One-shot diagnostic — log the pos used when a remote player
+				// is FIRST inserted into the realm. If that pos is already
+				// (0, 0), the bug is in the LoadPacket payload (server or
+				// wire). If it's correct here but we still see (0, 0) on
+				// screen later, the corruption is downstream
+				// (applyServerCorrection / movePlayer / clobbered Vector2f).
+				if (wasNew) {
+					final float lpx = p.getPos() == null ? Float.NaN : p.getPos().x;
+					final float lpy = p.getPos() == null ? Float.NaN : p.getPos().y;
+					log.info("[LOADPACKET] Added remote player id={} name={} loadPos=({}, {}) classId={} size={}",
+							p.getId(), p.getName(), lpx, lpy, p.getClassId(), p.getSize());
+				}
+				// Existing-player sprite recovery: if the prior add happened
+				// before ANIMATIONS data loaded, addPlayerIfNotExists kept
+				// the spriteSheet=null entry. Patch it up in place.
 				try {
 					Player existing = cli.getRealm().getPlayer(p.getId());
 					if (existing != null && existing.getSpriteSheet() == null
