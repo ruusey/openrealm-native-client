@@ -834,24 +834,105 @@ public class TileManager {
             batch.setColor(1, 1, 1, 1);
             ShaderManager.clearEffect(batch);
 
-            // Fake-3D side strip: same texture stretched into a band along the
-            // south edge of the tile, darkened to suggest a shaded wall face.
-            // Drawn before the top tile so the top sits cleanly on the seam.
-            batch.setColor(WALL_SIDE_BRIGHTNESS, WALL_SIDE_BRIGHTNESS, WALL_SIDE_BRIGHTNESS, 1f);
+            // Fake-3D wall extrusion. Mirrors the webclient (renderer.js
+            // Pass 2 isWall block): solid black bands with an alpha gradient
+            // on every wall edge that does NOT face another wall, plus white
+            // top-light highlights on the N and W edges of edge-walls.
+            //
+            // Adjacency lookup is by tile grid coords. Walls sharing a face
+            // skip that face's bands so internal seams stay clean.
+            java.util.HashSet<Long> wallSet = new java.util.HashSet<>(wallTiles.size() * 2);
             for (Tile t : wallTiles) {
-                TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
-                if (region == null) continue;
+                int sz = t.getWidth();
+                if (sz <= 0) continue;
+                long col = (long) Math.floor(t.getPos().getWorldVar().x / sz);
+                long row = (long) Math.floor(t.getPos().getWorldVar().y / sz);
+                wallSet.add((row << 32) | (col & 0xffffffffL));
+            }
+
+            batch.end();
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            for (Tile t : wallTiles) {
+                int sz = t.getWidth();
+                if (sz <= 0) continue;
                 float wx = t.getPos().getWorldVar().x;
                 float wy = t.getPos().getWorldVar().y;
-                int sz = t.getWidth();
-                int wallHeight = Math.max(2, (int) (sz * WALL_HEIGHT_RATIO));
-                batch.draw(region, wx, wy + sz, sz, wallHeight);
+                long col = (long) Math.floor(wx / sz);
+                long row = (long) Math.floor(wy / sz);
+                boolean wN = wallSet.contains(((row - 1) << 32) | (col & 0xffffffffL));
+                boolean wS = wallSet.contains(((row + 1) << 32) | (col & 0xffffffffL));
+                boolean wW = wallSet.contains((row << 32) | ((col - 1) & 0xffffffffL));
+                boolean wE = wallSet.contains((row << 32) | ((col + 1) & 0xffffffffL));
+
+                if (!wS) {
+                    int sideH = Math.max(Math.round(sz * 0.28f), 4);
+                    int bandH = Math.max(1, (int) Math.ceil(sideH / 3.0));
+                    float xEnd = sz + (wE ? 0 : Math.round(sz * 0.18f));
+                    shapes.setColor(0f, 0f, 0f, 0.55f); shapes.rect(wx, wy + sz,             xEnd, bandH);
+                    shapes.setColor(0f, 0f, 0f, 0.32f); shapes.rect(wx, wy + sz + bandH,     xEnd, bandH);
+                    shapes.setColor(0f, 0f, 0f, 0.13f); shapes.rect(wx, wy + sz + 2 * bandH, xEnd, bandH);
+                }
+                if (!wE) {
+                    int sideW = Math.max(Math.round(sz * 0.18f), 3);
+                    int bandW = Math.max(1, (int) Math.ceil(sideW / 3.0));
+                    float startY = wy + (wN ? 0 : 2);
+                    float h = (wy + sz) - startY;
+                    shapes.setColor(0f, 0f, 0f, 0.42f); shapes.rect(wx + sz,             startY, bandW, h);
+                    shapes.setColor(0f, 0f, 0f, 0.24f); shapes.rect(wx + sz + bandW,     startY, bandW, h);
+                    shapes.setColor(0f, 0f, 0f, 0.10f); shapes.rect(wx + sz + 2 * bandW, startY, bandW, h);
+                }
+                if (!wW) {
+                    int sideW = Math.max(Math.round(sz * 0.13f), 3);
+                    int bandW = Math.max(1, (int) Math.ceil(sideW / 3.0));
+                    shapes.setColor(0f, 0f, 0f, 0.32f); shapes.rect(wx - bandW,         wy, bandW, sz);
+                    shapes.setColor(0f, 0f, 0f, 0.18f); shapes.rect(wx - 2 * bandW,     wy, bandW, sz);
+                    shapes.setColor(0f, 0f, 0f, 0.08f); shapes.rect(wx - 3 * bandW,     wy, bandW, sz);
+                }
+                if (!wN) {
+                    int sideH = Math.max(Math.round(sz * 0.12f), 3);
+                    int bandH = Math.max(1, (int) Math.ceil(sideH / 3.0));
+                    float xStart = wx + (wW ? 0 : 2);
+                    float xEnd   = wx + sz - (wE ? 0 : 2);
+                    float w = xEnd - xStart;
+                    shapes.setColor(0f, 0f, 0f, 0.28f); shapes.rect(xStart, wy - bandH,         w, bandH);
+                    shapes.setColor(0f, 0f, 0f, 0.15f); shapes.rect(xStart, wy - 2 * bandH,     w, bandH);
+                    shapes.setColor(0f, 0f, 0f, 0.06f); shapes.rect(xStart, wy - 3 * bandH,     w, bandH);
+                }
             }
-            batch.setColor(1, 1, 1, 1);
+            shapes.end();
+            batch.begin();
 
             for (Tile t : wallTiles) {
                 t.render(batch);
             }
+
+            // N + W highlights on edge walls (top-light from NW). Drawn after
+            // the top tile so they sit on top of the wall texture's edge.
+            batch.end();
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            for (Tile t : wallTiles) {
+                int sz = t.getWidth();
+                if (sz <= 0) continue;
+                float wx = t.getPos().getWorldVar().x;
+                float wy = t.getPos().getWorldVar().y;
+                long col = (long) Math.floor(wx / sz);
+                long row = (long) Math.floor(wy / sz);
+                boolean wN = wallSet.contains(((row - 1) << 32) | (col & 0xffffffffL));
+                boolean wW = wallSet.contains((row << 32) | ((col - 1) & 0xffffffffL));
+                if (!wN) {
+                    shapes.setColor(1f, 1f, 1f, 0.26f); shapes.rect(wx, wy,     sz, 2);
+                    shapes.setColor(1f, 1f, 1f, 0.11f); shapes.rect(wx, wy + 2, sz, 2);
+                }
+                if (!wW) {
+                    shapes.setColor(1f, 1f, 1f, 0.14f); shapes.rect(wx,     wy, 1, sz);
+                    shapes.setColor(1f, 1f, 1f, 0.06f); shapes.rect(wx + 1, wy, 1, sz);
+                }
+            }
+            shapes.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+            batch.begin();
         }
 
         // Pass 3: Render object tiles (collision decorations) with circular shadow
