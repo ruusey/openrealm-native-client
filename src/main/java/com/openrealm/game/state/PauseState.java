@@ -81,34 +81,36 @@ public class PauseState extends GameState {
         if (this.vault.isVisible()) return;
 
         final List<CharacterDto> alive = this.aliveChars();
-        // Layout: rows drawn in render() at the same coordinates we use for
-        // hit-testing here. LibGDX mouse Y is screen-space (Y=0 at top), and
-        // the UI camera in OpenRealmGame is Y-up, so we flip Y to match the
-        // row positions used by render().
+        // The UI camera in OpenRealmGame is set up with Y-down (setToOrtho
+        // true, ...), so screen-space mouse Y matches render Y directly —
+        // no inversion. Earlier code flipped Y to "world" coords, which
+        // broke every hit test in this state and made the Return button
+        // unclickable.
         final int rowHeight = 100;
         final int rowWidth = 500;
-        // "Return to Character Select" button — drawn bottom-right in render().
+        // "Return to Character Select" button — drawn top-right in render(),
+        // below the leaderboard. Coordinates must match render() exactly.
         final int btnW = 280;
         final int btnH = 44;
         final int btnX = OpenRealmGame.width - btnW - 16;
-        final int btnY = 56; // Y-up world coords
+        final int btnY = 16;
         final int mx = mouse.getX();
-        final int myWorld = OpenRealmGame.height - mouse.getY();
+        final int my = mouse.getY();
 
         if (mouse.isPressed(1)) {
-            if (mx >= btnX && mx <= btnX + btnW && myWorld >= btnY && myWorld <= btnY + btnH) {
+            if (mx >= btnX && mx <= btnX + btnW && my >= btnY && my <= btnY + btnH) {
                 if (!this.characterSwitchRequested) {
                     this.characterSwitchRequested = true;
                     this.returnToCharSelect();
                 }
                 return;
             }
-            // Character row click: rows are stacked from y=0 upward, row i
-            // occupies [i*rowHeight, (i+1)*rowHeight) in world Y. Constrain
-            // to the row's actual horizontal width too — without this, any
-            // click on the screen at a matching Y row triggered a swap.
+            // Character row click: rows stack from y=0 downward in Y-down,
+            // row i occupies [i*rowHeight, (i+1)*rowHeight). Constrain to
+            // the row's horizontal width too — without this, any click on
+            // the screen at a matching Y row triggered a character swap.
             if (mx >= 0 && mx <= rowWidth) {
-                int idx = myWorld / rowHeight;
+                int idx = my / rowHeight;
                 if (idx >= 0 && idx < alive.size() && !this.characterSwitchRequested) {
                     CharacterDto cls = alive.get(idx);
                     CharacterClass characterClass = CharacterClass.valueOf(cls.getCharacterClass());
@@ -205,19 +207,14 @@ public class PauseState extends GameState {
             }
         }
 
-        // Top-right leaderboard
-        int lbW = 280;
-        int lbH = 250;
-        int lbX = OpenRealmGame.width - lbW - 16;
-        int lbY = OpenRealmGame.height - lbH - 16;
-        this.leaderboard.render(batch, shapes, font, lbX, lbY, lbW, lbH);
-
-        // "Return to Character Select" button (bottom-right). Coordinates
-        // must match the hit-test in input().
+        // "Return to Character Select" button — placed at top-right where
+        // the user can always see it. Coordinates must exactly match the
+        // hit-test in input(); the UI camera is Y-down so y=16 is near
+        // the top of the screen.
         int btnW = 280;
         int btnH = 44;
         int btnX = OpenRealmGame.width - btnW - 16;
-        int btnY = 56;
+        int btnY = 16;
         batch.end();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.55f, 0.40f, 0.18f, 1f);
@@ -232,9 +229,17 @@ public class PauseState extends GameState {
         String label = "Return to Character Select (B)";
         font.draw(batch, label, btnX + (btnW / 2f) - (label.length() * 4f), btnY + btnH * 0.65f);
 
-        // Bottom hint
+        // Leaderboard — drawn under the button so it doesn't overlap.
+        int lbW = 280;
+        int lbH = 250;
+        int lbX = OpenRealmGame.width - lbW - 16;
+        int lbY = btnY + btnH + 12;
+        this.leaderboard.render(batch, shapes, font, lbX, lbY, lbW, lbH);
+
+        // "Press V for Vault" hint — drawn just below the leaderboard so
+        // it sits in a clear area instead of being clipped at the corner.
         font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "Press V for Vault", OpenRealmGame.width - 180, 24);
+        font.draw(batch, "Press V for Vault", lbX + 60, lbY + lbH + 24);
 
         // Vault overlay (centered modal) — drawn last so it sits on top
         this.vault.render(batch, shapes, font);

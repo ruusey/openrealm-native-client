@@ -6,6 +6,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 
 import com.badlogic.gdx.graphics.Pixmap;
@@ -166,10 +167,98 @@ public class GameSpriteManager {
     private static final Set<String> BUNDLED_HUD_SHEETS =
             Set.of("ui.png", "buttons.png");
 
+    /**
+     * Build the union of (a) the hardcoded {@link #SPRITE_NAMES} baseline
+     * (HUD chrome + sheets we always want to preload) and (b) every
+     * spriteKey referenced by data loaded into GameDataManager — items,
+     * tiles, enemies, portals, animations, character classes, set pieces.
+     * Without this, a newly-added item/tile that points at a brand-new
+     * sprite sheet (e.g. item 837 with a new sheet) silently fails to
+     * render: the sheet isn't in SPRITE_NAMES → Texture never cached →
+     * loadItemSprites' TEXTURE_CACHE.get(spriteKey) returns null → the
+     * item gets no entry in ITEM_SPRITES → blank quad in inventory and
+     * on the ground.
+     */
+    private static LinkedHashSet<String> collectAllSpriteKeys() {
+        final LinkedHashSet<String> keys = new LinkedHashSet<>();
+        for (String s : SPRITE_NAMES) keys.add(s);
+        try {
+            if (GameDataManager.GAME_ITEMS != null) {
+                for (GameItem v : GameDataManager.GAME_ITEMS.values()) {
+                    if (v != null && v.getSpriteKey() != null) keys.add(v.getSpriteKey());
+                }
+            }
+            if (GameDataManager.TILES != null) {
+                for (TileModel v : GameDataManager.TILES.values()) {
+                    if (v != null && v.getSpriteKey() != null) keys.add(v.getSpriteKey());
+                }
+            }
+            if (GameDataManager.ENEMIES != null) {
+                for (Object v : GameDataManager.ENEMIES.values()) {
+                    addSpriteKeyReflective(v, keys);
+                }
+            }
+            if (GameDataManager.PORTALS != null) {
+                for (Object v : GameDataManager.PORTALS.values()) {
+                    addSpriteKeyReflective(v, keys);
+                }
+            }
+            if (GameDataManager.PROJECTILE_GROUPS != null) {
+                for (Object v : GameDataManager.PROJECTILE_GROUPS.values()) {
+                    addSpriteKeyReflective(v, keys);
+                }
+            }
+            if (GameDataManager.SETPIECES != null) {
+                for (Object v : GameDataManager.SETPIECES.values()) {
+                    addSpriteKeyReflective(v, keys);
+                }
+            }
+            if (GameDataManager.CHARACTER_CLASSES != null) {
+                for (Object v : GameDataManager.CHARACTER_CLASSES.values()) {
+                    addSpriteKeyReflective(v, keys);
+                }
+            }
+            if (GameDataManager.ANIMATIONS != null) {
+                for (AnimationModel anim : GameDataManager.ANIMATIONS.values()) {
+                    if (anim == null) continue;
+                    // Top-level spriteKey carries the sheet for the whole
+                    // animation set when the inner SpriteModel doesn't own
+                    // its own. This is the most common pattern in
+                    // animations.json — one sheet per object.
+                    if (anim.getSpriteKey() != null && !anim.getSpriteKey().isEmpty()) {
+                        keys.add(anim.getSpriteKey());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Sprite-key discovery failed; falling back to hardcoded list. Reason: {}", e.getMessage());
+        }
+        return keys;
+    }
+
+    /** Reflectively pulls a String spriteKey off any object that has a
+     *  no-arg getSpriteKey() method; silently no-ops otherwise. Lets the
+     *  discovery walk handle EnemyModel / PortalModel / etc. without
+     *  requiring direct compile-time imports. */
+    private static void addSpriteKeyReflective(Object obj, LinkedHashSet<String> out) {
+        if (obj == null) return;
+        try {
+            java.lang.reflect.Method m = obj.getClass().getMethod("getSpriteKey");
+            Object v = m.invoke(obj);
+            if (v instanceof String && !((String) v).isEmpty()) {
+                out.add((String) v);
+            }
+        } catch (NoSuchMethodException ignored) {
+        } catch (Exception ignored) {}
+    }
+
     public static void loadSpriteImages(boolean loadRemote) {
         GameSpriteManager.TEXTURE_CACHE = new HashMap<>();
         try {
-            for (final String spriteKey : GameSpriteManager.SPRITE_NAMES) {
+            final LinkedHashSet<String> allKeys = collectAllSpriteKeys();
+            log.info("Loading {} sprite sheets ({} hardcoded + {} discovered from data)",
+                    allKeys.size(), SPRITE_NAMES.length, allKeys.size() - SPRITE_NAMES.length);
+            for (final String spriteKey : allKeys) {
                 Texture texture = null;
                 // For HUD chrome, prefer the bundled copy outright. It's tiny,
                 // we always have it, and skipping the network avoids both a

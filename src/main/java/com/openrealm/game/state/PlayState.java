@@ -647,7 +647,13 @@ public class PlayState extends GameState {
             this.pui.getOptionsWindow().toggle();
         }
 
-        if (key.escape.clicked) {
+        // Use isKeyJustPressed (rising-edge only) instead of key.escape.clicked.
+        // Key.toggle increments the press counter every frame the key is HELD,
+        // and Key.tick consumes one press per call — so holding ESC for 2+
+        // frames in a row makes clicked fire on consecutive frames. With the
+        // pop/add toggle below, that meant ESC closed the menu then immediately
+        // re-opened it ("pressing ESC just takes you back to the escape menu").
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             // Web-parity modals consume ESC first. They close themselves in
             // their own update(), but we also need to suppress the pause
             // toggle so a single keypress doesn't simultaneously close a
