@@ -51,10 +51,17 @@ public class NetLootContainer extends SerializableFieldType<NetLootContainer>{
 		LootContainer container = new LootContainer();
 		container.setLootContainerId(this.lootContainerId);
 		container.setUid(this.uid);
-		container.setTier(LootTier.valueOf(this.tier));
-		GameItem[] itemsMapped = new GameItem[items.length];	
+		final LootTier resolvedTier = LootTier.valueOf(this.tier);
+		container.setTier(resolvedTier);
+		// Sprite must be set explicitly — the no-arg ctor leaves it null,
+		// and LootContainer.render() early-returns on null sprite, so
+		// without this, non-chest bags from the wire are invisible.
+		// Chests get re-wrapped below via the 3-arg LootContainer ctor
+		// which sets sprite from LootTier.CHEST itself.
+		container.setSprite(LootTier.getLootSprite(this.tier));
+		GameItem[] itemsMapped = new GameItem[items.length];
 		for(int i = 0 ; i < items.length ; i++) {
-			
+
 			itemsMapped[i] = this.items[i] == null ? null : this.items[i].asGameItem();
 		}
 		container.setItems(itemsMapped);
@@ -62,7 +69,7 @@ public class NetLootContainer extends SerializableFieldType<NetLootContainer>{
 		container.setSpawnedTime(this.spawnedTime);
 		container.setContentsChanged(this.contentsChanged);
 		container.setSoulboundPlayerId(this.soulboundPlayerId);
-		
+
 		if(this.isChest) {
 			container = new Chest(container);
 		}

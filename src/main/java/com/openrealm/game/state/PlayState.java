@@ -52,7 +52,9 @@ import com.openrealm.net.server.packet.PlayerMovePacket;
 import com.openrealm.net.server.packet.PlayerShootPacket;
 import com.openrealm.net.server.packet.UseAbilityPacket;
 import com.openrealm.net.server.packet.LoginAckPacket;
+import com.openrealm.net.server.packet.InteractTilePacket;
 import com.openrealm.net.server.packet.UsePortalPacket;
+import com.openrealm.game.model.TileModel;
 import com.openrealm.util.Camera;
 import com.openrealm.util.Cardinality;
 import com.openrealm.util.KeyHandler;
@@ -538,6 +540,58 @@ public class PlayState extends GameState {
                     PlayState.log.error("Failed to send test UsePortalPacket", e.getMessage());
                 }
 
+            }
+
+            // F = interact with nearby tile (forge / fame store / etc).
+            // Mirrors web client's updateInteractPrompt + triggerNearbyInteract:
+            // scan a 5x5 window around the player, pick the closest tile whose
+            // TileModel has a non-empty interactionType, send InteractTilePacket.
+            // Server replies with OpenForgePacket / OpenFameStorePacket.
+            if (!key.captureMode && Gdx.input.isKeyJustPressed(Input.Keys.F)) {
+                try {
+                    final TileMap baseLayer = this.realmManager.getRealm().getTileManager().getBaseLayer();
+                    final TileMap collisionLayer = this.realmManager.getRealm().getTileManager().getCollisionLayer();
+                    final int ts = baseLayer.getTileSize();
+                    final int px = (int) (player.getPos().x / ts);
+                    final int py = (int) (player.getPos().y / ts);
+                    int bestTx = -1, bestTy = -1;
+                    float bestD2 = Float.MAX_VALUE;
+                    for (int dy = -2; dy <= 2; dy++) {
+                        for (int dx = -2; dx <= 2; dx++) {
+                            int tx = px + dx, ty = py + dy;
+                            if (tx < 0 || ty < 0 || tx >= baseLayer.getWidth() || ty >= baseLayer.getHeight()) continue;
+                            final Tile[] candidates = new Tile[]{
+                                    collisionLayer.getBlocks()[ty][tx],
+                                    baseLayer.getBlocks()[ty][tx]
+                            };
+                            for (Tile t : candidates) {
+                                if (t == null) continue;
+                                final TileModel def = GameDataManager.TILES.get((int) t.getTileId());
+                                if (def == null || def.getInteractionType() == null
+                                        || def.getInteractionType().isEmpty()) continue;
+                                final float cx = (tx + 0.5f) * ts;
+                                final float cy = (ty + 0.5f) * ts;
+                                final float ddx = cx - player.getPos().x;
+                                final float ddy = cy - player.getPos().y;
+                                final float d2 = ddx * ddx + ddy * ddy;
+                                if (d2 < bestD2 && d2 <= (3 * ts) * (3 * ts)) {
+                                    bestD2 = d2;
+                                    bestTx = tx;
+                                    bestTy = ty;
+                                }
+                            }
+                        }
+                    }
+                    if (bestTx >= 0) {
+                        InteractTilePacket pkt = new InteractTilePacket();
+                        pkt.setPlayerId(this.getPlayerId());
+                        pkt.setTileX(bestTx);
+                        pkt.setTileY(bestTy);
+                        this.realmManager.getClient().sendRemote(pkt);
+                    }
+                } catch (Exception e) {
+                    PlayState.log.error("Failed to send InteractTilePacket. Reason: {}", e.getMessage());
+                }
             }
             if (this.pui != null) {
                 this.pui.input(mouse, key);

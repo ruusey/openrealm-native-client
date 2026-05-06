@@ -6,7 +6,9 @@ import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.contants.EntityType;
 import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.contants.TextEffect;
+import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
+import com.openrealm.game.model.MapModel;
 import com.openrealm.game.entity.Bullet;
 import com.openrealm.game.entity.Enemy;
 import com.openrealm.game.entity.Player;
@@ -235,6 +237,27 @@ public class ClientGameLogic {
 				// Clear chat on realm change so the log doesn't carry over
 				// across maps / instances. Mirrors the web client.
 				try { cli.getState().getPui().getPlayerChat().clearChat(); } catch (Exception ignored) {}
+
+				// Snap local player to the new map's spawn so we don't render
+				// at the previous realm's coordinates inside the new tile
+				// mesh. The server has already done setPos for the destination
+				// (mapModel.getCenter for vault, getRandomSpawnPoint for
+				// nexus, etc.) — but ObjectMovePacket / PlayerPosAck for the
+				// local player don't fire until the next input. Without this
+				// the sprite renders inside walls / outside playable area
+				// until the player presses a movement key. The server's
+				// authoritative pos arrives next tick and corrects any
+				// drift; getCenter is a safe visual default in the meantime.
+				try {
+					final Player local = cli.getRealm().getPlayer(cli.getCurrentPlayerId());
+					final MapModel mapModel = GameDataManager.MAPS.get((int) loadPacket.getMapId());
+					if (local != null && local.getPos() != null && mapModel != null) {
+						final Vector2f spawn = mapModel.getCenter();
+						local.getPos().x = spawn.x;
+						local.getPos().y = spawn.y;
+						cli.getState().resetInterpAnchor(spawn.x, spawn.y);
+					}
+				} catch (Exception ignored) { /* best effort — server pos will follow */ }
 			}
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle LoadMap Packet. Reason: {}", e);
