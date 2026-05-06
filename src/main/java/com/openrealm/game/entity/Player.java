@@ -430,52 +430,40 @@ public class Player extends Entity {
 
 	@Override
 	public void render(SpriteBatch batch) {
-		if (this.getSpriteSheet() == null)
-			return;
-
+		// PlayState's batched world render calls renderBody(batch) on each
+		// entity, NOT render(). This method is kept for direct callers
+		// (e.g. char-select preview) but the in-world player draw goes
+		// through renderBody() below, which is where the lerped render
+		// position MUST be applied to fix the per-tick lurch.
+		if (this.getSpriteSheet() == null) return;
 		this.updateEffectState();
+		this.renderBody(batch);
+	}
 
-		TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
-		if (frame != null) {
-			int rs = GlobalConstants.PLAYER_RENDER_SIZE;
-			float offset = (rs - this.size) / 2f;
-			// Use the lerped render position when set (PlayState recomputes it
-			// every frame) so the sprite stays at screen center between ticks.
-			// Falling back to pos.x / pos.y here means non-local players (no
-			// override set) draw at their last received network position.
-			float px = this.getEffectiveRenderX();
-			float py = this.getEffectiveRenderY();
-			float wx = (px - Vector2f.worldX) - offset;
-			float wy = (py - Vector2f.worldY) - offset;
-
-			// Soft drop shadow under the sprite. A flat dark ellipse in
-			// world-space, drawn as a stretched silhouette of the texture
-			// shifted down by ~3 px. Mirrors the web client's small shadow
-			// disc at the player's feet — gives depth without the chunky
-			// 4-direction silhouette outline the legacy code used.
-			ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
-			batch.setColor(0f, 0f, 0f, 0.35f);
-			float shadowYOffset = 3f;
-			if (this.left) {
-				batch.draw(frame, wx + rs, wy + shadowYOffset, -rs, rs);
-			} else {
-				batch.draw(frame, wx, wy + shadowYOffset, rs, rs);
-			}
-			batch.setColor(1f, 1f, 1f, 1f);
-			ShaderManager.clearEffect(batch);
-
-			// (Outline pass removed per user request — only shadow + body.)
-
-			// Body sprite with whatever effect tint is active (POISONED,
-			// HEALING, etc. or NORMAL).
-			Sprite.EffectEnum currentEffect = this.getSpriteSheet().getCurrentEffect();
-			ShaderManager.applyEffect(batch, currentEffect);
-			if (this.left) {
-				batch.draw(frame, wx + rs, wy, -rs, rs);
-			} else {
-				batch.draw(frame, wx, wy, rs, rs);
-			}
-			ShaderManager.clearEffect(batch);
+	/**
+	 * Override Entity.renderBody so the LOCAL player draws at its lerped
+	 * render position (set every frame in PlayState.input()) rather than
+	 * pos.x / pos.y (which advances in 1/64s tick steps and causes a
+	 * visible per-tick "lurch" between camera and sprite).
+	 *
+	 * Non-local players have renderX=NaN → effective position falls back
+	 * to pos.x / pos.y, identical to the old behaviour.
+	 */
+	@Override
+	public void renderBody(SpriteBatch batch) {
+		if (this.getSpriteSheet() == null) return;
+		final TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
+		if (frame == null) return;
+		final int rs = GlobalConstants.PLAYER_RENDER_SIZE;
+		final float offset = (rs - this.size) / 2f;
+		final float px = this.getEffectiveRenderX();
+		final float py = this.getEffectiveRenderY();
+		final float wx = (px - Vector2f.worldX) - offset;
+		final float wy = (py - Vector2f.worldY) - offset;
+		if (this.left) {
+			batch.draw(frame, wx + rs, wy, -rs, rs);
+		} else {
+			batch.draw(frame, wx, wy, rs, rs);
 		}
 	}
 

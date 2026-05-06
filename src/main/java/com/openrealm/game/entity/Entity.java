@@ -277,24 +277,17 @@ public abstract class Entity extends GameObject {
     }
 
     /**
-     * Draw the silhouette outline using 2 diagonal offset copies (down from 4).
-     * Called during the batched silhouette pass (shader already set by caller).
+     * Outline pass — intentionally a no-op. Previously this drew 2 diagonal
+     * offset copies of the sprite under a SILHOUETTE shader, producing the
+     * 2.5 px black halo around every player and enemy that the user
+     * repeatedly asked to remove. The web client renders the sprite body
+     * with no outline at all, so the halo is gone here too.
+     *
+     * Kept as a method so PlayState's batched render loop still has
+     * something safe to call.
      */
     public void renderOutline(SpriteBatch batch) {
-        if (this.getSpriteSheet() == null) return;
-        TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
-        if (frame == null) return;
-        Vector2f wv = this.pos.getWorldVar();
-        float wx = wv.x;
-        float wy = wv.y;
-        float ox = 2.5f;
-        if (this.left) {
-            batch.draw(frame, wx + this.size + ox, wy + ox, -this.size, this.size);
-            batch.draw(frame, wx + this.size - ox, wy - ox, -this.size, this.size);
-        } else {
-            batch.draw(frame, wx + ox, wy + ox, this.size, this.size);
-            batch.draw(frame, wx - ox, wy - ox, this.size, this.size);
-        }
+        // intentionally empty
     }
 
     /**

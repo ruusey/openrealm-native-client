@@ -28,11 +28,19 @@ import com.openrealm.game.entity.Player;
 @Slf4j
 public class PlayerChat {
     private static final int CHAT_SIZE = 15;
+    /** When collapsed, only this many trailing messages are shown so the
+     *  log doesn't take up half the screen. Toggle with the BACKTICK key
+     *  (or the click target rendered above the chat panel). */
+    private static final int COLLAPSED_VISIBLE = 3;
     private Map<String, TextPacket> playerChat;
     private String currentMessage;
     private boolean chatOpen;
     private boolean releasedEnter;
     private boolean pressedEnter;
+    /** True = only show the last COLLAPSED_VISIBLE messages. False = show
+     *  all CHAT_SIZE. Defaults to collapsed so chat is unobtrusive. */
+    private boolean collapsed = true;
+    private boolean lastTildeDown = false;
     private PlayState state;
 
     public PlayerChat(PlayState state) {
@@ -65,6 +73,16 @@ public class PlayerChat {
     }
 
     public void input(MouseHandler mouse, KeyHandler key, SocketClient client) {
+        // Backtick (`) toggles collapsed/expanded. Edge-detected so holding
+        // the key doesn't flicker. Suppressed while typing a message so the
+        // user can include backticks in chat.
+        boolean tildeDown = !key.captureMode
+                && Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.GRAVE);
+        if (tildeDown && !this.lastTildeDown) {
+            this.collapsed = !this.collapsed;
+        }
+        this.lastTildeDown = tildeDown;
+
         if (key.captureMode) {
             this.currentMessage = key.getContent();
         }
@@ -125,18 +143,27 @@ public class PlayerChat {
         float originalScale = font.getData().scaleX;
         font.getData().setScale(1.0f);
 
-        // Increased line height so messages don't visually crash into each
-        // other (was 14 — too tight for readability per user feedback).
         float lineHeight = 22f;
-        // Web-parity: chat panel pinned to 1/5 of total screen width.
         final float chatWidth = OpenRealmGame.width / 5f;
 
-        // Solid black panel behind the chat log so the messages are legible
-        // over busy world tiles and entities. Only drawn if there's at
-        // least one message, so an empty chat doesn't paint a stray box.
-        if (!this.playerChat.isEmpty()) {
-            float bgTop    = OpenRealmGame.height - (PlayerChat.CHAT_SIZE * lineHeight) - 100 - 4;
-            float bgBottom = OpenRealmGame.height - (1 * lineHeight) - 100 + lineHeight - 2;
+        // How many rows we'll actually draw: 3 when collapsed, full log
+        // (up to CHAT_SIZE) when expanded. The on-screen ROWS reserved
+        // mirror this so the black background only covers visible text.
+        final int totalMessages = this.playerChat.size();
+        final int visibleRows = this.collapsed
+                ? Math.min(COLLAPSED_VISIBLE, totalMessages)
+                : Math.min(PlayerChat.CHAT_SIZE, totalMessages);
+
+        // Slot indices: bottommost row is "1", next up is "2", etc.
+        // The latest message goes in slot 1 so chat reads top-down with
+        // the most recent at the bottom near the input line.
+        // y for slot k = height - k*lineHeight - 100.
+
+        // Black panel sized to the visible rows + a hint label above
+        // when collapsed.
+        if (visibleRows > 0) {
+            float bgTop    = OpenRealmGame.height - (visibleRows * lineHeight) - 100 - 4;
+            float bgBottom = OpenRealmGame.height - 100 + lineHeight - 2;
             float bgH = bgBottom - bgTop;
             batch.end();
             Gdx.gl.glEnable(GL20.GL_BLEND);
@@ -150,14 +177,28 @@ public class PlayerChat {
             batch.begin();
         }
 
+        // Toggle hint, drawn above the chat panel (always visible).
+        font.setColor(new Color(0.65f, 0.65f, 0.65f, 0.85f));
+        String hint = this.collapsed
+                ? "[`] expand chat (" + totalMessages + ")"
+                : "[`] collapse chat";
+        font.draw(batch, hint, 8, OpenRealmGame.height - (visibleRows * lineHeight) - 100 - 6);
+
         font.setColor(Color.WHITE);
 
-        int index = PlayerChat.CHAT_SIZE;
+        // Iterate in insertion order (oldest → newest); skip everything
+        // before the trailing window we'll display.
+        final int skip = Math.max(0, totalMessages - visibleRows);
+        int seen = 0;
+        // Slot counts down so newest message lands at slot 1 (bottom row).
+        int slot = visibleRows;
         for (Map.Entry<String, TextPacket> packet : this.playerChat.entrySet()) {
+            if (seen++ < skip) continue;
             final TextPacket pkt = packet.getValue();
             final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
             final String body = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
-            float y = OpenRealmGame.height - (index * lineHeight) - 100;
+            float y = OpenRealmGame.height - (slot * lineHeight) - 100;
+            slot--;
 
             // Sender name colored by chatRole (sysadmin red, admin blue,
             // mod green, editor purple, demo gray, default off-white).
@@ -180,7 +221,6 @@ public class PlayerChat {
                     ? body.substring(0, Math.max(0, maxBodyChars - 1)) + "…"
                     : body;
             font.draw(batch, shownBody, 8 + prefixWidth, y);
-            index--;
         }
 
         if (this.chatOpen) {

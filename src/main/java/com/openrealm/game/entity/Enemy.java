@@ -934,23 +934,10 @@ public class Enemy extends Entity {
             float wx = this.pos.getWorldVar().x;
             float wy = this.pos.getWorldVar().y;
 
-            // Soft drop shadow underneath, matching the player. Replaces the
-            // chunky 4-direction silhouette outline (2.5 px offset draws on
-            // each axis) the legacy code drew — that produced a 3–4 px black
-            // halo on every enemy sprite which the user repeatedly asked to
-            // remove. The web client uses a small shadow disc instead and
-            // skips the outline entirely.
-            ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
-            batch.setColor(0f, 0f, 0f, 0.35f);
-            float shadowYOffset = 3f;
-            if (this.left) {
-                batch.draw(frame, wx + this.size, wy + shadowYOffset, -this.size, this.size);
-            } else {
-                batch.draw(frame, wx, wy + shadowYOffset, this.size, this.size);
-            }
-            batch.setColor(1f, 1f, 1f, 1f);
-            ShaderManager.clearEffect(batch);
-
+            // No outline pass, no SILHOUETTE-shader drop shadow. The user
+            // repeatedly asked for the chunky black halo to be gone; the
+            // web client renders enemies as just the body sprite, so do
+            // the same here.
             Sprite.EffectEnum currentEffect = this.getSpriteSheet().getCurrentEffect();
             ShaderManager.applyEffect(batch, currentEffect);
             if (this.left) {

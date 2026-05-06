@@ -135,23 +135,43 @@ public abstract class GameObject {
      * Velocity is always updated immediately since it affects future extrapolation.
      */
     public void applyServerCorrection(NetObjectMovement packet) {
-        float errorX = packet.getPosX() - this.pos.x;
-        float errorY = packet.getPosY() - this.pos.y;
+        // Update velocity FIRST — this drives all future extrapolate()
+        // calls. The new velocity is the only thing we actually need from
+        // most packets; if our extrapolation is in sync with the server's,
+        // posX/posY in the packet will already match what we have.
+        this.dx = packet.getVelX();
+        this.dy = packet.getVelY();
 
-        if (errorX * errorX + errorY * errorY > CORRECTION_SNAP_THRESHOLD_SQ) {
-            // Large error — snap directly (teleport, realm transition, etc.)
+        final float errorX = packet.getPosX() - this.pos.x;
+        final float errorY = packet.getPosY() - this.pos.y;
+        final float errSq = errorX * errorX + errorY * errorY;
+
+        // Three-band reconciliation, mirroring the web client's targetX
+        // pattern in game.js updateInterpolation():
+        //
+        // 1. Large error (> ~3 tiles): hard snap. Teleport, realm
+        //    transition, packet loss recovery — no smoothing makes sense.
+        // 2. Tiny error (< 0.5 px): ignore. This is the common case when
+        //    extrapolation tracks the server. Constantly nudging pos by
+        //    sub-pixel amounts produced the visible "rubberband" jitter.
+        // 3. Mid error: stash as correctionOffset to be blended out by
+        //    blendCorrectionOffset() over the next ~50 ms. Bounded by the
+        //    SNAP threshold above, so we never blend a teleport.
+        if (errSq > CORRECTION_SNAP_THRESHOLD_SQ) {
             this.pos.x = packet.getPosX();
             this.pos.y = packet.getPosY();
             this.correctionOffsetX = 0f;
             this.correctionOffsetY = 0f;
+        } else if (errSq > 0.25f) {
+            // Replace (not accumulate) — accumulating across rapid-fire
+            // packets is what made enemies appear to move ~1.3× too fast.
+            this.correctionOffsetX = errorX;
+            this.correctionOffsetY = errorY;
         } else {
-            // Accumulate correction offset — will be blended out each tick
-            this.correctionOffsetX += errorX;
-            this.correctionOffsetY += errorY;
+            // Ignore tiny drift. Extrapolation will keep us in sync.
+            this.correctionOffsetX = 0f;
+            this.correctionOffsetY = 0f;
         }
-        // Always update velocity immediately — it drives future extrapolation
-        this.dx = packet.getVelX();
-        this.dy = packet.getVelY();
         this.bounds = new Rectangle(this.pos, this.size, this.size);
     }
 

@@ -204,43 +204,12 @@ public class PlayState extends GameState {
                 }
             }
 
+            // Animate the local player's sprite (walk/idle frames). All
+            // simulation, position update, and renderX/camera computation
+            // for the local player happens in input() now — the web client
+            // pattern of doing the entire processInput pipeline in one
+            // function. Splitting it produces visible lurch.
             player.update(time);
-            this.movePlayer(player);
-
-            // Compute the lerped visual position. The simulation pos
-            // (player.getPos()) advances in 1/64 s tick steps; we lerp
-            // from preTick (interpFromX) to postTick (player.pos) over
-            // the time we're inside the current tick window.
-            // CRITICAL: Both the camera AND the player sprite must be
-            // anchored to this same lerped value, otherwise the player
-            // appears offset from screen center by up to one tick of
-            // travel each frame — the visible "lurch". The web client
-            // does exactly this with _renderX / _renderY (main.js).
-            final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
-            final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
-            float renderX = player.getPos().x;
-            float renderY = player.getPos().y;
-            if (this.hasInterpAnchor) {
-                final float TICK_DT = 1f / 64f;
-                float interpFrac = Math.max(0f, Math.min(1f, this.moveAccumulator / TICK_DT));
-                renderX = this.interpFromX + (player.getPos().x - this.interpFromX) * interpFrac;
-                renderY = this.interpFromY + (player.getPos().y - this.interpFromY) * interpFrac;
-            }
-            // Drive the player sprite render position from the same lerped
-            // value we'll center the camera on. Without this the sprite
-            // draws at player.pos (postTick) while the camera centers on
-            // renderX (lerped) — visible as the per-tick forward jump
-            // followed by a slide-back the user reported as "lurching".
-            player.setRenderPos(renderX, renderY);
-
-            // Center on the visible playable area (everything left of the
-            // right-side HUD panel). The HUD is width/5 of the window, so
-            // shift the camera left by half that. True vertical center;
-            // no south-bias.
-            final float hudPanelWorldW = (OpenRealmGame.width / 5f) / OpenRealmGame.WORLD_SCALE;
-            PlayState.map.x = renderX - (worldViewW - hudPanelWorldW) / 2f;
-            PlayState.map.y = renderY - (worldViewH * 0.5f);
-            Vector2f.setWorldVar(PlayState.map.x, PlayState.map.y);
 
             if (this.pui != null) {
                 this.pui.update(time);
@@ -389,128 +358,79 @@ public class PlayState extends GameState {
             if ((this.cam.getTarget() == player) && !player.hasEffect(StatusEffectType.PARALYZED)) {
                 final Map<Cardinality, Boolean> lastDirectionTempMap = new HashMap<>();
                 player.input(mouse, key);
-                Cardinality c = null;
-                // FIXED-TICK simulation: server runs movement at exactly 64
-                // Hz. Client must apply movement at the SAME rate or the
-                // predictive position diverges from the server's authority,
-                // even with a dt-scaled per-frame step (floating-point
-                // accumulation + the fact that the server only consumes
-                // input at tick boundaries causes drift).
+
+                // ============================================================
+                // PORTED FROM web client main.js processInput(dt) (~line 2030):
+                // drain ticks → simulateTick(perTick) → set interpFrom/To →
+                // compute renderX = lerp(from, to, frac) → set HUD positions.
                 //
-                // Pattern: accumulate render-frame dt, then drain whole
-                // ticks of fixed length and apply per-tick movement only on
-                // those drains. Anything left in the accumulator carries
-                // into the next render frame. At 144 FPS this means the
-                // player only moves when ~16.6 ms have passed in real time,
-                // not on every render frame.
+                // This BLOCK is the entire player movement & visual position
+                // pipeline. Doing it INLINE here (not split between update()
+                // and input()) is critical: any 1-frame split between
+                // simulating and computing renderX produces visible per-tick
+                // lurch even when both endpoints are correct, because dt has
+                // moved on before the lerp catches up.
+                // ============================================================
                 final float TICK_RATE = 64f;
                 final float TICK_DT = 1f / TICK_RATE;
                 float frameDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
                 this.moveAccumulator += frameDt;
-                // Cap to prevent spiral of death (e.g. tabbed out for
-                // multiple seconds). Matches web client cap of 250 ms.
                 if (this.moveAccumulator > 0.25f) this.moveAccumulator = 0.25f;
+
+                // Direction unit vector from key state. Continuous angle
+                // (no 22.5° snapping) — matches web client's
+                // screenDirFlagsToWorldVector.
+                float vx = (player.getIsRight() ? 1f : 0f) - (player.getIsLeft() ? 1f : 0f);
+                float vy = (player.getIsDown()  ? 1f : 0f) - (player.getIsUp()   ? 1f : 0f);
+                final float mag = (float) Math.sqrt(vx * vx + vy * vy);
+                if (mag > 0f) { vx /= mag; vy /= mag; }
+
+                // Per-tick pixel step. RotMG: tiles/sec = 4 + 5.6 * (spd/75).
+                float tilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
+                if (player.hasEffect(StatusEffectType.SPEEDY)) tilesPerSec *= 1.5f;
+                final float pxPerTick = tilesPerSec * 32.0f / TICK_RATE;
+
+                // Save preTick BEFORE we drain — this is the lerp's "from".
+                final float preTickX = player.getPos().x;
+                final float preTickY = player.getPos().y;
 
                 int ticks = 0;
                 while (this.moveAccumulator >= TICK_DT) {
                     this.moveAccumulator -= TICK_DT;
+                    // Apply one tick of movement with collision check. We
+                    // set dx/dy on the player and let movePlayer (the
+                    // shared collision-aware integrator) advance pos.x/y
+                    // by exactly one tick worth.
+                    player.setDx(vx * pxPerTick);
+                    player.setDy(vy * pxPerTick);
+                    this.movePlayer(player);
                     ticks++;
                 }
-                // Anchor the sub-tick lerp BEFORE the next movement actually
-                // applies. update().movePlayer adds dx to pos on the next
-                // frame, so today's pos is the "from" anchor for the lerp
-                // that'll progress over the upcoming TICK_DT seconds.
+
                 if (ticks > 0) {
-                    this.interpFromX = player.getPos().x;
-                    this.interpFromY = player.getPos().y;
+                    this.interpFromX = preTickX;
+                    this.interpFromY = preTickY;
                     this.hasInterpAnchor = true;
                 }
-                // RotMG speed formula: tiles/sec = 4 + 5.6 * (spd_stat / 75).
-                // tilesPerSec * 32 px/tile / 64 ticks/sec = px-per-tick.
-                float tilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
-                if (player.hasEffect(StatusEffectType.SPEEDY)) {
-                    tilesPerSec *= 1.5f;
-                }
-                float spd = tilesPerSec * 32.0f / TICK_RATE * ticks;
-                // If less than one full tick has passed since the last frame,
-                // 'ticks' is 0 and the player simply doesn't advance this
-                // render frame — exactly like the web client at sub-tick
-                // intervals.
-                if (player.getIsUp()) {
-                    player.setDy(-spd);
-                    c = Cardinality.NORTH;
-                    lastDirectionTempMap.put(Cardinality.NORTH, true);
-                } else {
-                    lastDirectionTempMap.put(Cardinality.NORTH, false);
-                }
 
-                if (player.getIsDown()) {
-                    player.setDy(spd);
-                    c = Cardinality.SOUTH;
-                    lastDirectionTempMap.put(Cardinality.SOUTH, true);
-                } else {
-                    lastDirectionTempMap.put(Cardinality.SOUTH, false);
-                }
-
-                if (player.getIsLeft()) {
-                    player.setDx(-spd);
-                    c = Cardinality.WEST;
-                    lastDirectionTempMap.put(Cardinality.WEST, true);
-                } else {
-                    lastDirectionTempMap.put(Cardinality.WEST, false);
-                }
-
-                if (player.getIsRight()) {
-                    player.setDx(spd);
-                    c = Cardinality.EAST;
-                    lastDirectionTempMap.put(Cardinality.EAST, true);
-                } else {
-                    lastDirectionTempMap.put(Cardinality.EAST, false);
-                }
-                if (player.getIsUp() && player.getIsRight()) {
-                    float diagSpd = (float) ((spd * Math.sqrt(2)) / 2.0f);
-                    player.setDy(-diagSpd);
-                    player.setDx(diagSpd);
-                }
-
-                if (player.getIsUp() && player.getIsLeft()) {
-                    float diagSpd = (float) ((spd * Math.sqrt(2)) / 2.0f);
-                    player.setDy(-diagSpd);
-                    player.setDx(-diagSpd);
-                }
-
-                if (player.getIsDown() && player.getIsRight()) {
-                    float diagSpd = (float) ((spd * Math.sqrt(2)) / 2.0f);
-                    player.setDy(diagSpd);
-                    player.setDx(diagSpd);
-                }
-
-                if (player.getIsDown() && player.getIsLeft()) {
-                    float diagSpd = (float) ((spd * Math.sqrt(2)) / 2.0f);
-                    player.setDy(diagSpd);
-                    player.setDx(-diagSpd);
-                }
-
-                if (c == null) {
-                    player.setDx(0);
-                    player.setDy(0);
-                    c = Cardinality.NONE;
+                // Set facing flags for animation/aim regardless of ticks.
+                if (player.getIsUp())    lastDirectionTempMap.put(Cardinality.NORTH, true); else lastDirectionTempMap.put(Cardinality.NORTH, false);
+                if (player.getIsDown())  lastDirectionTempMap.put(Cardinality.SOUTH, true); else lastDirectionTempMap.put(Cardinality.SOUTH, false);
+                if (player.getIsLeft())  lastDirectionTempMap.put(Cardinality.WEST,  true); else lastDirectionTempMap.put(Cardinality.WEST,  false);
+                if (player.getIsRight()) lastDirectionTempMap.put(Cardinality.EAST,  true); else lastDirectionTempMap.put(Cardinality.EAST,  false);
+                if (vx == 0f && vy == 0f) {
+                    player.setDx(0); player.setDy(0);
                     lastDirectionTempMap.put(Cardinality.NONE, true);
                 }
 
+                // Send PlayerMovePacket only when direction changes (server
+                // already tracks the last-known direction and reuses it
+                // tick-to-tick).
                 if (this.lastDirectionMap == null) {
                     this.lastDirectionMap = lastDirectionTempMap;
                 }
-
                 if (!this.lastDirectionMap.equals(lastDirectionTempMap)) {
                     try {
-                        // Convert cardinal key state to a unit vector for the new
-                        // (vx, vy) wire format. Desktop client has no camera
-                        // rotation, so screen-space == world-space here.
-                        float vx = (player.getIsRight() ? 1f : 0f) - (player.getIsLeft() ? 1f : 0f);
-                        float vy = (player.getIsDown()  ? 1f : 0f) - (player.getIsUp()   ? 1f : 0f);
-                        final float mag = (float) Math.sqrt(vx * vx + vy * vy);
-                        if (mag > 0f) { vx /= mag; vy /= mag; }
                         player.setLastInputSeq(player.getLastInputSeq() + 1);
                         PlayerMovePacket packet = PlayerMovePacket.from(player, player.getLastInputSeq(), vx, vy);
                         this.realmManager.getClient().sendRemote(packet);
@@ -519,6 +439,26 @@ public class PlayState extends GameState {
                     }
                     this.lastDirectionMap = lastDirectionTempMap;
                 }
+
+                // Compute render position INLINE — must happen this same
+                // call so render() sees up-to-date values. Web client does
+                // this in the same processInput frame.
+                final float interpFrac = Math.max(0f, Math.min(1f, this.moveAccumulator / TICK_DT));
+                float renderX = this.hasInterpAnchor
+                        ? this.interpFromX + (player.getPos().x - this.interpFromX) * interpFrac
+                        : player.getPos().x;
+                float renderY = this.hasInterpAnchor
+                        ? this.interpFromY + (player.getPos().y - this.interpFromY) * interpFrac
+                        : player.getPos().y;
+                player.setRenderPos(renderX, renderY);
+
+                // Camera anchored to the same lerped position.
+                final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
+                final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
+                final float hudPanelWorldW = (OpenRealmGame.width / 5f) / OpenRealmGame.WORLD_SCALE;
+                PlayState.map.x = renderX - (worldViewW - hudPanelWorldW) / 2f;
+                PlayState.map.y = renderY - (worldViewH * 0.5f);
+                Vector2f.setWorldVar(PlayState.map.x, PlayState.map.y);
             }
             boolean canUsePortal = (System.currentTimeMillis() - this.lastPortalTick) > PORTAL_COOLDOWN_MS;
             // Space also triggers nearest-portal use, mirroring web client
