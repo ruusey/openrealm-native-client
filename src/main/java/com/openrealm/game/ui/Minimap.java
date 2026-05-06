@@ -113,10 +113,21 @@ public class Minimap {
         this.mapHeight = mapModel.getHeight();
         this.cachedMapId = mapId;
         this.zoom = 1.0f;
+        // CRITICAL: this method runs on the network packet thread
+        // (RealmManagerClient.processClientPackets) — NOT the LWJGL GL
+        // thread. Calling dispose() on the Texture here issues
+        // glDeleteTextures with no current GL context, which the LWJGL
+        // native layer responds to with abort() at the C level — JVM
+        // crashes uncatchably ("FATAL ERROR ... No context is current").
+        // That was the vault-portal crash for the past several builds.
+        //
+        // Just flag the rebuild and clear the reference. The OLD Texture
+        // becomes the GPU's problem briefly (still bound until the GC
+        // releases the JVM-side wrapper), but the next render() call —
+        // which IS on the GL thread — will see dirty=true and run
+        // rebuildMapTexture, which disposes the old field's value
+        // safely on the GL thread before allocating the new one.
         this.dirty = true;
-        // Drop any stale texture from a previous realm so we don't render it
-        // while waiting for the new one to build.
-        this.dispose();
     }
 
     /**

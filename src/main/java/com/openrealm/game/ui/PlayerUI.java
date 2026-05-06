@@ -166,15 +166,17 @@ public class PlayerUI {
         this.layoutNearbyY  = this.layoutPotionY + 56 + 14;
     }
 
-    /** Screen X for the given slot column 0..3, evenly distributed across
-     *  the right HUD column width with a small inset. */
+    /** Screen X for slot column 0..3 — divides the full usable HUD width
+     *  into 4 equal cells and centers the slot inside each cell, so the
+     *  4 slots span the panel with even gaps instead of clustering at
+     *  the left. Mirrors webclient #equipment-row CSS which uses
+     *  display:flex / justify-content:space-between. */
     private int slotX(int col) {
         final int panelW = OpenRealmGame.width / 5;
         final int startX = OpenRealmGame.width - panelW;
         final int usable = panelW - 2 * PANEL_INSET;
-        final int totalSlots = 4 * SLOT_SIZE + 3 * SLOT_GAP;
-        final int leftPad = (usable - totalSlots) / 2;
-        return startX + PANEL_INSET + leftPad + col * (SLOT_SIZE + SLOT_GAP);
+        final int cellW = usable / 4;
+        return startX + PANEL_INSET + col * cellW + (cellW - SLOT_SIZE) / 2;
     }
 
     private int groundLootRowY(int row) {
@@ -669,15 +671,30 @@ public class PlayerUI {
         shapes.rect(startX + PANEL_INSET, this.layoutStatsY - 4,
                 panelWidth - 2 * PANEL_INSET, statsH);
 
-        // Equipment slot backgrounds
-        for (int i = 0; i < equips.length; i++) {
-            Slots curr = equips[i];
-            if (curr != null) {
-                Vector2f pos = slotPositions[i];
-                if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                else { pos.x = this.slotX(i); pos.y = this.layoutEquipY; }
-                curr.renderBackground(shapes, pos);
+        // Equipment slot backgrounds — uniform grey for ALL 4 slots
+        // regardless of whether they hold an item, so empty slots don't
+        // show the dark panel underneath. Slots are spread across the
+        // full HUD column width via slotX(i) which now divides the
+        // usable width into 4 equal cells.
+        final Color cSlotBg     = new Color(0.18f, 0.16f, 0.18f, 1f);
+        final Color cSlotBorder = new Color(0.30f, 0.24f, 0.28f, 1f);
+        final Color cSlotSelected = new Color(0.55f, 0.45f, 0.18f, 1f);
+        for (int i = 0; i < 4; i++) {
+            final Slots curr = equips[i];
+            float sx, sy;
+            if (curr != null && curr.getDragPos() != null) {
+                sx = curr.getDragPos().x;
+                sy = curr.getDragPos().y;
+            } else {
+                sx = this.slotX(i);
+                sy = this.layoutEquipY;
             }
+            // Track the slot's screen pos so renderItem / hit-test
+            // downstream still see the real layout.
+            final Vector2f pos = slotPositions[i];
+            pos.x = sx; pos.y = sy;
+            shapes.setColor(curr != null && curr.isSelected() ? cSlotSelected : cSlotBg);
+            shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
         }
 
         // BAG 1 / BAG 2 tab strip — split-tab look (active = tan, inactive = muted)
@@ -700,26 +717,39 @@ public class PlayerUI {
         shapes.setColor(cAccent);
         shapes.rect(this.activeBag == 0 ? tab1X : tab2X, tabY + tabH - 2, tabW, 2);
 
-        // Inventory row 1 backgrounds (top row of the active bag)
-        for (int i = 0; i < inv1.length; i++) {
-            Slots curr = inv1[i];
-            if (curr != null) {
-                Vector2f pos = slotPositions[4 + i];
-                if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                else { pos.x = this.slotX(i); pos.y = this.layoutBag1Y; }
-                curr.renderBackground(shapes, pos);
+        // Inventory rows — same uniform grey bg pattern as equipment so the
+        // grid reads as one coherent surface regardless of which slots hold
+        // items. Webclient #inventory-panel does the same: every slot has
+        // the same .item-slot background, hover/selection adds a tint.
+        for (int i = 0; i < 4; i++) {
+            final Slots curr = inv1[i];
+            float sx, sy;
+            if (curr != null && curr.getDragPos() != null) {
+                sx = curr.getDragPos().x;
+                sy = curr.getDragPos().y;
+            } else {
+                sx = this.slotX(i);
+                sy = this.layoutBag1Y;
             }
+            final Vector2f pos = slotPositions[4 + i];
+            pos.x = sx; pos.y = sy;
+            shapes.setColor(curr != null && curr.isSelected() ? cSlotSelected : cSlotBg);
+            shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
         }
-
-        // Inventory row 2 backgrounds
-        for (int i = 0; i < inv2.length; i++) {
-            Slots curr = inv2[i];
-            if (curr != null) {
-                Vector2f pos = slotPositions[8 + i];
-                if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                else { pos.x = this.slotX(i); pos.y = this.layoutBag2Y; }
-                curr.renderBackground(shapes, pos);
+        for (int i = 0; i < 4; i++) {
+            final Slots curr = inv2[i];
+            float sx, sy;
+            if (curr != null && curr.getDragPos() != null) {
+                sx = curr.getDragPos().x;
+                sy = curr.getDragPos().y;
+            } else {
+                sx = this.slotX(i);
+                sy = this.layoutBag2Y;
             }
+            final Vector2f pos = slotPositions[8 + i];
+            pos.x = sx; pos.y = sy;
+            shapes.setColor(curr != null && curr.isSelected() ? cSlotSelected : cSlotBg);
+            shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
         }
 
         // Ground loot slot backgrounds (anchored to bottom of screen)
@@ -1115,6 +1145,29 @@ public class PlayerUI {
         }
     }
 
+    /** Cached chat-role nameplate colors used by the hover tooltip, mirrors
+     *  webclient renderer.js GameRenderer.getNameColorHex. Kept here as
+     *  well as PlayState (where the in-world nameplate uses them) so
+     *  PlayerUI doesn't need a static cross-class import dance. */
+    private static final Color UI_ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
+    private static final Color UI_ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
+    private static final Color UI_ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
+    private static final Color UI_ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
+    private static final Color UI_ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
+    private static final Color UI_ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
+
+    private static Color roleColorFor(String role) {
+        if (role == null) return UI_ROLE_DEFAULT;
+        switch (role) {
+            case "sysadmin": return UI_ROLE_SYSADMIN;
+            case "admin":    return UI_ROLE_ADMIN;
+            case "mod":      return UI_ROLE_MOD;
+            case "editor":   return UI_ROLE_EDITOR;
+            case "demo":     return UI_ROLE_DEMO;
+            default:         return UI_ROLE_DEFAULT;
+        }
+    }
+
     /** Width / height of the trade-tp context menu. Two rows of options
      *  plus a name header. Kept small so it fits next to a 2-col nearby
      *  list entry on a typical screen. */
@@ -1225,58 +1278,101 @@ public class PlayerUI {
     private void renderPlayerTooltip(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.hoveredPlayer == null) return;
 
-        Player p = this.hoveredPlayer;
-        int tooltipX = (OpenRealmGame.width / 2) + 75;
-        int tooltipY = 100;
-        int tooltipWidth = OpenRealmGame.width / 5;
-        int tooltipHeight = 120;
-        int spacing = 16;
+        final Player p = this.hoveredPlayer;
+        final int panelW = OpenRealmGame.width / 5;
+        // Anchor the tooltip to the LEFT edge of the right HUD column so it
+        // doesn't fall over the player sprite or escape the screen on
+        // narrow windows. Mirrors the webclient #player-tooltip placement
+        // (just inside the HUD, above the nearby-player list it pops from).
+        final int tooltipW = panelW;
+        final int tooltipX = OpenRealmGame.width - panelW - tooltipW - 8;
+        final int tooltipY = this.layoutNearbyY - 168;
+        final int padX = 8;
 
-        // Background
+        // Pull stats — guard nulls so a freshly-added remote player whose
+        // UpdatePacket hasn't landed yet doesn't NPE.
+        final int hp = p.getHealth();
+        final int mp = p.getMana();
+        final int maxHp = (p.getStats() != null) ? p.getStats().getHp() : 0;
+        final int maxMp = (p.getStats() != null) ? p.getStats().getMp() : 0;
+        final CharacterClass cls = CharacterClass.valueOf(p.getClassId());
+        final String className = (cls != null) ? cls.name() : "Unknown";
+
+        // Equipment slots 0-3. Server's stripped UpdatePacket
+        // (UpdatePacket.fromPlayerWithoutInventory) ships these for
+        // remote players; null until the first broadcast lands.
+        final GameItem[] equips = p.getSlots(0, 4);
+
+        // Layout sizes — equipment slots are 36px to give a little
+        // breathing room (was 32 touching). Compute panel height
+        // dynamically so we don't paint unused chrome.
+        final int rowH = 16;
+        final int equipSlot = 36;
+        final int equipGap = 6;
+        final int equipRowH = equipSlot + 8;
+        final int tooltipH = (rowH * 4) + equipRowH + 16;
+
+        // Background panel — match the webclient's tooltip palette.
         batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(new Color(0.2f, 0.2f, 0.2f, 0.9f));
-        shapes.rect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
+        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f);
+        shapes.rect(tooltipX, tooltipY, tooltipW, tooltipH);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0x4a / 255f, 0x3a / 255f, 0x58 / 255f, 1f);
+        shapes.rect(tooltipX, tooltipY, tooltipW, tooltipH);
         shapes.end();
         batch.begin();
 
-        // Player name and class
-        CharacterClass cls = CharacterClass.valueOf(p.getClassId());
-        String className = cls != null ? cls.name() : "Unknown";
-        font.setColor(Color.YELLOW);
-        font.draw(batch, p.getName() + " (" + className + ")", tooltipX + 4, tooltipY + spacing);
-
-        // HP and MP
-        font.setColor(Color.RED);
-        font.draw(batch, "HP: " + p.getHealth(), tooltipX + 4, tooltipY + (2 * spacing));
-        font.setColor(Color.BLUE);
-        font.draw(batch, "MP: " + p.getMana(), tooltipX + 100, tooltipY + (2 * spacing));
-
-        // Equipped items label
-        font.setColor(Color.WHITE);
-        font.draw(batch, "Equipment:", tooltipX + 4, tooltipY + (3 * spacing));
-
-        // Draw equipped item sprites (slots 0-3)
-        GameItem[] equips = p.getSlots(0, 4);
-        int itemX = tooltipX + 4;
-        int itemY = tooltipY + (3 * spacing) + 4;
-        int itemSize = 32;
+        int y = tooltipY + rowH;
+        // Name (role-colored)
+        font.setColor(roleColorFor(p.getChatRole()));
+        font.draw(batch, p.getName() == null ? "Player" : p.getName(), tooltipX + padX, y);
+        // Class
+        y += rowH;
+        font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
+        font.draw(batch, className, tooltipX + padX, y);
+        // HP (cur/max) — webclient parity. setColor mutated so reset to
+        // white for the divider character.
+        y += rowH;
+        font.setColor(0xe0 / 255f, 0x55 / 255f, 0x55 / 255f, 1f);
+        font.draw(batch, "HP: " + hp + "/" + maxHp, tooltipX + padX, y);
+        // MP (cur/max)
+        y += rowH;
+        font.setColor(0x55 / 255f, 0x77 / 255f, 0xe0 / 255f, 1f);
+        font.draw(batch, "MP: " + mp + "/" + maxMp, tooltipX + padX, y);
+        // Equipment row — slots 0-3 spaced with a real gap so they're
+        // not touching, no black background under empty slots.
+        y += 6;
+        final int totalEquipsW = 4 * equipSlot + 3 * equipGap;
+        int equipStartX = tooltipX + (tooltipW - totalEquipsW) / 2;
         for (int i = 0; i < equips.length; i++) {
+            final int sx = equipStartX + i * (equipSlot + equipGap);
+            // Slot bg — uniform muted purple regardless of contents,
+            // mirrors webclient .tooltip-equip-slot styling and matches
+            // the inventory slot color so the surface reads as the same
+            // material across the whole HUD.
+            batch.end();
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0x2a / 255f, 0x20 / 255f, 0x30 / 255f, 1f);
+            shapes.rect(sx, y, equipSlot, equipSlot);
+            shapes.end();
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
+            shapes.rect(sx, y, equipSlot, equipSlot);
+            shapes.end();
+            batch.begin();
             if (equips[i] != null && equips[i].getItemId() != -1) {
-                TextureRegion itemRegion = GameSpriteManager.ITEM_SPRITES.get(equips[i].getItemId());
+                final TextureRegion itemRegion = GameSpriteManager.ITEM_SPRITES.get(equips[i].getItemId());
                 if (itemRegion != null) {
-                    batch.draw(itemRegion, itemX + (i * (itemSize + 4)), itemY, itemSize, itemSize);
+                    batch.draw(itemRegion, sx + 2, y + 2, equipSlot - 4, equipSlot - 4);
                 }
-            } else {
-                // Draw empty slot placeholder
-                batch.end();
-                shapes.begin(ShapeRenderer.ShapeType.Line);
-                shapes.setColor(Color.DARK_GRAY);
-                shapes.rect(itemX + (i * (itemSize + 4)), itemY, itemSize, itemSize);
-                shapes.end();
-                batch.begin();
             }
         }
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        font.setColor(Color.WHITE);
     }
 
     /**

@@ -579,17 +579,19 @@ public class Player extends Entity {
 	}
 
 	/** Solid-color dye palette indexed by dyeId (data/dye-assets.json).
-	 *  Index 0 = no dye (-1 sentinel). Mirrors the integer color values
-	 *  the data file ships with so the displayed tint matches what the
-	 *  webclient picks. Add entries here as new dyes are added. */
+	 *  Index 0 = no dye (-1 sentinel). The integer values in the data
+	 *  file are decimal so we re-decode them exactly here — getting the
+	 *  hex wrong made every dyed player render the wrong color
+	 *  (previously had Green dye as 0x4ABFCA which is teal, not green).
+	 *  Add entries as new dyes are added to dye-assets.json. */
 	private static final int[] DYE_COLORS_RGB = new int[] {
 			-1,           // 0 — no dye
-			0x4ABFCA,     // 1 Green Dye (4899402)
-			0xE6D9A0,     // 2 Yellow Dye (15126560)
-			0xD64438,     // 3 Red Dye (14039608)
-			0x3B6AE0,     // 4 Blue Dye (3894496)
-			0x9A50C8,     // 5 Purple Dye (10110920)
-			0xEE8930,     // 6 Orange Dye (15633968)
+			0x4AC24A,     // 1 Green Dye (decimal 4899402)
+			0xE6D960,     // 2 Yellow Dye (decimal 15126560)
+			0xD64A38,     // 3 Red Dye (decimal 14039608)
+			0x3B6AE0,     // 4 Blue Dye (decimal 3894496)
+			0x9A50C8,     // 5 Purple Dye (decimal 10110920)
+			0xEE8930,     // 6 Orange Dye (decimal 15633968)
 			0xEEEEEE,     // 7 White Dye
 	};
 

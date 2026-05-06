@@ -371,6 +371,20 @@ public class ClientGameLogic {
 				Player p = player.toPlayer();
 
 				if (p.getId() == cli.getCurrentPlayerId()) {
+					// LOCAL player is added via doLoginResponse and never via
+					// addPlayerIfNotExists, but the LoadPacket is still the
+					// only place chatRole arrives — UpdatePacket doesn't
+					// carry it. Without copying it here the local player's
+					// nameplate renders in the default off-white instead of
+					// the role-colored red/blue, even though chatRole is
+					// resolved server-side.
+					try {
+						final Player localExisting = cli.getRealm().getPlayer(p.getId());
+						if (localExisting != null && p.getChatRole() != null
+								&& !p.getChatRole().isEmpty()) {
+							localExisting.setChatRole(p.getChatRole());
+						}
+					} catch (Exception ignored) { /* best-effort */ }
 					continue;
 				}
 				// Defensive: skip remote players whose LoadPacket pos is
