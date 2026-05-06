@@ -2,6 +2,7 @@ package com.openrealm.game.graphics;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 
 import lombok.extern.slf4j.Slf4j;
@@ -157,18 +158,30 @@ public class ShaderManager {
         "uniform vec2 u_texelSize;\n" +
         "uniform float u_outlineSize;\n" +
         "uniform vec4 u_outlineColor;\n" +
+        "uniform vec4 u_regionUV;\n" +
+        "float sampleAlpha(vec2 uv) {\n" +
+        "  if (uv.x < u_regionUV.x || uv.y < u_regionUV.y || uv.x > u_regionUV.z || uv.y > u_regionUV.w) {\n" +
+        "    return 0.0;\n" +
+        "  }\n" +
+        "  return texture2D(u_texture, uv).a;\n" +
+        "}\n" +
         "void main() {\n" +
         "  vec4 center = texture2D(u_texture, v_texCoords);\n" +
         "  if (center.a > 0.01) {\n" +
         "    gl_FragColor = center * v_color;\n" +
         "    return;\n" +
         "  }\n" +
-        "  float offset = u_outlineSize;\n" +
+        "  float o = u_outlineSize;\n" +
+        "  vec2 ts = u_texelSize;\n" +
         "  float a = 0.0;\n" +
-        "  a += texture2D(u_texture, v_texCoords + vec2( offset, 0.0) * u_texelSize).a;\n" +
-        "  a += texture2D(u_texture, v_texCoords + vec2(-offset, 0.0) * u_texelSize).a;\n" +
-        "  a += texture2D(u_texture, v_texCoords + vec2(0.0,  offset) * u_texelSize).a;\n" +
-        "  a += texture2D(u_texture, v_texCoords + vec2(0.0, -offset) * u_texelSize).a;\n" +
+        "  a += sampleAlpha(v_texCoords + vec2( o, 0.0) * ts);\n" +
+        "  a += sampleAlpha(v_texCoords + vec2(-o, 0.0) * ts);\n" +
+        "  a += sampleAlpha(v_texCoords + vec2(0.0,  o) * ts);\n" +
+        "  a += sampleAlpha(v_texCoords + vec2(0.0, -o) * ts);\n" +
+        "  a += sampleAlpha(v_texCoords + vec2( o,  o) * ts);\n" +
+        "  a += sampleAlpha(v_texCoords + vec2( o, -o) * ts);\n" +
+        "  a += sampleAlpha(v_texCoords + vec2(-o,  o) * ts);\n" +
+        "  a += sampleAlpha(v_texCoords + vec2(-o, -o) * ts);\n" +
         "  if (a > 0.0) {\n" +
         "    gl_FragColor = u_outlineColor;\n" +
         "  } else {\n" +
@@ -379,18 +392,27 @@ public class ShaderManager {
         lastAppliedEffect = null;
     }
 
-    /**
-     * Apply the single-pass outline shader. Renders outline + body in one draw call per entity.
-     * @param batch the sprite batch
-     * @param texWidth texture width in pixels (for texel size calculation)
-     * @param texHeight texture height in pixels
-     */
-    public static void applyOutlineShader(SpriteBatch batch, float texWidth, float texHeight) {
+    public static void applyOutlineShader(SpriteBatch batch, TextureRegion region) {
+        applyOutlineShader(batch, region, 1.0f, 0f, 0f, 0f, 1f);
+    }
+
+    public static void applyOutlineShader(SpriteBatch batch, TextureRegion region,
+                                          float thickness, float r, float g, float b, float a) {
+        if (region == null || region.getTexture() == null) return;
+        final float atlasW = region.getTexture().getWidth();
+        final float atlasH = region.getTexture().getHeight();
         batch.setShader(outlineShader);
-        outlineShader.setUniformf("u_texelSize", 1.0f / texWidth, 1.0f / texHeight);
-        outlineShader.setUniformf("u_outlineSize", 2.5f);
-        outlineShader.setUniformf("u_outlineColor", 0.2f, 0.2f, 0.2f, 1.0f);
-        lastAppliedEffect = null; // force re-apply on next effect
+        outlineShader.setUniformf("u_texelSize", 1.0f / atlasW, 1.0f / atlasH);
+        outlineShader.setUniformf("u_outlineSize", thickness);
+        outlineShader.setUniformf("u_outlineColor", r, g, b, a);
+        // Region UV bounds in (u, v, u2, v2) order. Shader treats out-of-bounds
+        // sample coords as alpha=0 to prevent bleeding into adjacent atlas pages.
+        final float u  = Math.min(region.getU(),  region.getU2());
+        final float v  = Math.min(region.getV(),  region.getV2());
+        final float u2 = Math.max(region.getU(),  region.getU2());
+        final float v2 = Math.max(region.getV(),  region.getV2());
+        outlineShader.setUniformf("u_regionUV", u, v, u2, v2);
+        lastAppliedEffect = null;
     }
 
     public static void clearOutlineShader(SpriteBatch batch) {

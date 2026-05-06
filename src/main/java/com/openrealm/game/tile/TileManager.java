@@ -64,6 +64,10 @@ public class TileManager {
      *  circle is only used to gate entity / projectile spawning, not
      *  to dim tiles. Keep at 1.0 so discovered terrain stays bright. */
     private static final float FOG_BRIGHTNESS = 1.0f;
+    /** Fraction of tile size used as the fake-3D wall side-strip height. */
+    private static final float WALL_HEIGHT_RATIO = 0.5f;
+    /** Brightness multiplier applied to the side-strip texture so it reads as a shaded wall face. */
+    private static final float WALL_SIDE_BRIGHTNESS = 0.55f;
     private static final Integer VIEWPORT_TILE_MAX = 20;
     private final ReentrantLock mapLock = new ReentrantLock();
     private List<TileMap> mapLayers;
@@ -814,7 +818,7 @@ public class TileManager {
             }
         }
 
-        // Pass 2: Render wall tiles with 3D effect (shadow + side face + contour)
+        // Pass 2: Render wall tiles with 3D effect (shadow + side face + shader outline)
         if (!wallTiles.isEmpty()) {
             // Shadow: small offset, flush with tile bottom
             ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
@@ -828,36 +832,39 @@ public class TileManager {
                 batch.draw(region, wx + 1, wy + 1, sz, sz);
             }
             batch.setColor(1, 1, 1, 1);
-
-            // Dark contour outline (1px)
-            float ox = 1.0f;
-            for (Tile t : wallTiles) {
-                TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
-                if (region == null) continue;
-                float wx = t.getPos().getWorldVar().x;
-                float wy = t.getPos().getWorldVar().y;
-                int sz = t.getWidth();
-                batch.draw(region, wx + ox, wy, sz, sz);
-                batch.draw(region, wx - ox, wy, sz, sz);
-                batch.draw(region, wx, wy + ox, sz, sz);
-                batch.draw(region, wx, wy - ox, sz, sz);
-            }
             ShaderManager.clearEffect(batch);
 
-            // Thin darkened side face directly below wall tile
+            // Shader-based 1px outline replaces the previous 4-direction tinted-copy halo.
+            for (Tile t : wallTiles) {
+                TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
+                if (region == null) continue;
+                ShaderManager.applyOutlineShader(batch, region);
+                float wx = t.getPos().getWorldVar().x;
+                float wy = t.getPos().getWorldVar().y;
+                int sz = t.getWidth();
+                int rw = region.getRegionWidth();
+                int rh = region.getRegionHeight();
+                float padX = rw > 0 ? (float) sz / rw : 1f;
+                float padY = rh > 0 ? (float) sz / rh : 1f;
+                batch.draw(region, wx - padX, wy - padY, sz + 2 * padX, sz + 2 * padY);
+            }
+            ShaderManager.clearOutlineShader(batch);
+
+            // Fake-3D side strip: same texture stretched into a band along the
+            // south edge of the tile, darkened to suggest a shaded wall face.
+            // Drawn before the top tile so the top sits cleanly on the seam.
+            batch.setColor(WALL_SIDE_BRIGHTNESS, WALL_SIDE_BRIGHTNESS, WALL_SIDE_BRIGHTNESS, 1f);
             for (Tile t : wallTiles) {
                 TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
                 if (region == null) continue;
                 float wx = t.getPos().getWorldVar().x;
                 float wy = t.getPos().getWorldVar().y;
                 int sz = t.getWidth();
-                int sideHeight = Math.max(2, sz / 8);
-                batch.setColor(0.2f, 0.2f, 0.25f, 1f);
-                batch.draw(region, wx, wy + sz, sz, sideHeight);
-                batch.setColor(1, 1, 1, 1);
+                int wallHeight = Math.max(2, (int) (sz * WALL_HEIGHT_RATIO));
+                batch.draw(region, wx, wy + sz, sz, wallHeight);
             }
+            batch.setColor(1, 1, 1, 1);
 
-            // Main wall tile on top
             for (Tile t : wallTiles) {
                 t.render(batch);
             }
@@ -882,6 +889,22 @@ public class TileManager {
             shapes.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
             batch.begin();
+
+            // Shader outline pass for collidable object/decoration tiles.
+            for (Tile t : objectTiles) {
+                TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
+                if (region == null) continue;
+                ShaderManager.applyOutlineShader(batch, region);
+                float wx = t.getPos().getWorldVar().x;
+                float wy = t.getPos().getWorldVar().y;
+                int sz = t.getWidth();
+                int rw = region.getRegionWidth();
+                int rh = region.getRegionHeight();
+                float padX = rw > 0 ? (float) sz / rw : 1f;
+                float padY = rh > 0 ? (float) sz / rh : 1f;
+                batch.draw(region, wx - padX, wy - padY, sz + 2 * padX, sz + 2 * padY);
+            }
+            ShaderManager.clearOutlineShader(batch);
 
             for (Tile t : objectTiles) {
                 t.render(batch);

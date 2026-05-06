@@ -343,17 +343,40 @@ public abstract class Entity extends GameObject {
     }
 
     /**
-     * Outline pass — intentionally a no-op. Previously this drew 2 diagonal
-     * offset copies of the sprite under a SILHOUETTE shader, producing the
-     * 2.5 px black halo around every player and enemy that the user
-     * repeatedly asked to remove. The web client renders the sprite body
-     * with no outline at all, so the halo is gone here too.
+     * Outline pass: shader-based 1px black outline (PixiJS OutlineFilter
+     * equivalent). Caller is responsible for setting/clearing the outline
+     * shader around a batched run of these calls.
      *
-     * Kept as a method so PlayState's batched render loop still has
-     * something safe to call.
+     * The quad is enlarged by ~1 sprite-pixel on each side so the new
+     * fragments outside the original geometry edge get filled by the
+     * shader's neighbor-sampling logic.
      */
     public void renderOutline(SpriteBatch batch) {
-        // intentionally empty
+        if (this.getSpriteSheet() == null) return;
+        final TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
+        if (frame == null) return;
+        // 1 sprite-pixel of padding == size / regionWidth world units per side.
+        final int rw = frame.getRegionWidth();
+        final int rh = frame.getRegionHeight();
+        if (rw <= 0 || rh <= 0) return;
+        final float padX = (float) this.size / rw;
+        final float padY = (float) this.size / rh;
+        final float wx = this.pos.getWorldVar().x;
+        final float wy = this.pos.getWorldVar().y;
+        if (this.left) {
+            batch.draw(frame, wx + this.size + padX, wy - padY,
+                    -(this.size + 2 * padX), this.size + 2 * padY);
+        } else {
+            batch.draw(frame, wx - padX, wy - padY,
+                    this.size + 2 * padX, this.size + 2 * padY);
+        }
+    }
+
+    /** Returns the current visible texture region (or null), used by the
+     *  outline pass to set per-region UV bounds on the outline shader. */
+    public TextureRegion getCurrentFrame() {
+        if (this.getSpriteSheet() == null) return null;
+        return this.getSpriteSheet().getCurrentFrame();
     }
 
     /**

@@ -471,6 +471,31 @@ public class Player extends Entity {
 	}
 
 	@Override
+	public void renderOutline(SpriteBatch batch) {
+		if (this.getSpriteSheet() == null) return;
+		final TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
+		if (frame == null) return;
+		final int rw = frame.getRegionWidth();
+		final int rh = frame.getRegionHeight();
+		if (rw <= 0 || rh <= 0) return;
+		final int rs = GlobalConstants.PLAYER_RENDER_SIZE;
+		final float offset = (rs - this.size) / 2f;
+		final float px = this.getEffectiveRenderX();
+		final float py = this.getEffectiveRenderY();
+		final float wx = (px - Vector2f.worldX) - offset;
+		final float wy = (py - Vector2f.worldY) - offset;
+		final float padX = (float) rs / rw;
+		final float padY = (float) rs / rh;
+		if (this.left) {
+			batch.draw(frame, wx + rs + padX, wy - padY,
+					-(rs + 2 * padX), rs + 2 * padY);
+		} else {
+			batch.draw(frame, wx - padX, wy - padY,
+					rs + 2 * padX, rs + 2 * padY);
+		}
+	}
+
+	@Override
 	public void renderBody(SpriteBatch batch) {
 		if (this.getSpriteSheet() == null) {
 			if (dbgFirstSeen(this.getId(), DBG_NULL_SHEET)) {

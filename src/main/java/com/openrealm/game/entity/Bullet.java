@@ -365,4 +365,33 @@ public class Bullet extends GameObject  {
         // draw with rotation around center
         batch.draw(frame, wx, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
     }
+
+    public void renderOutline(SpriteBatch batch) {
+        if (this.getSpriteSheet() == null) return;
+        TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
+        if (frame == null) return;
+        final int rw = frame.getRegionWidth();
+        final int rh = frame.getRegionHeight();
+        if (rw <= 0 || rh <= 0) return;
+
+        final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId());
+        final float angleOffset = Float.parseFloat(group.getAngleOffset());
+        float rotationDeg;
+        if (angleOffset > 0.0f) {
+            rotationDeg = (float) Math.toDegrees(-this.getAngle() + (this.tfAngle + angleOffset));
+        } else {
+            rotationDeg = (float) Math.toDegrees(-this.getAngle() + this.tfAngle);
+        }
+        float wx = this.pos.getWorldVar().x;
+        float wy = this.pos.getWorldVar().y;
+        float halfSize = this.size / 2f;
+        float padX = (float) this.size / rw;
+        float padY = (float) this.size / rh;
+        // Origin offset compensates for the extra padding so rotation still
+        // pivots at the sprite's visual center.
+        batch.draw(frame, wx - padX, wy - padY,
+                halfSize + padX, halfSize + padY,
+                this.size + 2 * padX, this.size + 2 * padY,
+                1f, 1f, rotationDeg);
+    }
 }

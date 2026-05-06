@@ -95,4 +95,19 @@ public class Portal {
             batch.draw(this.sprite.getRegion(), this.pos.getWorldVar().x, this.pos.getWorldVar().y, 32, 32);
         }
     }
+
+    public void renderOutline(SpriteBatch batch) {
+        if (this.sprite == null || this.sprite.getRegion() == null) return;
+        final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
+        final int rw = region.getRegionWidth();
+        final int rh = region.getRegionHeight();
+        if (rw <= 0 || rh <= 0) return;
+        final int size = 32;
+        final float padX = (float) size / rw;
+        final float padY = (float) size / rh;
+        batch.draw(region,
+                this.pos.getWorldVar().x - padX,
+                this.pos.getWorldVar().y - padY,
+                size + 2 * padX, size + 2 * padY);
+    }
 }
