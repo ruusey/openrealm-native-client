@@ -1090,6 +1090,27 @@ public class PlayState extends GameState {
             visibleEntities.get(i).updateEffectState();
         }
 
+        // Pass 1.5: Ground shadows under each visible entity. Drawn BEFORE
+        // entity bodies so the sprite stands on top of its own shadow,
+        // mirroring webclient renderer.js (drawEllipse(0, size/2 + size*0.08,
+        // size*0.4, size*0.12) at alpha 0.3). Adds visual weight + a hint
+        // of grounded perspective.
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 0.3f);
+        for (int i = 0; i < visibleEntities.size(); i++) {
+            final Entity ent = visibleEntities.get(i);
+            final int s = ent.getSize() > 0 ? ent.getSize() : 32;
+            final float wx = ent.getPos().getWorldVar().x + s * 0.5f;
+            final float wy = ent.getPos().getWorldVar().y + s * 0.92f;
+            shapes.ellipse(wx - s * 0.4f, wy - s * 0.06f, s * 0.8f, s * 0.24f);
+        }
+        shapes.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        batch.begin();
+
         // Pass 2: All entity bodies grouped by effect (minimize shader switches)
         Sprite.EffectEnum currentEffect = null;
         for (int i = 0; i < visibleEntities.size(); i++) {
@@ -1108,7 +1129,7 @@ public class PlayState extends GameState {
             visibleBullets.get(i).render(batch);
         }
 
-        // Pass 4: Enemy health bars
+        // Pass 4: Enemy health bars + Player HP/MP bars (overhead).
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -1125,6 +1146,36 @@ public class PlayState extends GameState {
             shapes.setColor(1f, 0f, 0f, 0.9f);
             shapes.rect(wx, barY, barWidth * enemy.getHealthpercent(), barHeight);
         }
+        // Player HP + MP nameplate bars. Mirrors webclient renderer.js
+        // _drawPlayerHpMp (~line 1280): two stacked 4px bars below the
+        // sprite — green HP, blue MP — with a darker background. Drawn
+        // before the name text so the bars sit cleanly underneath.
+        for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
+            final int s = rp.getSize() > 0 ? rp.getSize() : 32;
+            final float wx = rp.getPos().getWorldVar().x;
+            final float wy = rp.getPos().getWorldVar().y;
+            final int barW = s;
+            final int barH = 3;
+            final int barGap = 1;
+            final float hpY = wy - 10;
+            final float mpY = hpY + barH + barGap;
+            float hpPct = 0f;
+            float mpPct = 0f;
+            try {
+                int maxHp = rp.getStats() != null ? rp.getStats().getHp() : 0;
+                int maxMp = rp.getStats() != null ? rp.getStats().getMp() : 0;
+                if (maxHp > 0) hpPct = Math.max(0f, Math.min(1f, rp.getHealth() / (float) maxHp));
+                if (maxMp > 0) mpPct = Math.max(0f, Math.min(1f, rp.getMana() / (float) maxMp));
+            } catch (Exception ignored) {}
+            shapes.setColor(0.13f, 0.13f, 0.13f, 0.78f);
+            shapes.rect(wx, hpY, barW, barH);
+            shapes.setColor(0.25f, 0.78f, 0.25f, 0.92f);
+            shapes.rect(wx, hpY, barW * hpPct, barH);
+            shapes.setColor(0.13f, 0.13f, 0.13f, 0.78f);
+            shapes.rect(wx, mpY, barW, barH);
+            shapes.setColor(0.25f, 0.50f, 0.88f, 0.92f);
+            shapes.rect(wx, mpY, barW * mpPct, barH);
+        }
         shapes.end();
 
         // Pass 5: Visual ability effects (rings, arcs, particles)
@@ -1132,6 +1183,22 @@ public class PlayState extends GameState {
 
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
+
+        // Player nameplates (rendered with the world-camera batch so they
+        // anchor to the entity, not the screen). Color follows chatRole
+        // exactly like webclient renderer.js getNameColorHex —
+        // sysadmin/red, admin/blue, mod/green, editor/purple, demo/gray,
+        // default/off-white. Drawn 2px above the HP bar.
+        for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
+            final String nm = rp.getName();
+            if (nm == null || nm.isEmpty()) continue;
+            final int s = rp.getSize() > 0 ? rp.getSize() : 32;
+            final float wx = rp.getPos().getWorldVar().x;
+            final float wy = rp.getPos().getWorldVar().y;
+            font.setColor(roleColorFor(rp.getChatRole()));
+            font.draw(batch, nm, wx + (s * 0.5f) - (nm.length() * 3f), wy - 14);
+        }
+        font.setColor(Color.WHITE);
 
         Collection<Portal> portals = this.realmManager.getRealm().getPortals().values();
         for (Portal portal : portals) {
@@ -1362,6 +1429,28 @@ public class PlayState extends GameState {
      * Render all active visual effects using ShapeRenderer.
      * Called between batch.end() and batch.begin() while blending is enabled.
      */
+    /** Cached chat-role nameplate colors. Mirrors webclient renderer.js
+     *  GameRenderer.getNameColorHex. Static so we don't allocate a Color
+     *  per name draw. */
+    private static final Color ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
+    private static final Color ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
+    private static final Color ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
+    private static final Color ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
+    private static final Color ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
+    private static final Color ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
+
+    private static Color roleColorFor(String role) {
+        if (role == null) return ROLE_DEFAULT;
+        switch (role) {
+            case "sysadmin": return ROLE_SYSADMIN;
+            case "admin":    return ROLE_ADMIN;
+            case "mod":      return ROLE_MOD;
+            case "editor":   return ROLE_EDITOR;
+            case "demo":     return ROLE_DEMO;
+            default:         return ROLE_DEFAULT;
+        }
+    }
+
     private void renderVisualEffects(ShapeRenderer shapes) {
         if (this.activeEffects.isEmpty()) return;
 

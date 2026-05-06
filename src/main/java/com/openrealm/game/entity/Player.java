@@ -541,12 +541,57 @@ public class Player extends Entity {
 					this.renderX, this.renderY,
 					this.size, rs);
 		}
+		// Dye application — quick stub mirroring webclient's solid-color dye
+		// path (renderer.js getDyedRegion). The webclient uses a per-pixel
+		// mask to recolor only the dyeable pixels with luminance preservation;
+		// porting that requires loading class-mask data + Pixmap pixel work
+		// per (class, frame, dye) tuple, which is non-trivial. As a visible
+		// stub we just tint the whole sprite via batch.setColor — the player
+		// reads as dyed at a glance even if the recolor isn't pixel-perfect.
+		final int dye = this.dyeId;
+		final boolean tinted = applyDyeTint(batch, dye);
 		if (this.left) {
 			batch.draw(frame, wx + rs, wy, -rs, rs);
 		} else {
 			batch.draw(frame, wx, wy, rs, rs);
 		}
+		if (tinted) {
+			batch.setColor(1f, 1f, 1f, 1f);
+		}
 	}
+
+	/** Apply a tint matching the webclient's solid-dye palette
+	 *  (data/dye-assets.json). Returns true if the batch color was
+	 *  changed and needs to be reset. dyeId 0 = no dye, no-op.
+	 *  TODO: replace with proper mask-based recolor + luminance
+	 *  preservation matching webclient renderer.js getDyedRegion. */
+	private static boolean applyDyeTint(SpriteBatch batch, int dyeId) {
+		if (dyeId <= 0) return false;
+		final int rgb = DYE_COLORS_RGB[dyeId % DYE_COLORS_RGB.length];
+		if (rgb < 0) return false;
+		final float r = ((rgb >> 16) & 0xff) / 255f;
+		final float g = ((rgb >> 8) & 0xff) / 255f;
+		final float b = (rgb & 0xff) / 255f;
+		// Mix dye 60% with white so the sprite isn't flattened to a single
+		// solid color — keeps highlights visible.
+		batch.setColor(0.4f + r * 0.6f, 0.4f + g * 0.6f, 0.4f + b * 0.6f, 1f);
+		return true;
+	}
+
+	/** Solid-color dye palette indexed by dyeId (data/dye-assets.json).
+	 *  Index 0 = no dye (-1 sentinel). Mirrors the integer color values
+	 *  the data file ships with so the displayed tint matches what the
+	 *  webclient picks. Add entries here as new dyes are added. */
+	private static final int[] DYE_COLORS_RGB = new int[] {
+			-1,           // 0 — no dye
+			0x4ABFCA,     // 1 Green Dye (4899402)
+			0xE6D9A0,     // 2 Yellow Dye (15126560)
+			0xD64438,     // 3 Red Dye (14039608)
+			0x3B6AE0,     // 4 Blue Dye (3894496)
+			0x9A50C8,     // 5 Purple Dye (10110920)
+			0xEE8930,     // 6 Orange Dye (15633968)
+			0xEEEEEE,     // 7 White Dye
+	};
 
 	public void input(MouseHandler mouse, KeyHandler key) {
 		if (key.up.down) {
