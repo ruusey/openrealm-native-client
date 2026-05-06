@@ -527,14 +527,23 @@ public class ClientGameLogic {
 				}
 				if (cli.getCurrentPlayerId() == movement.getEntityId()) {
 					if (cli.isAwaitingRealmTransition()) {
-						// Snap to server position after portal transition
+						// Snap to server position after portal transition.
+						// Re-anchor sub-tick interp so renderX picks up from
+						// the snapped pos instead of pre-snap.
 						playerToUpdate.applyMovement(movement);
+						if (cli.getState() != null) {
+							cli.getState().resetInterpAnchor(movement.getPosX(), movement.getPosY());
+						}
 						cli.setAwaitingRealmTransition(false);
-					} else {
-						// High lerp factor - local player drives movement,
-						// server corrections are applied quickly to avoid rubber-banding
-						playerToUpdate.applyMovementLerp(movement, 0.8f);
 					}
+					// Otherwise: ignore. Local player runs client-side
+					// prediction in PlayState.input(); server reconciliation
+					// for self goes through PlayerPosAckPacket, which is the
+					// only path that resets the sub-tick interp anchor. The
+					// previous applyMovementLerp(0.8f) here yanked pos 80%
+					// toward server every server tick without anchor reset,
+					// producing a visible stutter as the renderX lerp's
+					// interpFromX kept pointing at pre-yank positions.
 				} else {
 					// Other players: use dead reckoning correction (smooth blend)
 					// Their positions are extrapolated in PlayState.movePlayer()

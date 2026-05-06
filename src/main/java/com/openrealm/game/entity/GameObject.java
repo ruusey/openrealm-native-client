@@ -171,8 +171,12 @@ public abstract class GameObject {
     protected float correctionOffsetY = 0f;
     private static final float CORRECTION_BLEND_RATE = 0.15f;
     /** Time (sec) over which pos is lerped to target after a server packet
-     *  diverges from extrapolation. Mirrors web's `dist / 0.05` formula. */
-    private static final float CORRECTION_CLOSE_TIME_SEC = 0.05f;
+     *  diverges from extrapolation. Web client uses 0.05 but at typical
+     *  network jitter (1-2 tile gaps) that closes at ~20 tiles/sec — faster
+     *  than enemy walk speed, which reads visually as rubberband. 0.15s
+     *  keeps the close tight enough to track but slow enough that the
+     *  correction blends with normal motion. */
+    private static final float CORRECTION_CLOSE_TIME_SEC = 0.15f;
     // If target diverges by more than this from pos, hard-snap pos.
     private static final float CORRECTION_SNAP_THRESHOLD_SQ = (3 * 32) * (3 * 32);
     /** Web parity: if no server velocity update arrives for this long, the
