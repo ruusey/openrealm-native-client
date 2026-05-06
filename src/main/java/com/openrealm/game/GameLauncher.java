@@ -42,7 +42,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class GameLauncher {
-    public static final String GAME_VERSION = "1.0.0";
+    public static final String GAME_VERSION = "1.0.1";
     public static final Boolean DEBUG_MODE = true;
 
     public static void main(String[] args) {

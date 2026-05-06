@@ -31,6 +31,12 @@ public class PlayerChat {
     // Web parity: webclient caps at 50 (game.js:1027). 15 was way too small —
     // a few SYSTEM lines on map load pushed everything else off-screen.
     private static final int CHAT_SIZE = 50;
+    /** Hard cap on outgoing chat character count. The input renders with
+     *  word-wrap so longer messages would still display, but uncapped
+     *  input lets a player paste an essay that grows the box tall enough
+     *  to eat the rest of the panel. 200 is generous for normal chat
+     *  and matches what most MMOs ship. */
+    private static final int MAX_INPUT_CHARS = 200;
     /** When collapsed, only this many trailing messages are shown so the
      *  log doesn't take up half the screen. Toggle with the BACKTICK key
      *  (or the click target rendered above the chat panel). */
@@ -103,7 +109,14 @@ public class PlayerChat {
         this.lastTildeDown = tildeDown;
 
         if (key.captureMode) {
-            this.currentMessage = key.getContent();
+            String captured = key.getContent();
+            // Hard-cap at MAX_INPUT_CHARS so a runaway paste can't grow
+            // the input box past the visible chat panel.
+            if (captured != null && captured.length() > MAX_INPUT_CHARS) {
+                captured = captured.substring(0, MAX_INPUT_CHARS);
+                key.setContent(captured);
+            }
+            this.currentMessage = captured == null ? "" : captured;
         }
 
         if (key.enter.down && !this.pressedEnter) {
@@ -328,49 +341,83 @@ public class PlayerChat {
             font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
             final String prompt = "> ";
             final float textOriginX = PANEL_X + TEXT_PAD_X + 2;
-            final float textY = inputBoxBottom - 8;
             this.layout.setText(font, prompt);
             final float promptWidth = this.layout.width;
 
             KeyHandler kh = this.lastKey;
             int caret = kh != null ? kh.captureCaret : this.currentMessage.length();
-            int selAnchor = kh != null ? kh.captureSelAnchor : -1;
             if (caret < 0) caret = 0;
             if (caret > this.currentMessage.length()) caret = this.currentMessage.length();
 
-            // Selection highlight
-            if (selAnchor >= 0 && selAnchor != caret) {
-                int s = Math.min(caret, selAnchor);
-                int e = Math.max(caret, selAnchor);
-                if (s < 0) s = 0;
-                if (e > this.currentMessage.length()) e = this.currentMessage.length();
-                this.layout.setText(font, this.currentMessage.substring(0, s));
-                float pre = this.layout.width;
-                this.layout.setText(font, this.currentMessage.substring(s, e));
-                float selW = this.layout.width;
+            // Wrap the typed message inside the input box, just like the
+            // already-sent message rows wrap. Long input grows the input
+            // box upward so the bottom edge stays anchored to the screen
+            // bottom (where the user's eye expects it). MAX_INPUT_CHARS
+            // caps the text well before the box could eat the whole
+            // chat panel — this is enforced again in the send path.
+            final float bodyMaxW = Math.max(1f, PANEL_W - 2 * TEXT_PAD_X - 4 - promptWidth);
+            this.layout.setText(font, this.currentMessage, 0, this.currentMessage.length(),
+                    font.getColor(), bodyMaxW,
+                    com.badlogic.gdx.utils.Align.left, true, null);
+            final int wrapLines = Math.max(1, this.layout.runs.size);
+            final float inputWrapH = INPUT_H + (wrapLines - 1) * LINE_H;
+            final float wrappedInputBoxTop = inputBoxBottom - inputWrapH;
+
+            // Repaint the box and border at its grown height so the
+            // multi-line text is fully framed.
+            if (wrapLines > 1) {
                 batch.end();
                 Gdx.gl.glEnable(GL20.GL_BLEND);
                 Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
                 shapes.begin(ShapeRenderer.ShapeType.Filled);
-                shapes.setColor(0.40f, 0.60f, 0.95f, 0.35f);
-                shapes.rect(textOriginX + promptWidth + pre,
-                        inputBoxTop + 4, selW, INPUT_H - 8);
+                shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
+                shapes.rect(PANEL_X, wrappedInputBoxTop, PANEL_W, inputWrapH);
                 shapes.end();
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
+                shapes.rect(PANEL_X, wrappedInputBoxTop, PANEL_W, inputWrapH);
+                shapes.end();
+                Gdx.gl.glDisable(GL20.GL_BLEND);
                 batch.begin();
                 font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
             }
 
-            font.draw(batch, prompt + this.currentMessage, textOriginX, textY);
-            // Caret indicator at the right index. Blink-free for simplicity — chat input is short-lived.
-            this.layout.setText(font, this.currentMessage.substring(0, caret));
-            float caretX = textOriginX + promptWidth + this.layout.width;
-            font.draw(batch, "|", caretX, textY);
+            // Vertically center the FIRST line of text inside what was
+            // the original 28-px input box; subsequent wrapped lines
+            // grow upward via the inflated wrappedInputBoxTop above.
+            final float firstLineY = inputBoxBottom - 9 - (wrapLines - 1) * LINE_H;
+
+            // Caret position inside a wrapped layout: re-layout the
+            // sub-string up to the caret with the same wrap settings.
+            // Its (last-line-x-extent, runs.size) maps directly to the
+            // caret's column and row within the input.
+            this.layout.setText(font, this.currentMessage.substring(0, caret),
+                    0, caret, font.getColor(), bodyMaxW,
+                    com.badlogic.gdx.utils.Align.left, true, null);
+            final int caretLines = Math.max(1, this.layout.runs.size);
+            final float caretXOnLine = this.layout.runs.size == 0
+                    ? 0f : this.layout.runs.get(this.layout.runs.size - 1).width;
+
+            // Re-layout the full message for the actual draw call.
+            this.layout.setText(font, this.currentMessage, 0, this.currentMessage.length(),
+                    font.getColor(), bodyMaxW,
+                    com.badlogic.gdx.utils.Align.left, true, null);
+
+            font.draw(batch, prompt, textOriginX, firstLineY);
+            // For wrapped content, font.draw of a multi-line layout grows
+            // downward in flipped ortho — we want the LAST line aligned
+            // with the input baseline, so anchor at firstLineY.
+            font.draw(batch, this.layout, textOriginX + promptWidth, firstLineY);
+
+            final float caretX = textOriginX + promptWidth + caretXOnLine;
+            final float caretY = firstLineY + (caretLines - 1) * LINE_H;
+            font.draw(batch, "|", caretX, caretY);
         } else {
             // Placeholder text — web ships "Press Enter to chat..."
             font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
             font.draw(batch, "Press Enter to chat...",
                     PANEL_X + TEXT_PAD_X + 2,
-                    inputBoxBottom - 8);
+                    inputBoxBottom - 9);
         }
         font.setColor(Color.WHITE);
 
