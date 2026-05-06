@@ -52,6 +52,7 @@ import com.openrealm.net.server.packet.PlayerMovePacket;
 import com.openrealm.net.server.packet.PlayerShootPacket;
 import com.openrealm.net.server.packet.UseAbilityPacket;
 import com.openrealm.net.server.packet.LoginAckPacket;
+import com.openrealm.game.contants.ProjectileFlag;
 import com.openrealm.net.server.packet.InteractTilePacket;
 import com.openrealm.net.server.packet.UsePortalPacket;
 import com.openrealm.game.model.TileModel;
@@ -206,6 +207,53 @@ public class PlayState extends GameState {
                     this.movePlayer(playerOther);
                     // Blend dead reckoning correction offset for other players
                     playerOther.blendCorrectionOffset();
+                }
+            }
+
+            // Client-side player-bullet hit prediction — mirrors webclient
+            // game.js around line 1499. Without this the bullet sprite
+            // visually flies through the enemy until the server's UnloadPacket
+            // arrives a frame or two later, which reads as "projectiles pass
+            // through enemies after a hit". Server stays authoritative for
+            // damage; this is purely a visual cull.
+            //
+            // Circle-vs-circle test using GlobalConstants.HIT_RADIUS_FACTOR
+            // so hit radius matches the server's circleHit() exactly.
+            // Pass-through-enemies projectiles keep flying after a hit.
+            final Map<Long, Bullet> bullets = clientRealm.getBullets();
+            final Map<Long, Enemy>  enemies = clientRealm.getEnemies();
+            if (!bullets.isEmpty() && !enemies.isEmpty()) {
+                final java.util.Iterator<Map.Entry<Long, Bullet>> it =
+                        bullets.entrySet().iterator();
+                while (it.hasNext()) {
+                    final Map.Entry<Long, Bullet> entry = it.next();
+                    final Bullet b = entry.getValue();
+                    if (b == null || b.getPos() == null) continue;
+                    if (!b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE)) continue;
+                    if (b.hasFlag(ProjectileFlag.PASS_THROUGH_ENEMIES)) continue;
+                    final float bSize = b.getSize() > 0 ? b.getSize() : 4f;
+                    final float br = bSize * GlobalConstants.HIT_RADIUS_FACTOR;
+                    final float bcx = b.getPos().x + bSize * 0.5f;
+                    final float bcy = b.getPos().y + bSize * 0.5f;
+                    boolean hit = false;
+                    for (final Enemy e : enemies.values()) {
+                        if (e == null || e.getPos() == null) continue;
+                        final float eSize = e.getSize() > 0 ? e.getSize() : 32f;
+                        final float er = eSize * GlobalConstants.HIT_RADIUS_FACTOR;
+                        final float ecx = e.getPos().x + eSize * 0.5f;
+                        final float ecy = e.getPos().y + eSize * 0.5f;
+                        final float dx = bcx - ecx;
+                        final float dy = bcy - ecy;
+                        final float rsum = br + er;
+                        if (dx > rsum || dx < -rsum || dy > rsum || dy < -rsum) continue;
+                        if (dx * dx + dy * dy < rsum * rsum) {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    if (hit) {
+                        it.remove();
+                    }
                 }
             }
 
@@ -740,16 +788,35 @@ public class PlayState extends GameState {
             this.shotDestQueue.add(dest);
         }
         if ((mouse.isPressed(3)) && canUseAbility && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))) {
+            // Client-side mana gate. Server enforces this too, but without
+            // a local check the player can spam-click and watch predicted
+            // projectiles spawn before the server reply unloads them, then
+            // the mana bar snaps back when UpdatePacket arrives. Mirrors
+            // the webclient tryUseAbility cost gate. Optimistic decrement
+            // keeps the gate honest within a round-trip.
+            int abilityCost = 0;
             try {
-                Vector2f pos = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
-                pos.addX(PlayState.map.x);
-                pos.addY(PlayState.map.y);
-                UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos);
-                this.realmManager.getClient().sendRemote(useAbility);
-                this.lastAbilityTick = System.currentTimeMillis();
-
-            } catch (Exception e) {
-                PlayState.log.error("Failed to send UseAbility packet. Reason: {}", e);
+                final GameItem ability = player.getSlot(1);
+                if (ability != null && ability.getEffect() != null) {
+                    abilityCost = ability.getEffect().getMpCost();
+                }
+            } catch (Exception ignored) { /* zero-cost fallback */ }
+            if (abilityCost > 0 && player.getMana() < abilityCost) {
+                // Out of mana — skip both the send and the cooldown bump.
+            } else {
+                try {
+                    Vector2f pos = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
+                    pos.addX(PlayState.map.x);
+                    pos.addY(PlayState.map.y);
+                    UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos);
+                    this.realmManager.getClient().sendRemote(useAbility);
+                    this.lastAbilityTick = System.currentTimeMillis();
+                    if (abilityCost > 0) {
+                        player.setMana(Math.max(0, player.getMana() - abilityCost));
+                    }
+                } catch (Exception e) {
+                    PlayState.log.error("Failed to send UseAbility packet. Reason: {}", e);
+                }
             }
         }
     }
