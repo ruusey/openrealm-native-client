@@ -9,6 +9,7 @@ import com.openrealm.game.contants.TextEffect;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.model.MapModel;
+import com.openrealm.game.contants.ProjectileFlag;
 import com.openrealm.game.entity.Bullet;
 import com.openrealm.game.entity.Enemy;
 import com.openrealm.game.entity.Player;
@@ -364,6 +365,26 @@ public class ClientGameLogic {
 		}
 	}
 
+	// Angle window for matching server-echoed player bullets back to a
+	// locally-predicted bullet. ~5° matches the webclient (game.js ~770).
+	private static final float PREDICTED_ANGLE_TOLERANCE = 0.09f;
+
+	private static boolean matchesPredictedBullet(RealmManagerClient cli, Bullet server) {
+		final long localId = cli.getCurrentPlayerId();
+		if (localId == 0L) return false;
+		for (final Bullet pb : cli.getRealm().getBullets().values()) {
+			if (!pb.isPredicted()) continue;
+			if (pb.getSrcEntityId() != localId) continue;
+			if (pb.getProjectileId() != server.getProjectileId()) continue;
+			final float diff = Math.abs(pb.getAngle() - server.getAngle());
+			if (diff < PREDICTED_ANGLE_TOLERANCE
+					|| diff > (float) (Math.PI * 2) - PREDICTED_ANGLE_TOLERANCE) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public static void handleLoadClient(RealmManagerClient cli, Packet packet) {
 		final LoadPacket loadPacket = (LoadPacket) packet;
 		try {
@@ -449,6 +470,18 @@ public class ClientGameLogic {
 
 			for (final NetBullet bullet : loadPacket.getBullets()) {
 				final Bullet b = bullet.asBullet();
+				// WHY: Mirrors webclient game.js handleLoad (~line 770).
+				// If a predicted local bullet matches this server bullet's
+				// projectileId + angle (within ~5°), keep the prediction
+				// rendering and skip inserting the duplicate. Otherwise
+				// the player sees their predicted shot AND the server
+				// echo as two side-by-side bullets, and worse, the
+				// server-confirmed copy without an existing match would
+				// render at a stale (one-RTT-old) position.
+				if (b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE)
+						&& matchesPredictedBullet(cli, b)) {
+					continue;
+				}
 				cli.getRealm().addBulletIfNotExists(b);
 			}
 

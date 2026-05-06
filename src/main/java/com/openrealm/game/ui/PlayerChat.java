@@ -28,7 +28,9 @@ import com.openrealm.game.entity.Player;
 @Data
 @Slf4j
 public class PlayerChat {
-    private static final int CHAT_SIZE = 15;
+    // Web parity: webclient caps at 50 (game.js:1027). 15 was way too small —
+    // a few SYSTEM lines on map load pushed everything else off-screen.
+    private static final int CHAT_SIZE = 50;
     /** When collapsed, only this many trailing messages are shown so the
      *  log doesn't take up half the screen. Toggle with the BACKTICK key
      *  (or the click target rendered above the chat panel). */
@@ -271,15 +273,16 @@ public class PlayerChat {
             }
 
             // Render oldest-of-picked first so newest ends up at the bottom.
-            // Each message renders as: prefix on the top row of its row-block,
-            // body wrapped beneath/right of it. We anchor each message at
-            // its TOP row in flipped-ortho coords, then walk down by LINE_H
-            // for each subsequent body row.
-            //
-            // Compute the y of the TOP row of the LAST (newest) message, then
-            // walk upward by each message's row count for older ones.
-            // bottomRowY is the y of the single bottom-most line.
-            float topOfNextBlock = msgBoxBottom - TEXT_PAD_Y - (rowsAccum - 1) * LINE_H;
+            // Y-flipped ortho: y=0 at top, msgBoxBottom > msgBoxTop. font.draw
+            // grows downward (increasing y) for multi-line layouts. We start
+            // the OLDEST message at the top edge of the block and walk DOWN
+            // by `rows * LINE_H` per message until the NEWEST sits at the
+            // bottom. The previous version used `-= rows * LINE_H`, which
+            // walked upward and stacked every message on the SAME line —
+            // that's why successive realm-load messages appeared as a single
+            // garbled blob.
+            final float blockTotalH = rowsAccum * LINE_H;
+            float topOfNextBlock = msgBoxBottom - TEXT_PAD_Y - blockTotalH + LINE_H;
             for (int idx = picked.size() - 1; idx >= 0; idx--) {
                 final TextPacket pkt = picked.get(idx);
                 final int rows = rowCounts.get(idx);
@@ -313,9 +316,10 @@ public class PlayerChat {
                 font.draw(batch, this.layout,
                         PANEL_X + TEXT_PAD_X + prefixWidth, blockTopY);
 
-                // Move topOfNextBlock up by this message's height so the
-                // older message above sits flush.
-                topOfNextBlock -= rows * LINE_H;
+                // Walk DOWN by this message's height so the next (newer)
+                // message sits flush below this one. Y-flipped ortho means
+                // "down" is += LINE_H, not -=.
+                topOfNextBlock += rows * LINE_H;
             }
         }
 

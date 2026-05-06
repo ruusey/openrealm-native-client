@@ -178,6 +178,14 @@ public class Bullet extends GameObject  {
     public boolean isConsumedClient() { return this.consumedClient; }
     public void setConsumedClient(boolean v) { this.consumedClient = v; }
 
+    // WHY: Locally-spawned (client-predicted) player bullets bypass the
+    // server LoadPacket round-trip so the firing player sees their stream
+    // continuously. The server's eventual broadcast is dedup'd against
+    // these in handleLoadClient instead of being inserted alongside.
+    private transient boolean predicted = false;
+    public boolean isPredicted() { return this.predicted; }
+    public void setPredicted(boolean v) { this.predicted = v; }
+
     public boolean hasFlag(short flag) {
         return (this.flags != null) && (this.flags.contains(flag));
     }

@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.entity.item.GameItem;
+import com.openrealm.game.graphics.SpriteRecolorCache;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
@@ -71,7 +72,15 @@ public class Slots {
         if (this.getItem().getSpriteKey() == null) {
             GameDataManager.loadSpriteModel(this.getItem());
         }
-        TextureRegion itemRegion = GameSpriteManager.ITEM_SPRITES.get(this.item.getItemId());
+        // Forge enchantments paint colored "crystal" pixels onto the
+        // weapon icon (web parity: getItemSpriteUrl in main.js ~2762).
+        // Try the composited region first; fall back to the un-painted
+        // base sprite if the item has no enchantments or we couldn't
+        // build the overlay.
+        TextureRegion itemRegion = SpriteRecolorCache.getEnchantedItemRegion(this.item);
+        if (itemRegion == null) {
+            itemRegion = GameSpriteManager.ITEM_SPRITES.get(this.item.getItemId());
+        }
         if (itemRegion == null) return;
         if (this.button != null) {
             this.button.render(batch);

@@ -27,6 +27,7 @@ import com.openrealm.game.tile.Tile;
 import com.openrealm.game.tile.TileData;
 import com.openrealm.game.tile.TileMap;
 import com.openrealm.game.data.GameDataManager;
+import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.entity.Bullet;
 import com.openrealm.game.entity.Enemy;
 import com.openrealm.game.entity.Entity;
@@ -37,7 +38,9 @@ import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.LootContainer;
 import com.openrealm.game.math.Rectangle;
 import com.openrealm.game.math.Vector2f;
+import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.model.PortalModel;
+import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.game.ui.ActiveVisualEffect;
 import com.openrealm.game.ui.EffectText;
 import com.openrealm.game.ui.PlayerUI;
@@ -300,8 +303,8 @@ public class PlayState extends GameState {
                 }
             }
 
-            for (int i = 0; i < this.shotDestQueue.size(); i++) {
-                final Vector2f dest = this.shotDestQueue.remove(i);
+            while (!this.shotDestQueue.isEmpty()) {
+                final Vector2f dest = this.shotDestQueue.remove(0);
                 final Vector2f source = this.getPlayer().getCenteredPosition();
                 if (this.realmManager.getRealm().getTileManager().isCollisionTile(source)) {
                     continue;
@@ -309,6 +312,7 @@ public class PlayState extends GameState {
                 try {
                     PlayerShootPacket packet = PlayerShootPacket.from(Realm.RANDOM.nextLong(), player, dest);
                     this.realmManager.getClient().sendRemote(packet);
+                    this.spawnPredictedBullets(player, source, dest);
                 } catch (Exception e) {
                     PlayState.log.error("Failed to build player shoot packet. Reason: {}", e.getMessage());
                 }
@@ -434,6 +438,55 @@ public class PlayState extends GameState {
         b.setFrequency(frequency);
         b.setFlags(flags);
         return this.realmManager.getRealm().addBullet(b);
+    }
+
+    // WHY: Without local prediction the firing player sees their own
+    // projectile stream gap whenever a LoadPacket is delayed (jitter, GC
+    // hitch, packet loss) — other observers stay smooth because the
+    // server's continuous broadcast is unaffected. Mirrors webclient
+    // main.js ~2215 (negative-id predicted bullets) + game.js ~770
+    // (server-bullet dedup) so the predicted sprite is the one that
+    // renders end-to-end with zero perceived latency.
+    private void spawnPredictedBullets(Player player, Vector2f source, Vector2f dest) {
+        if (player == null || player.getInventory() == null) return;
+        final GameItem weapon = player.getSlot(0);
+        if (weapon == null || weapon.getDamage() == null) return;
+        final int projGroupId = weapon.getDamage().getProjectileGroupId();
+        if (GameDataManager.PROJECTILE_GROUPS == null) return;
+        final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(projGroupId);
+        if (group == null || group.getProjectiles() == null) return;
+
+        final float baseAngle = Bullet.getAngle(source, dest);
+        final SpriteSheet sheet = GameSpriteManager.getSpriteSheet(group);
+        final short atkBonus = (short) player.getStats().getAtt();
+        final Realm realm = this.realmManager.getRealm();
+
+        for (final com.openrealm.game.model.Projectile proj : group.getProjectiles()) {
+            float projAngleOffset = 0f;
+            try { projAngleOffset = Float.parseFloat(proj.getAngle()); } catch (Exception ignored) {}
+            final float shootAngle = baseAngle + projAngleOffset;
+            final short rolledDamage = (short) (proj.getDamage() + atkBonus);
+            final short offset = (short) (player.getSize() / 2);
+            final Vector2f spawnPos = source.clone(-offset, -offset);
+            final Bullet b = new Bullet(Realm.RANDOM.nextLong(), proj.getProjectileId(), spawnPos,
+                    shootAngle, proj.getSize(), proj.getMagnitude(), proj.getRange(),
+                    rolledDamage, false);
+            b.setSrcEntityId(player.getId());
+            b.setAmplitude(proj.getAmplitude());
+            b.setFrequency(proj.getFrequency());
+            // Carry the projectile's behavior flags so dedup + hit
+            // prediction (PLAYER_PROJECTILE / PARAMETRIC / ORBITAL etc.)
+            // see the same trajectory as the server-side bullet.
+            if (proj.getFlags() != null) {
+                b.setFlags(new ArrayList<>(proj.getFlags()));
+            }
+            if (proj.getEffects() != null) {
+                b.setEffects(proj.getEffects());
+            }
+            if (sheet != null) b.setSpriteSheet(sheet);
+            b.setPredicted(true);
+            realm.addBullet(b);
+        }
     }
 
     @SuppressWarnings("unused")
@@ -814,10 +867,19 @@ public class PlayState extends GameState {
         boolean canShoot = (System.currentTimeMillis() - this.lastShotTick) > (1000 / dex + 10);
         boolean canUseAbility = (System.currentTimeMillis() - this.lastAbilityTick) > 1000;
         boolean clickingWorld = mouse.isPressed(1) && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()));
-        player.setAttacking(clickingWorld);
-        // Pass mouse screen position for aim-based attack animation direction
-        player.setAimX(mouse.getX());
-        player.setAimY(mouse.getY());
+        // WHY: do NOT call player.setAttacking(clickingWorld) here. That clobbers
+        // the timer-driven attack flag and cuts the attack animation the instant
+        // the mouse button releases — the webclient instead refreshes a 0.3s
+        // shootingAnim timer on every shot fire (main.js ~2205). We do the
+        // equivalent below at the actual firing site via triggerAttackAnimation.
+        // WHY: store aim in WORLD coordinates (not screen pixels). updateAnimation
+        // compares aim against the player's world center to pick attack direction;
+        // mixing screen-pixel aim with world-pixel center under WORLD_SCALE=2
+        // made the comparison pivot off the wrong origin (cursor at the player's
+        // ACTUAL on-screen position registered as offset by half a screen).
+        final float aimInvScale = 1f / OpenRealmGame.WORLD_SCALE;
+        player.setAimX(mouse.getX() * aimInvScale + PlayState.map.x);
+        player.setAimY(mouse.getY() * aimInvScale + PlayState.map.y);
         // Mouse → world conversion: the world camera is zoomed 2× via
         // OpenRealmGame.WORLD_SCALE, so 1 screen pixel == 1/WORLD_SCALE world
         // pixels. Without dividing here, every shot/ability targets a world
@@ -831,6 +893,10 @@ public class PlayState extends GameState {
             dest.addX(PlayState.map.x);
             dest.addY(PlayState.map.y);
             this.shotDestQueue.add(dest);
+            // Webclient parity: each shot refreshes the attack animation hold
+            // so the local player keeps cycling attack frames between rapid
+            // shots and for ~350ms after the last one.
+            player.triggerAttackAnimation();
         }
         if ((mouse.isPressed(3)) && canUseAbility && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))) {
             // Client-side mana gate. Server enforces this too, but without

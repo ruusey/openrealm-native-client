@@ -20,6 +20,8 @@ import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.LootContainer;
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.graphics.Sprite;
+import com.openrealm.game.graphics.SpriteRecolorCache;
+import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.CharacterClassModel;
 import com.openrealm.game.state.PlayState;
@@ -541,59 +543,46 @@ public class Player extends Entity {
 					this.renderX, this.renderY,
 					this.size, rs);
 		}
-		// Dye application — quick stub mirroring webclient's solid-color dye
-		// path (renderer.js getDyedRegion). The webclient uses a per-pixel
-		// mask to recolor only the dyeable pixels with luminance preservation;
-		// porting that requires loading class-mask data + Pixmap pixel work
-		// per (class, frame, dye) tuple, which is non-trivial. As a visible
-		// stub we just tint the whole sprite via batch.setColor — the player
-		// reads as dyed at a glance even if the recolor isn't pixel-perfect.
-		final int dye = this.dyeId;
-		final boolean tinted = applyDyeTint(batch, dye);
+		// Mask-based dye recolor (web parity: renderer.js getDyedRegion).
+		// We replace the rendered TextureRegion outright with a recolored
+		// copy that has only the masked clothing/accessory pixels shifted
+		// to the dye color, luminance preserved. Falls back to the raw
+		// frame when the dye is 0, the dye registry hasn't loaded, or
+		// this particular cell has no mask entry — so a missing mask
+		// degrades to the un-dyed sprite instead of crashing.
+		TextureRegion drawFrame = frame;
+		if (this.dyeId > 0) {
+			final TextureRegion dyed = resolveDyedRegion(frame);
+			if (dyed != null) drawFrame = dyed;
+		}
 		if (this.left) {
-			batch.draw(frame, wx + rs, wy, -rs, rs);
+			batch.draw(drawFrame, wx + rs, wy, -rs, rs);
 		} else {
-			batch.draw(frame, wx, wy, rs, rs);
-		}
-		if (tinted) {
-			batch.setColor(1f, 1f, 1f, 1f);
+			batch.draw(drawFrame, wx, wy, rs, rs);
 		}
 	}
 
-	/** Apply a tint matching the webclient's solid-dye palette
-	 *  (data/dye-assets.json). Returns true if the batch color was
-	 *  changed and needs to be reset. dyeId 0 = no dye, no-op.
-	 *  TODO: replace with proper mask-based recolor + luminance
-	 *  preservation matching webclient renderer.js getDyedRegion. */
-	private static boolean applyDyeTint(SpriteBatch batch, int dyeId) {
-		if (dyeId <= 0) return false;
-		final int rgb = DYE_COLORS_RGB[dyeId % DYE_COLORS_RGB.length];
-		if (rgb < 0) return false;
-		final float r = ((rgb >> 16) & 0xff) / 255f;
-		final float g = ((rgb >> 8) & 0xff) / 255f;
-		final float b = (rgb & 0xff) / 255f;
-		// Mix dye 60% with white so the sprite isn't flattened to a single
-		// solid color — keeps highlights visible.
-		batch.setColor(0.4f + r * 0.6f, 0.4f + g * 0.6f, 0.4f + b * 0.6f, 1f);
-		return true;
+	/** Resolve the current sprite cell to a dyed TextureRegion. The
+	 *  cell coordinates come from the source TextureRegion's region
+	 *  bounds — libGDX flips the Y axis when the SpriteSheet is built,
+	 *  so we read regionY relative to the texture height. */
+	private TextureRegion resolveDyedRegion(TextureRegion frame) {
+		final AnimationModel anim = GameDataManager.ANIMATIONS != null
+				? GameDataManager.ANIMATIONS.get(this.classId) : null;
+		if (anim == null) return null;
+		final String spriteKey = anim.getSpriteKey();
+		final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
+		final int spH = anim.getEffectiveSpriteHeight() > 0 ? anim.getEffectiveSpriteHeight() : spW;
+		if (frame == null || frame.getTexture() == null) return null;
+		final int col = frame.getRegionX() / spW;
+		final int rawY = frame.getRegionY();
+		// region is flipped (height becomes negative-region-style); use
+		// regionWidth/Height to recover the unflipped row.
+		final int absY = rawY < 0 ? frame.getTexture().getHeight() + rawY : rawY;
+		final int row = absY / spH;
+		return SpriteRecolorCache.getDyedRegion(spriteKey, this.classId, row, col, spW, this.dyeId);
 	}
 
-	/** Solid-color dye palette indexed by dyeId (data/dye-assets.json).
-	 *  Index 0 = no dye (-1 sentinel). The integer values in the data
-	 *  file are decimal so we re-decode them exactly here — getting the
-	 *  hex wrong made every dyed player render the wrong color
-	 *  (previously had Green dye as 0x4ABFCA which is teal, not green).
-	 *  Add entries as new dyes are added to dye-assets.json. */
-	private static final int[] DYE_COLORS_RGB = new int[] {
-			-1,           // 0 — no dye
-			0x4AC24A,     // 1 Green Dye (decimal 4899402)
-			0xE6D960,     // 2 Yellow Dye (decimal 15126560)
-			0xD64A38,     // 3 Red Dye (decimal 14039608)
-			0x3B6AE0,     // 4 Blue Dye (decimal 3894496)
-			0x9A50C8,     // 5 Purple Dye (decimal 10110920)
-			0xEE8930,     // 6 Orange Dye (decimal 15633968)
-			0xEEEEEE,     // 7 White Dye
-	};
 
 	public void input(MouseHandler mouse, KeyHandler key) {
 		if (key.up.down) {

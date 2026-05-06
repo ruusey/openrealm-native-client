@@ -15,6 +15,8 @@ import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.graphics.Sprite;
 import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.model.CharacterClassModel;
+import com.openrealm.game.model.ClassMaskModel;
+import com.openrealm.game.model.DyeAssetModel;
 import com.openrealm.game.model.DungeonGraphNode;
 import com.openrealm.game.model.EnemyModel;
 import com.openrealm.game.model.ExperienceModel;
@@ -53,6 +55,13 @@ public class GameDataManager {
 	public static Map<Integer, AnimationModel>                ANIMATIONS = null;
 	public static Map<Integer, SetPieceModel>                 SETPIECES = null;
 	public static Map<Integer, RealmEventModel>               REALM_EVENTS = null;
+	// Web-parity recolor data (renderer.js getDyedRegion). DYE_ASSETS maps
+	// dyeId -> recolor strategy; CLASS_MASK_FRAMES is keyed by
+	// "classId:row:col" so the renderer can look up a per-frame pixel
+	// mask in O(1) at draw time.
+	public static Map<Integer, DyeAssetModel>                 DYE_ASSETS = null;
+	public static Map<Integer, ClassMaskModel>                CLASS_MASKS = null;
+	public static Map<String, ClassMaskModel.Frame>           CLASS_MASK_FRAMES = null;
 
 	private static void loadLootGroups(final boolean remote) throws Exception {
 		GameDataManager.log.info("Loading Loot Groups...");
@@ -313,6 +322,50 @@ public class GameDataManager {
 		GameDataManager.log.info("Loading Realm Events... DONE ({} entries)", GameDataManager.REALM_EVENTS.size());
 	}
 
+	private static void loadDyeAssets(final boolean remote) throws Exception {
+		GameDataManager.log.info("Loading Dye Assets...");
+		GameDataManager.DYE_ASSETS = new HashMap<>();
+		String text = null;
+		if (remote) {
+			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/dye-assets.json", null);
+		} else {
+			InputStream inputStream = GameDataManager.class.getClassLoader()
+					.getResourceAsStream("data/dye-assets.json");
+			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+		}
+		DyeAssetModel[] dyes = GameDataManager.JSON_MAPPER.readValue(text, DyeAssetModel[].class);
+		for (DyeAssetModel d : dyes) {
+			GameDataManager.DYE_ASSETS.put(d.getDyeId(), d);
+		}
+		GameDataManager.log.info("Loading Dye Assets... DONE ({} entries)", GameDataManager.DYE_ASSETS.size());
+	}
+
+	private static void loadClassMasks(final boolean remote) throws Exception {
+		GameDataManager.log.info("Loading Class Masks...");
+		GameDataManager.CLASS_MASKS = new HashMap<>();
+		GameDataManager.CLASS_MASK_FRAMES = new HashMap<>();
+		String text = null;
+		if (remote) {
+			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/character-class-masks.json", null);
+		} else {
+			InputStream inputStream = GameDataManager.class.getClassLoader()
+					.getResourceAsStream("data/character-class-masks.json");
+			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+		}
+		ClassMaskModel[] entries = GameDataManager.JSON_MAPPER.readValue(text, ClassMaskModel[].class);
+		for (ClassMaskModel m : entries) {
+			GameDataManager.CLASS_MASKS.put(m.getClassId(), m);
+			if (m.getFrames() != null) {
+				for (ClassMaskModel.Frame f : m.getFrames()) {
+					GameDataManager.CLASS_MASK_FRAMES.put(
+							m.getClassId() + ":" + f.getRow() + ":" + f.getCol(), f);
+				}
+			}
+		}
+		GameDataManager.log.info("Loading Class Masks... DONE ({} classes, {} frames)",
+				GameDataManager.CLASS_MASKS.size(), GameDataManager.CLASS_MASK_FRAMES.size());
+	}
+
 	private static void loadGameItems(final boolean remote) throws Exception {
 		GameDataManager.log.info("Loading Game Items...");
 
@@ -428,6 +481,14 @@ public class GameDataManager {
 			() -> { try { GameDataManager.loadAnimations(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load animations: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadSetPieces(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load set pieces: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadRealmEvents(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load realm events: {}", e.getMessage()); } },
+			() -> { try { GameDataManager.loadDyeAssets(loadRemote); } catch (Exception e) {
+				GameDataManager.log.error("Failed to load dye assets remotely ({}); trying local fallback", e.getMessage());
+				try { GameDataManager.loadDyeAssets(false); } catch (Exception e2) { GameDataManager.log.error("Local dye-assets fallback failed: {}", e2.getMessage()); }
+			} },
+			() -> { try { GameDataManager.loadClassMasks(loadRemote); } catch (Exception e) {
+				GameDataManager.log.error("Failed to load class masks remotely ({}); trying local fallback", e.getMessage());
+				try { GameDataManager.loadClassMasks(false); } catch (Exception e2) { GameDataManager.log.error("Local class-masks fallback failed: {}", e2.getMessage()); }
+			} },
 		};
 		for (Runnable loader : loaders) {
 			loader.run();

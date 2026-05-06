@@ -202,8 +202,12 @@ public abstract class Entity extends GameObject {
      * tiles, matching the perceived pace of the web client at any FPS.
      */
     private static final float PX_PER_FRAME = 48f;
+    /** Webclient main.js ~2160: 80ms per attack frame. */
+    private static final float ATTACK_FRAME_SECONDS = 0.08f;
     private float animDistance = 0f;
     private int animFrame = 0;
+    private float attackFrameTimer = 0f;
+    private int attackFrame = 0;
 
     public void update(double time) {
         final SpriteSheet sheet = this.getSpriteSheet();
@@ -214,6 +218,40 @@ public abstract class Entity extends GameObject {
         final float dt = Gdx.graphics != null
                 ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
                 : 1f / 60f;
+
+        // WHY: attack frames advance on their OWN wall-clock timer, NOT on
+        // movement pace. Webclient (main.js ~2158) cycles attackFrame every
+        // 80ms while shootingAnim is set — independent of dx/dy. The native
+        // previously routed every animation through the pace-driven path
+        // below, so standing-still attacks stayed stuck on frame 0.
+        // isAttacking() consults the timer-based attackingUntil flag.
+        if (this.isAttacking()) {
+            this.attackFrameTimer += dt;
+            int frameCount = sheet.getFrameCount();
+            if (frameCount < 1) frameCount = 1;
+            while (this.attackFrameTimer >= ATTACK_FRAME_SECONDS) {
+                this.attackFrameTimer -= ATTACK_FRAME_SECONDS;
+                this.attackFrame = (this.attackFrame + 1) % frameCount;
+            }
+            sheet.setAnimationFrame(this.attackFrame);
+            // Keep the walk accumulator fresh while attacking so motion that
+            // resumes after the attack ends doesn't snap a stale frame.
+            final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+            if (pace > 0.1f) {
+                this.animDistance += pace * 64f * dt;
+                int wfc = sheet.getFrameCount();
+                if (wfc < 2) wfc = 2;
+                while (this.animDistance > PX_PER_FRAME) {
+                    this.animDistance -= PX_PER_FRAME;
+                    this.animFrame = (this.animFrame + 1) % wfc;
+                }
+            }
+            return;
+        }
+        // Attack just ended — reset attack accumulators so next attack
+        // starts on frame 0.
+        this.attackFrame = 0;
+        this.attackFrameTimer = 0f;
 
         final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
         if (pace > 0.1f) {
@@ -264,12 +302,17 @@ public abstract class Entity extends GameObject {
         // Select animation set based on movement state with direction hysteresis
         if (this.getSpriteSheet() != null && this.getSpriteSheet().hasAnimSets()) {
             String targetAnim;
-            if (this.attacking) {
-                // Attack animation based on mouse/aim direction, not movement
-                float screenCenterX = this.pos.getWorldVar().x + this.size / 2f;
-                float screenCenterY = this.pos.getWorldVar().y + this.size / 2f;
-                float relX = this.aimX - screenCenterX;
-                float relY = this.aimY - screenCenterY;
+            if (this.isAttacking()) {
+                // WHY: compare aim and player center in the SAME (world) space.
+                // PlayState now stores aimX/Y in world coords; player center is
+                // pos + size/2 (world coords). Previous code mixed screen-pixel
+                // aim with world-relative center which inverted the sign of
+                // relX/relY when the cursor sat near the player's on-screen
+                // position, picking the wrong attack direction.
+                float worldCenterX = this.pos.x + this.size / 2f;
+                float worldCenterY = this.pos.y + this.size / 2f;
+                float relX = this.aimX - worldCenterX;
+                float relY = this.aimY - worldCenterY;
                 // Determine if aim is more horizontal or vertical
                 if (Math.abs(relX) > Math.abs(relY)) {
                     targetAnim = "attack_side";
