@@ -1,5 +1,7 @@
 package com.openrealm.net.entity;
 
+import com.openrealm.game.contants.CharacterClass;
+import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.Streamable;
@@ -76,6 +78,17 @@ public class NetPlayer extends SerializableFieldType<NetPlayer>{
 		p.setDy(this.dY);
 		p.setChatRole(this.chatRole);
 		p.setDyeId(this.dyeId);
+		// Load the class sprite sheet so other players actually render.
+		// Entity.renderBody short-circuits when spriteSheet is null, so
+		// without this all remote players would be invisible (only their
+		// projectiles / chat names appeared). Mirrors the local-player
+		// handling in ClientGameLogic.handleUpdateClient (line ~677).
+		try {
+			final CharacterClass cls = CharacterClass.valueOf(this.classId);
+			if (cls != null) {
+				p.setSpriteSheet(GameSpriteManager.loadClassSprites(cls));
+			}
+		} catch (Exception ignored) { /* fall back to invisible-but-tracked */ }
 		return p;
 	}
 }

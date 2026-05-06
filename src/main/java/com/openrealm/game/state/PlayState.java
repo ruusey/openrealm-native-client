@@ -492,10 +492,34 @@ public class PlayState extends GameState {
                     Portal closestPortal = this.realmManager.getState().getClosestPortal(this.getPlayerPos(), 32);
                     if (closestPortal != null) {
                         PortalModel portalModel = GameDataManager.PORTALS.get((int) closestPortal.getPortalId());
-                        UsePortalPacket usePortal = UsePortalPacket.from(closestPortal.getId(), this.realmManager.getRealm().getRealmId(),
-                                this.getPlayerId());
-                        this.realmManager.getClient().sendRemote(usePortal);
-                        this.realmManager.getRealm().loadMap(portalModel.getMapId());
+                        // Web parity (main.js doRealmTransition): if the portal
+                        // entity is the Vault portal (portalId == 2), send the
+                        // toVault variant of UsePortalPacket — that's the only
+                        // way the server reaches its setupChests / exit-portal
+                        // branch (ServerGameLogic.handleUsePortalServer line 148).
+                        // Sending UsePortalPacket.from for a vault-portal entity
+                        // hits the generic portal branch instead, which routes
+                        // by Portal.toRealmId — for a freshly-spawned exit
+                        // portal that link points into the wrong realm so the
+                        // chest spawn never happens and the user lands somewhere
+                        // unexpected.
+                        final boolean isVaultPortal = closestPortal.getPortalId() == 2;
+                        if (isVaultPortal) {
+                            if (this.realmManager.getRealm().getMapId() == 1) {
+                                // Already in vault — ignore, mirror web client
+                                // re-entry guard.
+                                return;
+                            }
+                            UsePortalPacket usePortal = UsePortalPacket.toVault(
+                                    this.realmManager.getRealm().getRealmId(), this.getPlayerId());
+                            this.realmManager.getClient().sendRemote(usePortal);
+                            this.realmManager.getRealm().loadMap(1);
+                        } else {
+                            UsePortalPacket usePortal = UsePortalPacket.from(closestPortal.getId(),
+                                    this.realmManager.getRealm().getRealmId(), this.getPlayerId());
+                            this.realmManager.getClient().sendRemote(usePortal);
+                            this.realmManager.getRealm().loadMap(portalModel.getMapId());
+                        }
                         // Flag that we're transitioning realms - next ObjectMovePacket should snap position
                         this.realmManager.setAwaitingRealmTransition(true);
                         // Tell server we're ready for tiles after map rebuild
@@ -925,6 +949,18 @@ public class PlayState extends GameState {
             portal.render(batch);
         }
 
+        // Loot bags must render with the WORLD camera projection active —
+        // LootContainer.render uses pos.getWorldVar() to manually transform
+        // to camera-relative coordinates, then relies on the world projection
+        // for the screen mapping. Previously the lc.render() loop lived in
+        // renderCloseLoot which the caller invokes AFTER switching the batch
+        // to the UI camera (1:1 screen pixels), so bags drew at half-scale,
+        // un-scaled screen coordinates that read as "random spots" relative
+        // to the actual map tiles.
+        for (LootContainer lc : this.realmManager.getRealm().getLoot().values()) {
+            lc.render(batch);
+        }
+
         if (this.pui == null)
             return;
 
@@ -1090,9 +1126,10 @@ public class PlayState extends GameState {
         if (player == null)
             return;
 
-        for (LootContainer lc : this.realmManager.getRealm().getLoot().values()) {
-            lc.render(batch);
-        }
+        // Note: bag sprite rendering moved to the world-camera section of
+        // render() (next to portals). This method now only handles the HUD
+        // ground-loot panel sync — the closest bag's contents pump into the
+        // bottom-right inventory bag overlay.
 
         // Skip normal loot container logic while trading - trade UI manages ground loot area
         if (this.getPui().isTrading()) {
