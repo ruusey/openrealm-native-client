@@ -378,6 +378,21 @@ public class ClientGameLogic {
 				if (player.getShortId() != 0) {
 					cli.getShortIdToLongId().put(player.getShortId(), player.getId());
 				}
+				// If this player was already in the realm but has no sprite
+				// sheet (added during boot before ANIMATIONS data loaded, or
+				// before the texture cache was populated), re-attempt the
+				// sprite load now using the freshly-built `p` instance —
+				// addPlayerIfNotExists is a no-op so we do this manually to
+				// recover. Without this, remote players added too early stay
+				// invisible forever even after the sheets are available.
+				try {
+					Player existing = cli.getRealm().getPlayer(p.getId());
+					if (existing != null && existing.getSpriteSheet() == null
+							&& p.getSpriteSheet() != null) {
+						existing.setSpriteSheet(p.getSpriteSheet());
+						existing.setClassId(p.getClassId());
+					}
+				} catch (Exception ignored) { /* best-effort recovery */ }
 			}
 			for (final NetLootContainer loot : loadPacket.getContainers()) {
 				final LootContainer lc = loot.asLootContainer();

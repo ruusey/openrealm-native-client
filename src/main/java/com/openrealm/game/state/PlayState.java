@@ -878,6 +878,31 @@ public class PlayState extends GameState {
                     ? this.realmManager.getRealm().getBullets().size() : 0;
             int realmPortals = this.realmManager.getRealm().getPortals() != null
                     ? this.realmManager.getRealm().getPortals().size() : 0;
+            // Player census: every 5 seconds, dump the realm's player table
+            // with id/name/pos/sprite-loaded for each. Lets us see whether
+            // remote players have actually been added by handleLoadClient
+            // and whether they have valid sprite sheets — when remote
+            // players aren't visible, this tells us if the bug is in the
+            // network path (no entries) or the render path (entries exist
+            // but spriteSheet is null / pos is off-map / etc.).
+            try {
+                final long localId = this.realmManager.getCurrentPlayerId();
+                final java.util.Collection<Player> ps =
+                        this.realmManager.getRealm().getPlayers().values();
+                final StringBuilder sb = new StringBuilder();
+                sb.append("[RENDER] players(").append(ps.size()).append(")=");
+                for (Player rp : ps) {
+                    sb.append('[')
+                      .append(rp.getId())
+                      .append('|').append(rp.getName())
+                      .append('|').append(rp.getId() == localId ? "self" : "remote")
+                      .append('|').append(rp.getPos() == null ? "null"
+                              : (int) rp.getPos().x + "," + (int) rp.getPos().y)
+                      .append('|').append(rp.getSpriteSheet() == null ? "noSprite" : "ok")
+                      .append("] ");
+                }
+                log.info(sb.toString());
+            } catch (Exception ignored) {}
             log.info("[RENDER] realm[enemies={} bullets={} portals={}] viewport[objs={}]",
                     realmEnemies, realmBullets, realmPortals, gameObject.length);
         }
