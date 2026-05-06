@@ -54,6 +54,13 @@ public class PlayerChat {
     private boolean lastTildeDown = false;
     private PlayState state;
 
+    /** Per-render scratch buffers for the wrap-aware message layout pass.
+     *  Allocated once and cleared every render — previously these were
+     *  fresh ArrayLists per frame, which on a 60-FPS render loop was a
+     *  small but unnecessary GC steady drip. */
+    private final List<TextPacket> wrapPickedScratch = new ArrayList<>(CHAT_SIZE);
+    private final List<Integer> wrapRowCountsScratch = new ArrayList<>(CHAT_SIZE);
+
     public PlayerChat(PlayState state) {
         this.currentMessage = "";
         this.chatOpen = false;
@@ -230,8 +237,12 @@ public class PlayerChat {
             final int totalMessages = this.playerChat.size();
 
             // Walk newest -> oldest, build the list of messages that fit.
-            final List<TextPacket> picked = new ArrayList<>();
-            final List<Integer> rowCounts = new ArrayList<>();
+            // Reuse the per-instance scratch lists rather than allocating
+            // fresh per render frame.
+            final List<TextPacket> picked = this.wrapPickedScratch;
+            final List<Integer> rowCounts = this.wrapRowCountsScratch;
+            picked.clear();
+            rowCounts.clear();
             int rowsAccum = 0;
             for (int i = totalMessages - 1; i >= 0; i--) {
                 final TextPacket pkt = this.playerChat.get(i);

@@ -38,6 +38,31 @@ public abstract class GameObject {
         this.spriteSheet = spriteSheet;
     }
 
+    /**
+     * Refresh {@link #bounds} after a pos / size change without allocating a
+     * fresh Rectangle. The bounds rectangle holds a reference to the same
+     * mutable {@link Vector2f} as {@link #pos}, so any in-place pos mutation
+     * (the common case in extrapolate / applyServerCorrection) is already
+     * reflected — this only touches w/h on size changes. The {@link Rectangle}
+     * is allocated lazily on first call, then reused. Replaces the
+     * {@code this.bounds = new Rectangle(this.pos, size, size)} pattern that
+     * was burning hundreds of allocs/sec on the extrapolate hot path
+     * (per enemy per frame).
+     */
+    protected void refreshBounds() {
+        if (this.bounds == null) {
+            this.bounds = new Rectangle(this.pos, this.size, this.size);
+            return;
+        }
+        if (this.bounds.getPos() != this.pos) {
+            this.bounds.setBox(this.pos, this.size, this.size);
+        } else if ((int) this.bounds.getWidth() != this.size
+                || (int) this.bounds.getHeight() != this.size) {
+            this.bounds.setWidth(this.size);
+            this.bounds.setHeight(this.size);
+        }
+    }
+
     public GameObject(long id, Vector2f origin, int size) {
         this.id = id;
         this.bounds = new Rectangle(origin, size, size);
@@ -317,7 +342,7 @@ public abstract class GameObject {
                     this.pos.y = this.serverPosY;
                     this.targetX = this.serverPosX;
                     this.targetY = this.serverPosY;
-                    this.bounds = new Rectangle(this.pos, this.size, this.size);
+                    this.refreshBounds();
                 }
                 return;
             }
@@ -334,7 +359,7 @@ public abstract class GameObject {
             if (System.currentTimeMillis() - this.lastVelUpdateMs > EXTRAP_STALENESS_CAP_MS) {
                 this.dx = 0f;
                 this.dy = 0f;
-                this.bounds = new Rectangle(this.pos, this.size, this.size);
+                this.refreshBounds();
                 return;
             }
         }
@@ -387,7 +412,7 @@ public abstract class GameObject {
                 }
             }
         }
-        this.bounds = new Rectangle(this.pos, this.size, this.size);
+        this.refreshBounds();
     }
 
     /**
@@ -411,7 +436,7 @@ public abstract class GameObject {
                 this.correctionOffsetY = 0f;
             }
         }
-        this.bounds = new Rectangle(this.pos, this.size, this.size);
+        this.refreshBounds();
     }
 
     private float lerp(float start, float end, float pct) {

@@ -96,6 +96,23 @@ public class PlayState extends GameState {
     private boolean sentChat = false;
     private boolean debugMode = false;
 
+    // Reusable per-frame visibility buffers. Previously these were
+    // allocated fresh in render() (3 ArrayLists per frame, ~150-300
+    // entries each on busy realms = 9-18K allocs/sec at 60 FPS). Held
+    // as fields and cleared at start of render so the underlying
+    // backing arrays are reused frame-to-frame. Initial capacity sized
+    // for a typical viewport.
+    private final List<Entity> visibleEntities = new ArrayList<>(256);
+    private final List<Bullet> visibleBullets = new ArrayList<>(128);
+    private final List<Enemy> visibleEnemies = new ArrayList<>(128);
+
+    // Scratch Vector2f reused for collision-check center-offset queries in
+    // movePlayer. Previously each call did p.getPos().clone(halfSize,
+    // halfSize) — 4 fresh Vector2f per moved player per frame, ~3K/sec on
+    // a busy realm. PlayState input/render run on the GL thread so a
+    // single field is safe.
+    private final Vector2f movePlayerScratch = new Vector2f();
+
     public PlayState(GameStateManager gsm, Camera cam) {
         super(gsm);
         PlayState.map = new Vector2f();
@@ -255,9 +272,17 @@ public class PlayState extends GameState {
             p.setDx(0);
             p.setDy(0);
         }
+        // Reuse a single scratch vector for the center-offset queries
+        // instead of pos.clone(...) — those clone calls were the largest
+        // single allocation source on the per-frame other-player movement
+        // path (~3K Vector2f / sec on a populated realm).
+        final Vector2f scratch = this.movePlayerScratch;
+        final float halfSize = p.getSize() / 2f;
+        scratch.x = p.getPos().x + halfSize;
+        scratch.y = p.getPos().y + halfSize;
         if (!this.getRealmManager().getRealm().getTileManager().collisionTile(p, p.getDx(), 0)
-                && !this.getRealmManager().getRealm().getTileManager().collidesXLimit(p, p.getDx()) 
-                && !this.getRealmManager().getRealm().getTileManager().isVoidTile(p.getPos().clone(p.getSize()/2, p.getSize()/2), p.getDx(), 0)) {
+                && !this.getRealmManager().getRealm().getTileManager().collidesXLimit(p, p.getDx())
+                && !this.getRealmManager().getRealm().getTileManager().isVoidTile(scratch, p.getDx(), 0)) {
             p.xCol = false;
             if (p.getDx() != 0.0f) {
                 if (this.getRealmManager().getRealm().getTileManager().collidesSlowTile(p)) {
@@ -270,9 +295,13 @@ public class PlayState extends GameState {
             p.xCol = true;
         }
 
+        // Refresh the scratch vector after the X-axis update — pos may have
+        // moved.
+        scratch.x = p.getPos().x + halfSize;
+        scratch.y = p.getPos().y + halfSize;
         if (!this.getRealmManager().getRealm().getTileManager().collisionTile(p, 0, p.getDy())
                 && !this.getRealmManager().getRealm().getTileManager().collidesYLimit(p, p.getDy())
-                && !this.getRealmManager().getRealm().getTileManager().isVoidTile(p.getPos().clone(p.getSize()/2, p.getSize()/2), 0, p.getDy())) {
+                && !this.getRealmManager().getRealm().getTileManager().isVoidTile(scratch, 0, p.getDy())) {
             p.yCol = false;
             if (p.getDy() != 0.0f) {
                 if (this.getRealmManager().getRealm().getTileManager().collidesSlowTile(p)) {
@@ -861,10 +890,14 @@ public class PlayState extends GameState {
         GameObject[] gameObject = this.realmManager.getRealm()
                 .getGameObjectsInBounds(this.realmManager.getRealm().getTileManager().getRenderViewPort(player));
 
-        // Collect visible entities by type for batched rendering
-        final List<Entity> visibleEntities = new ArrayList<>();
-        final List<Bullet> visibleBullets = new ArrayList<>();
-        final List<Enemy> visibleEnemies = new ArrayList<>();
+        // Reuse the per-frame buffers (declared as fields above). Clearing
+        // keeps the backing arrays so we don't pay an allocation per frame.
+        final List<Entity> visibleEntities = this.visibleEntities;
+        final List<Bullet> visibleBullets = this.visibleBullets;
+        final List<Enemy> visibleEnemies = this.visibleEnemies;
+        visibleEntities.clear();
+        visibleBullets.clear();
+        visibleEnemies.clear();
 
         // Diagnostic: dump entity counts every ~5 seconds (60fps × 5 = 300
         // frames). Helps debug "why aren't enemies/bullets rendering" — if

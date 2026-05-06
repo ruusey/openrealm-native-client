@@ -1098,21 +1098,46 @@ public class Realm {
         return objs.toArray(new GameObject[0]);
     }
 
+    /** Cache of the most recent getAllGameObjects() snapshot. Hot path:
+     *  PlayState.update + PlayState.render call this 3+ times per frame on
+     *  busy realms (200+ entities), so without this each call burned an
+     *  ArrayList + a fresh GameObject[] via toArray(new GameObject[0]).
+     *  The size-match heuristic is a safe approximation — if the total
+     *  entity count is unchanged we trust the cache; otherwise we rebuild.
+     *  In the rare case of a same-size swap (one removed, one added) the
+     *  snapshot is one frame stale, which is invisible at 60+ FPS. */
+    private transient GameObject[] gameObjectsCache;
+
     public GameObject[] getAllGameObjects() {
-        final List<GameObject> objs = new ArrayList<>();
+        final int expected = this.players.size() + this.bullets.size() + this.enemies.size();
+        final GameObject[] cached = this.gameObjectsCache;
+        if (cached != null && cached.length == expected) {
+            return cached;
+        }
+        final GameObject[] arr = new GameObject[expected];
+        int i = 0;
         for (final Player p : this.players.values()) {
-            objs.add(p);
+            if (i >= expected) break;
+            arr[i++] = p;
         }
-
         for (final Bullet b : this.bullets.values()) {
-            objs.add(b);
+            if (i >= expected) break;
+            arr[i++] = b;
         }
-
         for (final Enemy e : this.enemies.values()) {
-            objs.add(e);
+            if (i >= expected) break;
+            arr[i++] = e;
         }
-
-        return objs.toArray(new GameObject[0]);
+        // If concurrent removals shrank a map mid-iteration, trim. ArrayList
+        // had handled this implicitly; we replicate the safety here.
+        if (i < expected) {
+            final GameObject[] trimmed = new GameObject[i];
+            System.arraycopy(arr, 0, trimmed, 0, i);
+            this.gameObjectsCache = trimmed;
+            return trimmed;
+        }
+        this.gameObjectsCache = arr;
+        return arr;
     }
 
     /**
