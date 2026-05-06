@@ -84,10 +84,16 @@ public class RealmManagerClient implements Runnable {
     public void run() {
         RealmManagerClient.log.info("[CLIENT] Starting OpenRealm Client");
 
-        final Runnable tick = () -> {
-            this.processClientPackets();
-            this.update(0);
-        };
+        // Network-side tick: drain inbound packets only. DO NOT call
+        // state.update() here — the LibGDX render loop
+        // (OpenRealmGame.render -> gsm.update -> PlayState.update) is the
+        // single source of simulation ticks. Calling state.update from
+        // both paths makes Enemy.extrapolate() run at FPS+64Hz, each using
+        // the SAME stale Gdx frame delta, so velocity-based extrapolation
+        // advances ~2x as fast as the server's actual simulation.
+        // Symptom: enemies lurch forward, then snap back when the next
+        // ObjectMovePacket lands at the true server position.
+        final Runnable tick = this::processClientPackets;
 
         this.workerThread = new TimedWorkerThread(tick, 64);
         WorkerThread.submitAndForkRun(this.workerThread);

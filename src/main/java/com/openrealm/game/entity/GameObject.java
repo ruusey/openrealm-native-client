@@ -350,18 +350,9 @@ public abstract class GameObject {
         // every frame for the thousands of idle enemies in a realm — both
         // a tiny perf win and a guarantee that idle enemies render at the
         // server-reported position byte-for-byte.
-        //
-        // Under-extrapolate pos: target advances at full server velocity
-        // (representing where the server estimates the entity is now),
-        // but pos advances at 70% so it always lags slightly behind
-        // target. Gap-close then closes the remainder going FORWARD —
-        // total motion still equals server speed at steady state, but
-        // pos never overshoots target, so server corrections never pull
-        // it backward (which read as rubberband).
         if (vx != 0f || vy != 0f) {
-            final float POS_EXTRAP_FACTOR = 0.7f;
-            this.pos.x += vx * scale * POS_EXTRAP_FACTOR;
-            this.pos.y += vy * scale * POS_EXTRAP_FACTOR;
+            this.pos.x += vx * scale;
+            this.pos.y += vy * scale;
             if (hasTarget) {
                 tx += vx * scale;
                 ty += vy * scale;
