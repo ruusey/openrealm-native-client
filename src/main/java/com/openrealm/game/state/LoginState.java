@@ -145,15 +145,30 @@ public class LoginState extends GameState {
                 PlayerAccountDto acct = svc.getAccount(authed.getAccountGuid());
                 this.loginResult.set(acct);
             } catch (Exception e) {
-                log.info("[LOGIN] persisted token failed validation: {} — clearing", e.getMessage());
-                store.clearSession();
-                svc.setSessionToken(null);
-                // Surface a soft, non-error status so the user knows why the
-                // form just appeared, and signal the GL loop to drop the
-                // spinner. The previous code wrote null into loginError,
-                // which the update() consumer's null-check filtered out —
-                // leaving busy=true forever and the form unusable.
-                this.loginError.set("Session expired — please sign in again.");
+                // ONLY wipe the saved token if the data service told us the
+                // token is actually invalid (HTTP 401 / 403). Any other
+                // exception — network timeout, DNS failure, server 500,
+                // server unreachable — should KEEP the token so the next
+                // launch can try again. The previous "catch all → clear"
+                // behaviour meant a single connectivity blip permanently
+                // forced the user to retype credentials.
+                final String msg = e.getMessage() == null ? "" : e.getMessage();
+                final boolean tokenRejected = msg.contains("401")
+                        || msg.contains("403")
+                        || msg.toLowerCase().contains("unauthor")
+                        || msg.toLowerCase().contains("invalid token");
+                if (tokenRejected) {
+                    log.info("[LOGIN] persisted token rejected by server ({}) — clearing", msg);
+                    store.clearSession();
+                    svc.setSessionToken(null);
+                    this.loginError.set("Session expired — please sign in again.");
+                } else {
+                    log.warn("[LOGIN] auto-login transient failure ({}) — keeping saved token, falling back to manual login", msg);
+                    // KEEP the token. setSessionToken stays non-null so a
+                    // retry from the form can use it. Just let the user
+                    // sign in manually for now.
+                    this.loginError.set("Couldn't reach the server — sign in manually or retry.");
+                }
                 this.autoLoginCleared.set(true);
             }
         }, "openrealm-autologin").start();

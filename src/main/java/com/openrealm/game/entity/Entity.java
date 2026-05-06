@@ -2,10 +2,12 @@ package com.openrealm.game.entity;
 
 import java.time.Instant;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.openrealm.game.contants.StatusEffectType;
 import com.openrealm.game.graphics.Sprite;
+import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.math.Rectangle;
 import com.openrealm.game.math.Vector2f;
 
@@ -170,10 +172,74 @@ public abstract class Entity extends GameObject {
         return this.attacking;
     }
 
+    /**
+     * Walk cycle driven by pixels traveled, NOT elapsed time. Direct port
+     * of the web client's loop in game.js around line 1290:
+     * <pre>
+     *   pace = sqrt(dx*dx + dy*dy);                 // px / tick (64Hz)
+     *   if (pace &gt; 0.1) {
+     *     animDistance += pace * 64 * dt;            // px / sec
+     *     while (animDistance &gt; PX_PER_FRAME) {
+     *       animDistance -= PX_PER_FRAME;
+     *       animFrame = (animFrame + 1) % 2;
+     *     }
+     *   } else {
+     *     animDistance = 0;                          // reset on stop
+     *   }
+     * </pre>
+     * One full 2-frame leg-swap cycle covers 1.5 tiles regardless of
+     * actual speed, which is why the web client looks natural at every
+     * SPD value. The previous time-based SpriteSheet.animate() (which
+     * just incremented a counter every render frame) cycled WAY too
+     * fast at 144 FPS because it had no relation to actual locomotion.
+     */
+    /**
+     * Pixels of motion required per walk-frame swap. Web client uses 24
+     * with a 2-frame cycle (one stride per 48 px ≈ 1.5 tiles). Native
+     * spritesheets often have 4-frame walk cycles, so 24 px would swap
+     * 4 sprites per 1.5 tiles — visibly twice as fast as the web's gait.
+     * Bumped to 48 so a single full stride covers 4*48 = 192 px ≈ 6
+     * tiles, matching the perceived pace of the web client at any FPS.
+     */
+    private static final float PX_PER_FRAME = 48f;
+    private float animDistance = 0f;
+    private int animFrame = 0;
+
     public void update(double time) {
-        if (this.getSpriteSheet() != null) {
-            this.getSpriteSheet().animate();
+        final SpriteSheet sheet = this.getSpriteSheet();
+        if (sheet == null) return;
+
+        // Frame-rate independent dt from libgdx, capped to avoid massive
+        // jumps after a paused window.
+        final float dt = Gdx.graphics != null
+                ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
+                : 1f / 60f;
+
+        final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+        if (pace > 0.1f) {
+            this.animDistance += pace * 64f * dt;
+            // 'while' rather than 'if' so a single big-dt frame still
+            // advances the right number of frames (matches web behaviour
+            // where multiple PX_PER_FRAME steps can fire in one rAF if
+            // the entity moved especially fast).
+            int frameCount = sheet.getFrameCount();
+            if (frameCount < 2) frameCount = 2;
+            while (this.animDistance > PX_PER_FRAME) {
+                this.animDistance -= PX_PER_FRAME;
+                this.animFrame = (this.animFrame + 1) % frameCount;
+            }
+        } else {
+            // Reset accumulator + park on idle frame 0 when stationary
+            // so the next step doesn't fire instantly from leftover
+            // travel and idle pose stays consistent.
+            this.animDistance = 0f;
+            this.animFrame = 0;
         }
+
+        // Drive the visual frame directly. SpriteSheet.animate()'s old
+        // time-based stepping is no longer called for entities — this
+        // method now owns the frame index.
+        sheet.setAnimationFrame(this.animFrame);
     }
 
     public void updateAnimation() {

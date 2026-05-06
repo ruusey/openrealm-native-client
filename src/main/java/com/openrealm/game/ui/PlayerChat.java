@@ -21,6 +21,7 @@ import com.openrealm.util.MouseHandler;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.GL20;
 import com.openrealm.game.entity.Player;
 
@@ -39,7 +40,7 @@ public class PlayerChat {
     private boolean pressedEnter;
     /** True = only show the last COLLAPSED_VISIBLE messages. False = show
      *  all CHAT_SIZE. Defaults to collapsed so chat is unobtrusive. */
-    private boolean collapsed = true;
+    private boolean collapsed = false;
     private boolean lastTildeDown = false;
     private PlayState state;
 
@@ -77,7 +78,7 @@ public class PlayerChat {
         // the key doesn't flicker. Suppressed while typing a message so the
         // user can include backticks in chat.
         boolean tildeDown = !key.captureMode
-                && Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.GRAVE);
+                && Gdx.input.isKeyPressed(Input.Keys.GRAVE);
         if (tildeDown && !this.lastTildeDown) {
             this.collapsed = !this.collapsed;
         }
@@ -139,105 +140,145 @@ public class PlayerChat {
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
-        // Use unscaled font for chat text
+        // ============================================================
+        // Direct port of webclient's #chat-panel layout (style.css ~825):
+        //   width:  360 px, anchored bottom-left with 10 px margin.
+        //   #chat-messages: 140 px tall, dark bg #1a1218aa, border #3a2a38,
+        //                   font 12px @ line-height 1.5 (≈18 px per row),
+        //                   padding 6 px / 8 px, latest msg at bottom.
+        //   #chat-input:    appended directly below, 100 % width, 28 px tall.
+        //   #chat-toggle:   18 px square at top-right of panel, collapses
+        //                   the messages box (input stays visible).
+        //
+        // Y axis is flipped (setToOrtho true) so y=0 is screen top,
+        // y=height is screen bottom. We compute box positions from the
+        // bottom upward to match the CSS anchor.
+        // ============================================================
         float originalScale = font.getData().scaleX;
         font.getData().setScale(1.0f);
 
-        float lineHeight = 22f;
-        final float chatWidth = OpenRealmGame.width / 5f;
+        final int PANEL_X      = 10;
+        final int PANEL_W      = 360;
+        final int PANEL_BOTTOM_MARGIN = 10;
+        final int INPUT_H      = 28;
+        final int MSG_H        = 140;
+        final int TOGGLE_W     = 22;
+        final int TOGGLE_H     = 18;
+        final float LINE_H     = font.getLineHeight();           // matches web's line-height:1.5
+        final int TEXT_PAD_X   = 8;
+        final int TEXT_PAD_Y   = 6;
 
-        // How many rows we'll actually draw: 3 when collapsed, full log
-        // (up to CHAT_SIZE) when expanded. The on-screen ROWS reserved
-        // mirror this so the black background only covers visible text.
-        final int totalMessages = this.playerChat.size();
-        final int visibleRows = this.collapsed
-                ? Math.min(COLLAPSED_VISIBLE, totalMessages)
-                : Math.min(PlayerChat.CHAT_SIZE, totalMessages);
+        // Y of the BOTTOM edge of each box (in flipped-ortho coords).
+        final float screenBottom = OpenRealmGame.height - PANEL_BOTTOM_MARGIN;
+        final float inputBoxBottom = screenBottom;
+        final float inputBoxTop    = inputBoxBottom - INPUT_H;
+        final float msgBoxBottom   = inputBoxTop;                // boxes share an edge
+        final float msgBoxTop      = msgBoxBottom - MSG_H;
+        final float toggleBoxTop   = msgBoxTop - TOGGLE_H;
 
-        // Slot indices: bottommost row is "1", next up is "2", etc.
-        // The latest message goes in slot 1 so chat reads top-down with
-        // the most recent at the bottom near the input line.
-        // y for slot k = height - k*lineHeight - 100.
+        // ---- Shapes pass: backgrounds + borders ----
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // Black panel sized to the visible rows + a hint label above
-        // when collapsed.
-        if (visibleRows > 0) {
-            float bgTop    = OpenRealmGame.height - (visibleRows * lineHeight) - 100 - 4;
-            float bgBottom = OpenRealmGame.height - 100 + lineHeight - 2;
-            float bgH = bgBottom - bgTop;
-            batch.end();
-            Gdx.gl.glEnable(GL20.GL_BLEND);
-            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA,
-                    GL20.GL_ONE_MINUS_SRC_ALPHA);
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0f, 0f, 0f, 0.7f);
-            shapes.rect(4, bgTop, chatWidth, bgH);
-            shapes.end();
-            Gdx.gl.glDisable(GL20.GL_BLEND);
-            batch.begin();
+        // Messages box bg #1a1218aa  (only when expanded)
+        if (!this.collapsed) {
+            shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0xaa / 255f);
+            shapes.rect(PANEL_X, msgBoxTop, PANEL_W, MSG_H);
         }
 
-        // Toggle hint, drawn above the chat panel (always visible).
-        font.setColor(new Color(0.65f, 0.65f, 0.65f, 0.85f));
-        String hint = this.collapsed
-                ? "[`] expand chat (" + totalMessages + ")"
-                : "[`] collapse chat";
-        font.draw(batch, hint, 8, OpenRealmGame.height - (visibleRows * lineHeight) - 100 - 6);
+        // Input box bg #1a1218 (always shown — web parity)
+        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
+        shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
 
-        font.setColor(Color.WHITE);
+        // Toggle button bg #1a1218
+        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
+        shapes.rect(PANEL_X + PANEL_W - TOGGLE_W, toggleBoxTop, TOGGLE_W, TOGGLE_H);
 
-        // Iterate in insertion order (oldest → newest); skip everything
-        // before the trailing window we'll display.
-        final int skip = Math.max(0, totalMessages - visibleRows);
-        int seen = 0;
-        // Slot counts down so newest message lands at slot 1 (bottom row).
-        int slot = visibleRows;
-        for (Map.Entry<String, TextPacket> packet : this.playerChat.entrySet()) {
-            if (seen++ < skip) continue;
-            final TextPacket pkt = packet.getValue();
-            final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
-            final String body = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
-            float y = OpenRealmGame.height - (slot * lineHeight) - 100;
-            slot--;
+        shapes.end();
 
-            // Sender name colored by chatRole (sysadmin red, admin blue,
-            // mod green, editor purple, demo gray, default off-white).
-            // Looks up the player by name in the realm; if not found
-            // (e.g. system messages, players who left) falls back to the
-            // default off-white color so the row still renders.
-            final Color nameColor = roleColorByName(fromName);
-            font.setColor(nameColor);
-            font.draw(batch, "[" + fromName + "]: ", 8, y);
-            // Approx pixel width of the prefix so the message body draws
-            // immediately after the colored name; default BitmapFont at
-            // 1.0 scale is ~6 px per char.
-            float prefixWidth = ("[" + fromName + "]: ").length() * 6f;
-            font.setColor(Color.WHITE);
-            // Truncate the body to fit the 1/5 screen width — overflow
-            // would either wrap (LibGDX BitmapFont doesn't auto-wrap with
-            // draw()) or crash into the right HUD.
-            final int maxBodyChars = Math.max(0, (int) ((chatWidth - prefixWidth - 16) / 6f));
-            String shownBody = body.length() > maxBodyChars
-                    ? body.substring(0, Math.max(0, maxBodyChars - 1)) + "…"
-                    : body;
-            font.draw(batch, shownBody, 8 + prefixWidth, y);
+        // 1 px border #3a2a38 around all three pieces
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
+        if (!this.collapsed) shapes.rect(PANEL_X, msgBoxTop, PANEL_W, MSG_H);
+        shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
+        shapes.rect(PANEL_X + PANEL_W - TOGGLE_W, toggleBoxTop, TOGGLE_W, TOGGLE_H);
+        shapes.end();
+
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        batch.begin();
+
+        // ---- Toggle button glyph (▼ expanded, ▲ collapsed) ----
+        font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f); // hover-style accent
+        String toggleGlyph = this.collapsed ? "^" : "v";
+        font.draw(batch, toggleGlyph,
+                PANEL_X + PANEL_W - TOGGLE_W + 8,
+                toggleBoxTop + TOGGLE_H - 4);
+
+        // ---- Messages, only rendered when expanded ----
+        if (!this.collapsed) {
+            // How many lines fit in 140 px? floor((MSG_H - 2*pad) / LINE_H).
+            final int maxRows = Math.max(1, (int) ((MSG_H - 2 * TEXT_PAD_Y) / LINE_H));
+            final int totalMessages = this.playerChat.size();
+            final int visibleRows = Math.min(maxRows, totalMessages);
+            final int skip = Math.max(0, totalMessages - visibleRows);
+
+            // Latest message anchored at the BOTTOM of the box. Each older
+            // message draws one LINE_H higher.
+            int seen = 0;
+            int slot = visibleRows;          // bottom row = slot 1
+            for (Map.Entry<String, TextPacket> entry : this.playerChat.entrySet()) {
+                if (seen++ < skip) continue;
+                final TextPacket pkt = entry.getValue();
+                final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
+                final String body     = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
+
+                // Baseline: msgBoxBottom - pad - (slot - 1) * lineH
+                float y = msgBoxBottom - TEXT_PAD_Y - (slot - 1) * LINE_H;
+                slot--;
+
+                // Sender prefix in role color (web's .msg-name styling).
+                final Color nameColor = roleColorByName(fromName);
+                font.setColor(nameColor);
+                final String prefix = "[" + fromName + "]: ";
+                font.draw(batch, prefix, PANEL_X + TEXT_PAD_X, y);
+
+                // Approx prefix width — Oryx-simplex at scale 1 averages ~7 px
+                // per glyph; the body just needs to start slightly after the
+                // colored name and not run off the panel.
+                float prefixWidth = prefix.length() * 7f;
+
+                // Body in #e0d8c8 (web .msg-player), or #c8a86e (.msg-system)
+                // when sender is "SYSTEM".
+                if ("SYSTEM".equalsIgnoreCase(fromName)) {
+                    font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+                } else {
+                    font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
+                }
+                final int maxBodyChars = Math.max(0,
+                        (int) ((PANEL_W - prefixWidth - 2 * TEXT_PAD_X) / 7f));
+                String shownBody = body.length() > maxBodyChars
+                        ? body.substring(0, Math.max(0, maxBodyChars - 1)) + "..."
+                        : body;
+                font.draw(batch, shownBody, PANEL_X + TEXT_PAD_X + prefixWidth, y);
+            }
         }
 
+        // ---- Input field (always visible — web parity) ----
         if (this.chatOpen) {
-            // Draw dark semi-transparent background behind chat input
-            float inputY = OpenRealmGame.height - lineHeight - 4;
-            float inputHeight = lineHeight + 8;
-            float inputWidth = chatWidth;
-            batch.end();
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(new Color(0f, 0f, 0f, 0.6f));
-            shapes.rect(4, inputY, inputWidth, inputHeight);
-            shapes.end();
-            batch.begin();
-
-            font.setColor(Color.WHITE);
-            font.draw(batch, "> " + this.currentMessage + "_", 8, OpenRealmGame.height - lineHeight);
+            font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
+            font.draw(batch, "> " + this.currentMessage + "_",
+                    PANEL_X + TEXT_PAD_X + 2,
+                    inputBoxBottom - 8);
+        } else {
+            // Placeholder text — web ships "Press Enter to chat..."
+            font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
+            font.draw(batch, "Press Enter to chat...",
+                    PANEL_X + TEXT_PAD_X + 2,
+                    inputBoxBottom - 8);
         }
+        font.setColor(Color.WHITE);
 
         // Restore original scale
         font.getData().setScale(originalScale);

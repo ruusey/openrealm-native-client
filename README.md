@@ -38,6 +38,8 @@ The three projects are deliberately kept as separate Maven artifacts. Shared pro
 
 ## Getting started
 
+> Full step-by-step setup, installer build, and CI release pipeline are documented in **[SETUP.md](SETUP.md)**.
+
 ### Prerequisites
 
 - Java JDK 17+

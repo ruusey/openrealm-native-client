@@ -12,6 +12,7 @@ import java.util.Random;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
+import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
@@ -45,6 +46,24 @@ import java.util.HashMap;
 @Slf4j
 public class TileManager {
     private static final Integer VIEWPORT_TILE_MIN = 10;
+
+    /**
+     * Per-tile fog-of-war flag. {@code discovered[y][x]} = true once the
+     * player has had the tile inside the visible sight circle at least
+     * once. Once flipped true, the tile renders at reduced brightness
+     * even when the player walks back out of sight range — the standard
+     * "explored but currently hidden" look you'd see in roguelikes /
+     * RotMG. Lazily allocated on the first render() call so we don't
+     * carry a stale array across map / realm transitions.
+     */
+    private boolean[][] discovered = null;
+    private int discoveredW = 0;
+    private int discoveredH = 0;
+    /** Brightness multiplier for previously-discovered tiles. The web
+     *  client draws the whole explored map at FULL opacity — the sight
+     *  circle is only used to gate entity / projectile spawning, not
+     *  to dim tiles. Keep at 1.0 so discovered terrain stays bright. */
+    private static final float FOG_BRIGHTNESS = 1.0f;
     private static final Integer VIEWPORT_TILE_MAX = 20;
     private final ReentrantLock mapLock = new ReentrantLock();
     private List<TileMap> mapLayers;
@@ -678,6 +697,11 @@ public class TileManager {
            this.mapLayers = new ArrayList<>();
            this.mapLayers.add(baseLayer);
            this.mapLayers.add(collisionLayer);
+           // Map dimensions changed (realm transition, dungeon load) —
+           // wipe the fog-of-war array so the new map starts fully
+           // unexplored. Without this, a smaller map would index into
+           // stale "discovered" rows from the previous one.
+           this.discovered = null;
         }
 
         for (NetTile tile : packet.getTiles()) {
@@ -698,6 +722,43 @@ public class TileManager {
                 pos.y / ts);
         this.normalizeToBounds(posNormalized);
 
+        // Lazy-allocate fog-of-war array sized to the current map.
+        final int mapW = this.getBaseLayer().getWidth();
+        final int mapH = this.getBaseLayer().getHeight();
+        if (this.discovered == null || this.discoveredW != mapW || this.discoveredH != mapH) {
+            this.discovered = new boolean[mapH][mapW];
+            this.discoveredW = mapW;
+            this.discoveredH = mapH;
+        }
+
+        // FOG-OF-WAR PASS: draw tiles that have previously been seen but
+        // are not currently inside the sight circle, dimmed at
+        // FOG_BRIGHTNESS. Bounded to the screen viewport rectangle so we
+        // don't iterate the whole map. This runs BEFORE the in-sight
+        // pass so the bright tiles drawn next overpaint any overlap.
+        final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
+        final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
+        final int screenTilesX = (int) Math.ceil(worldViewW / ts) + 2;
+        final int screenTilesY = (int) Math.ceil(worldViewH / ts) + 2;
+        final int sxMin = (int) (posNormalized.x - screenTilesX / 2);
+        final int syMin = (int) (posNormalized.y - screenTilesY / 2);
+        final float radiusSqInner = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
+        batch.setColor(FOG_BRIGHTNESS, FOG_BRIGHTNESS, FOG_BRIGHTNESS, 1f);
+        for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {
+            for (int sy = syMin; sy < syMin + screenTilesY; sy++) {
+                if (sx < 0 || sy < 0 || sx >= mapW || sy >= mapH) continue;
+                if (!this.discovered[sy][sx]) continue;
+                float ddx = sx - posNormalized.x;
+                float ddy = sy - posNormalized.y;
+                if (ddx * ddx + ddy * ddy <= radiusSqInner) continue; // in-sight, drawn brightly below
+                Tile baseTile = (Tile) this.mapLayers.get(0).getBlocks()[sy][sx];
+                if (baseTile != null) baseTile.render(batch);
+                Tile colTile = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
+                if (colTile != null && !colTile.isVoid()) colTile.render(batch);
+            }
+        }
+        batch.setColor(1f, 1f, 1f, 1f);
+
         // Separate collision layer tiles into walls, objects, and decorations
         final List<Tile> wallTiles = new ArrayList<>();
         final List<Tile> objectTiles = new ArrayList<>();
@@ -715,6 +776,8 @@ public class TileManager {
                 float dx = x - posNormalized.x;
                 float dy = y - posNormalized.y;
                 if (dx * dx + dy * dy > radiusSq) continue;
+                // Mark this tile as discovered for future fog-of-war passes.
+                this.discovered[y][x] = true;
                 try {
                     Tile normalTile = (Tile) this.mapLayers.get(0).getBlocks()[y][x];
                     Tile collisionTile = (Tile) this.mapLayers.get(1).getBlocks()[y][x];

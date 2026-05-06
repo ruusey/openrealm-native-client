@@ -115,17 +115,35 @@ public abstract class GameObject {
         this.dy = packet.getVelY();
     }
 
-    // --- Dead reckoning support ---
-    // When a server correction arrives, we store the offset between where we
-    // predicted the entity to be and where the server says it actually is.
-    // Each frame, we blend this offset toward zero so the entity smoothly
-    // converges on the corrected position without visible snapping.
+    // --- Server reconciliation, ported from web client game.js ---
+    // Web client maintains TWO positions per entity:
+    //   pos     — the visually-rendered position (what the player sees)
+    //   target  — the server's authoritative position, projected forward
+    //             along the last-known velocity each tick
+    // Each frame, both pos and target advance by dx*tickStep (extrapolation),
+    // and pos is then nudged toward target at a constant linear speed
+    // (closes any gap in ~50 ms). When a server packet arrives,
+    // target snaps to packet.posX/posY but pos is unchanged — so the
+    // visible motion is always smooth, never jumping on packet boundaries.
+    //
+    // The previous "correctionOffset blended at 15% per frame on top of
+    // dx*tickStep extrapolation" had two problems:
+    //   1. Errors REPLACED across rapid packets caused pos to oscillate
+    //      forward/backward (visible rubberband).
+    //   2. The blend ran ON TOP of extrapolation, inflating effective
+    //      speed by ~15% whenever the client was a tick behind the server.
+    protected float targetX = Float.NaN;
+    protected float targetY = Float.NaN;
+
+    // Correction blend rate kept for legacy paths but new reconciliation
+    // uses constant-speed close (CORRECTION_CLOSE_TIME_SEC).
     protected float correctionOffsetX = 0f;
     protected float correctionOffsetY = 0f;
-    // Correction blend rate per tick — higher = faster snap, lower = smoother.
-    // 0.15 means ~85% of error corrected within 10 ticks (~160ms at 64Hz client).
     private static final float CORRECTION_BLEND_RATE = 0.15f;
-    // If correction offset exceeds this, snap immediately (teleport/portal)
+    /** Time (sec) over which pos is lerped to target after a server packet
+     *  diverges from extrapolation. Mirrors web's `dist / 0.05` formula. */
+    private static final float CORRECTION_CLOSE_TIME_SEC = 0.05f;
+    // If target diverges by more than this from pos, hard-snap pos.
     private static final float CORRECTION_SNAP_THRESHOLD_SQ = (3 * 32) * (3 * 32);
 
     /**
@@ -135,42 +153,32 @@ public abstract class GameObject {
      * Velocity is always updated immediately since it affects future extrapolation.
      */
     public void applyServerCorrection(NetObjectMovement packet) {
-        // Update velocity FIRST — this drives all future extrapolate()
-        // calls. The new velocity is the only thing we actually need from
-        // most packets; if our extrapolation is in sync with the server's,
-        // posX/posY in the packet will already match what we have.
+        // Velocity drives future extrapolation — always update.
         this.dx = packet.getVelX();
         this.dy = packet.getVelY();
 
-        final float errorX = packet.getPosX() - this.pos.x;
-        final float errorY = packet.getPosY() - this.pos.y;
-        final float errSq = errorX * errorX + errorY * errorY;
-
-        // Three-band reconciliation, mirroring the web client's targetX
-        // pattern in game.js updateInterpolation():
-        //
-        // 1. Large error (> ~3 tiles): hard snap. Teleport, realm
-        //    transition, packet loss recovery — no smoothing makes sense.
-        // 2. Tiny error (< 0.5 px): ignore. This is the common case when
-        //    extrapolation tracks the server. Constantly nudging pos by
-        //    sub-pixel amounts produced the visible "rubberband" jitter.
-        // 3. Mid error: stash as correctionOffset to be blended out by
-        //    blendCorrectionOffset() over the next ~50 ms. Bounded by the
-        //    SNAP threshold above, so we never blend a teleport.
-        if (errSq > CORRECTION_SNAP_THRESHOLD_SQ) {
+        // First-ever correction: prime both target AND pos so we don't
+        // start from zero.
+        if (Float.isNaN(this.targetX)) {
             this.pos.x = packet.getPosX();
             this.pos.y = packet.getPosY();
-            this.correctionOffsetX = 0f;
-            this.correctionOffsetY = 0f;
-        } else if (errSq > 0.25f) {
-            // Replace (not accumulate) — accumulating across rapid-fire
-            // packets is what made enemies appear to move ~1.3× too fast.
-            this.correctionOffsetX = errorX;
-            this.correctionOffsetY = errorY;
-        } else {
-            // Ignore tiny drift. Extrapolation will keep us in sync.
-            this.correctionOffsetX = 0f;
-            this.correctionOffsetY = 0f;
+            this.targetX = packet.getPosX();
+            this.targetY = packet.getPosY();
+            this.bounds = new Rectangle(this.pos, this.size, this.size);
+            return;
+        }
+
+        // Move target to the server's reported position. pos is left alone
+        // — extrapolate() will smoothly nudge it toward target each frame.
+        this.targetX = packet.getPosX();
+        this.targetY = packet.getPosY();
+
+        // Hard snap if the target jumped a long way (teleport, realm tx).
+        final float gapX = this.targetX - this.pos.x;
+        final float gapY = this.targetY - this.pos.y;
+        if (gapX * gapX + gapY * gapY > CORRECTION_SNAP_THRESHOLD_SQ) {
+            this.pos.x = this.targetX;
+            this.pos.y = this.targetY;
         }
         this.bounds = new Rectangle(this.pos, this.size, this.size);
     }
@@ -216,20 +224,44 @@ public abstract class GameObject {
             if (ddx * ddx + ddy * ddy > VIEWPORT_FREEZE_PX * VIEWPORT_FREEZE_PX) {
                 this.dx = 0f;
                 this.dy = 0f;
-                this.blendCorrectionOffset();
                 return;
             }
         }
         final float TICK_RATE = 64f;
-        float dt = Gdx.graphics != null
+        final float dt = Gdx.graphics != null
                 ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
                 : 1f / 60f;
-        float scale = dt * TICK_RATE;
+        final float scale = dt * TICK_RATE;
+
+        // Advance BOTH pos AND target by the extrapolation amount. Keeping
+        // them in lock-step until a server packet adjusts target is what
+        // makes the per-frame motion smooth — pos and target only diverge
+        // when reality (server) disagrees with our prediction.
         this.pos.x += this.dx * scale;
         this.pos.y += this.dy * scale;
+        if (!Float.isNaN(this.targetX)) {
+            this.targetX += this.dx * scale;
+            this.targetY += this.dy * scale;
 
-        // Blend correction offset
-        this.blendCorrectionOffset();
+            // Constant-speed close from pos toward target. Mirrors the web
+            // client's `speed = dist / 0.05; step = speed * dt` formula:
+            // any divergence collapses to zero in CORRECTION_CLOSE_TIME_SEC,
+            // regardless of frame rate.
+            final float gapX = this.targetX - this.pos.x;
+            final float gapY = this.targetY - this.pos.y;
+            final float dist = (float) Math.sqrt(gapX * gapX + gapY * gapY);
+            if (dist > 0.3f) {
+                final float step = (dist / CORRECTION_CLOSE_TIME_SEC) * dt;
+                if (step >= dist) {
+                    this.pos.x = this.targetX;
+                    this.pos.y = this.targetY;
+                } else {
+                    final float ratio = step / dist;
+                    this.pos.x += gapX * ratio;
+                    this.pos.y += gapY * ratio;
+                }
+            }
+        }
     }
 
     /**

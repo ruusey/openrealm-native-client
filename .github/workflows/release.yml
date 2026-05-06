@@ -1,0 +1,76 @@
+name: Release Windows Installer
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # windows-latest ships WiX 3.11 preinstalled but it isn't on PATH by default.
+      # jpackage shells out to light.exe / candle.exe to produce the .exe installer.
+      - name: Add WiX 3 to PATH
+        shell: pwsh
+        run: |
+          $wix = "C:\Program Files (x86)\WiX Toolset v3.11\bin"
+          if (-not (Test-Path $wix)) {
+            $wix = (Get-ChildItem "C:\Program Files (x86)" -Filter "WiX Toolset v3.*" |
+                    Select-Object -First 1).FullName + "\bin"
+          }
+          if (-not (Test-Path $wix)) {
+            Write-Error "WiX 3 not found on runner."
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $wix
+          Write-Host "Using WiX at: $wix"
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: mvn -B -Pinstaller-windows package verify
+
+      - name: Locate installer artifact
+        id: artifact
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path target\installer -Filter *.exe -Recurse |
+                 Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "No .exe produced by jpackage."
+            exit 1
+          }
+          Write-Host "Installer: $($exe.FullName)"
+          "path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "name=$($exe.Name)"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.artifact.outputs.path }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false

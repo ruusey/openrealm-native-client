@@ -250,10 +250,22 @@ public class SpriteSheet {
 
     public TextureRegion getCurrentFrame() {
         if (this.sprites == null || this.sprites.isEmpty()) return null;
-        Sprite sprite = this.sprites.get(this.animationFrame);
+        // Bounds-check the frame index — Entity.update now drives this
+        // directly from animFrame % frameCount, but a setAnimSet() swap
+        // can shrink the frame list mid-cycle, leaving the index past
+        // the end for one render frame. Clamp instead of crashing.
+        int idx = this.animationFrame;
+        if (idx < 0 || idx >= this.sprites.size()) idx = 0;
+        Sprite sprite = this.sprites.get(idx);
         if (sprite != null)
             return sprite.getRegion();
         return null;
+    }
+
+    /** Number of frames in the current animation set. Used by the web-
+     *  parity walk cycle in Entity.update to mod animFrame correctly. */
+    public int getFrameCount() {
+        return this.sprites != null ? this.sprites.size() : 0;
     }
 
     public void loadImageArray(final int x, final int y) {

@@ -452,12 +452,30 @@ public class PlayState extends GameState {
                         : player.getPos().y;
                 player.setRenderPos(renderX, renderY);
 
-                // Camera anchored to the same lerped position.
+                // Camera follows the lerped player position with
+                // exponential smoothing (web parity, game.js ~1580):
+                //   cameraX += (target - cameraX) * (1 - exp(-dt/halflife))
+                // Halflife 0.03s → ~97% of any gap closes within 150ms,
+                // frame-rate independent. The hard lock that was here
+                // before made the camera feel sluggish on direction
+                // changes — the player would visibly drift off-center
+                // for a tick or two before snapping back; with eased
+                // smoothing the camera glides naturally.
+                if (Float.isNaN(this.cameraX)) {
+                    this.cameraX = renderX;
+                    this.cameraY = renderY;
+                } else {
+                    final float halfLife = 0.03f;
+                    final float camSmooth = 1f - (float) Math.exp(-frameDt / halfLife);
+                    this.cameraX += (renderX - this.cameraX) * camSmooth;
+                    this.cameraY += (renderY - this.cameraY) * camSmooth;
+                }
+
                 final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
                 final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
                 final float hudPanelWorldW = (OpenRealmGame.width / 5f) / OpenRealmGame.WORLD_SCALE;
-                PlayState.map.x = renderX - (worldViewW - hudPanelWorldW) / 2f;
-                PlayState.map.y = renderY - (worldViewH * 0.5f);
+                PlayState.map.x = this.cameraX - (worldViewW - hudPanelWorldW) / 2f;
+                PlayState.map.y = this.cameraY - (worldViewH * 0.5f);
                 Vector2f.setWorldVar(PlayState.map.x, PlayState.map.y);
             }
             boolean canUsePortal = (System.currentTimeMillis() - this.lastPortalTick) > PORTAL_COOLDOWN_MS;
@@ -700,6 +718,19 @@ public class PlayState extends GameState {
      * though simulation is fixed at 64 Hz.
      */
     private float interpFromX, interpFromY;
+    /**
+     * Smoothed camera position. Mirrors the web client's
+     * {@code game.cameraX/cameraY} (game.js ~line 1580). The camera
+     * exponentially eases toward the player's lerped render position
+     * each frame instead of being hard-locked to it. Hard-locking made
+     * the camera feel sticky / laggy under fast input changes — every
+     * direction flip jolted the world rather than letting the player
+     * drift inside a small dead zone before the camera caught up.
+     *
+     * NaN sentinel = "no anchor yet, snap on first frame".
+     */
+    private float cameraX = Float.NaN;
+    private float cameraY = Float.NaN;
     private float interpToX, interpToY;
     private boolean hasInterpAnchor = false;
 
@@ -715,6 +746,11 @@ public class PlayState extends GameState {
         this.interpFromX = x;
         this.interpFromY = y;
         this.hasInterpAnchor = true;
+        // Force the camera to snap to the new anchor too — otherwise the
+        // exponential smoother would slide the camera across the world
+        // following a portal teleport.
+        this.cameraX = x;
+        this.cameraY = y;
     }
 
     @Override
