@@ -196,11 +196,21 @@ public class PlayState extends GameState {
             // pool dispatch overhead exceeds the work itself
             final Realm clientRealm = this.realmManager.getRealm();
             final GameObject[] gameObject = clientRealm.getAllGameObjects();
+            // Precompute bulletScale once per frame so we don't pay a
+            // System.nanoTime() syscall + division per bullet (was up to
+            // ~12K syscalls/sec at 200 in-flight bullets). Bullet.update()
+            // no-arg still works for legacy callers but the parametric form
+            // is the hot path. dt clamped to 1/30 to match the rest of the
+            // simulation's frame-skip cap.
+            final float bulletDt = Gdx.graphics != null
+                    ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
+                    : 1f / 60f;
+            final float bulletScale = bulletDt * 64f;
             for (int i = 0; i < gameObject.length; i++) {
                 if (gameObject[i] instanceof Enemy) {
                     ((Enemy) gameObject[i]).update(this.getRealmManager(), time);
                 } else if (gameObject[i] instanceof Bullet) {
-                    ((Bullet) gameObject[i]).update();
+                    ((Bullet) gameObject[i]).update(bulletScale);
                 } else if (gameObject[i] instanceof Player && gameObject[i].getId() != player.getId()) {
                     final Player playerOther = (Player) gameObject[i];
                     playerOther.update(time);

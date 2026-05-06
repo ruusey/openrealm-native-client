@@ -1014,27 +1014,38 @@ public class Realm {
         return objs.toArray(new Player[0]);
     }
 
+    /** Reusable buffers for the per-frame viewport-cull pass. Same callers
+     *  as {@link #getAllGameObjects()} (PlayState.render only on the
+     *  client) so a per-instance ArrayList is safe. Without this each
+     *  call allocated an ArrayList plus a fresh GameObject[] via
+     *  toArray(new GameObject[0]) — together with getAllGameObjects this
+     *  was the largest steady GC source on the render hot path. */
+    private transient final List<GameObject> inBoundsScratch = new ArrayList<>(256);
+
     public GameObject[] getGameObjectsInBounds(Rectangle cam) {
-        final List<GameObject> objs = new ArrayList<>();
+        final List<GameObject> objs = this.inBoundsScratch;
+        objs.clear();
         for (final Player p : this.players.values()) {
-            if (p.getBounds().intersect(cam)) {
+            if (p.getBounds() != null && p.getBounds().intersect(cam)) {
                 objs.add(p);
             }
         }
-
         for (final Bullet b : this.bullets.values()) {
-            if (b.getBounds().intersect(cam)) {
+            if (b.getBounds() != null && b.getBounds().intersect(cam)) {
                 objs.add(b);
             }
         }
-
         for (final Enemy e : this.enemies.values()) {
-            if (e.getBounds().intersect(cam)) {
+            if (e.getBounds() != null && e.getBounds().intersect(cam)) {
                 objs.add(e);
             }
         }
-
-        return objs.toArray(new GameObject[0]);
+        // Pre-sized to objs.size so toArray fills it directly without a
+        // second internal allocation. The new GameObject[size] cost is
+        // unavoidable since callers depend on receiving an array; keeping
+        // it sized exactly avoids the +null-padding alloc that
+        // toArray(new GameObject[0]) does internally.
+        return objs.toArray(new GameObject[objs.size()]);
     }
 
     public GameObject[] getGameObjectsInRadius(Vector2f center, float radius) {

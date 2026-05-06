@@ -34,6 +34,15 @@ public final class PerfMetrics {
     // call Runtime per frame.
     private int memoryMB = 0;
 
+    // Cached label strings — recomputed only when the value changes so
+    // render() doesn't allocate four Strings per frame from concatenation.
+    // Combined with the visibility-list reuse this trims another ~250
+    // String allocs/sec on a 60 FPS render loop.
+    private String fpsLabel = "FPS: 0";
+    private String memLabel = "MEM: 0MB";
+    private String pingLabel = "PING: 0ms";
+    private String jitLabel = "JIT: 0ms";
+
     // Ping = mean of recent RTT samples (ms). Jitter = stddev of those
     // samples. Capped at 16 samples — newest replaces oldest.
     private final long[] rttSamples = new long[16];
@@ -54,6 +63,10 @@ public final class PerfMetrics {
             this.lastFpsSampleMs = now;
             final Runtime rt = Runtime.getRuntime();
             this.memoryMB = (int) ((rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L));
+            // Refresh display strings only on the 2 Hz sample boundary
+            // — render() reuses these every frame.
+            this.fpsLabel = "FPS: " + this.fps;
+            this.memLabel = "MEM: " + this.memoryMB + "MB";
         }
     }
 
@@ -87,6 +100,10 @@ public final class PerfMetrics {
             varSum += diff * diff;
         }
         this.jitter = (int) Math.round(Math.sqrt(varSum / this.rttCount));
+        // Refresh ping/jitter labels at heartbeat rate (1 Hz). render()
+        // reuses these every frame between updates.
+        this.pingLabel = "PING: " + this.ping + "ms";
+        this.jitLabel = "JIT: " + this.jitter + "ms";
     }
 
     public int getFps() { return this.fps; }
@@ -103,26 +120,30 @@ public final class PerfMetrics {
     public void render(SpriteBatch batch, BitmapFont font, float rightX, float topY) {
         final float lineH = font.getLineHeight();
         final float labelW = 70f;
-        // FPS — green ≥55, yellow ≥30, red below.
-        font.setColor(this.fps >= 55 ? new Color(0.4f, 1f, 0.4f, 1f)
-                : this.fps >= 30 ? new Color(1f, 1f, 0.4f, 1f)
-                : new Color(1f, 0.4f, 0.4f, 1f));
-        font.draw(batch, "FPS: " + this.fps, rightX - labelW, topY + lineH);
+        // FPS — green ≥55, yellow ≥30, red below. Cached Color singletons
+        // (FPS_GOOD/WARN/BAD, PING_*) so we don't allocate four Color
+        // objects per frame just to set the font color.
+        font.setColor(this.fps >= 55 ? COLOR_GOOD
+                : this.fps >= 30 ? COLOR_WARN : COLOR_BAD);
+        font.draw(batch, this.fpsLabel, rightX - labelW, topY + lineH);
 
         font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "MEM: " + this.memoryMB + "MB", rightX - labelW, topY + lineH * 2);
+        font.draw(batch, this.memLabel, rightX - labelW, topY + lineH * 2);
 
         // Ping — green <50, yellow <120, red above.
-        font.setColor(this.ping < 50 ? new Color(0.4f, 1f, 0.4f, 1f)
-                : this.ping < 120 ? new Color(1f, 1f, 0.4f, 1f)
-                : new Color(1f, 0.4f, 0.4f, 1f));
-        font.draw(batch, "PING: " + this.ping + "ms", rightX - labelW, topY + lineH * 3);
+        font.setColor(this.ping < 50 ? COLOR_GOOD
+                : this.ping < 120 ? COLOR_WARN : COLOR_BAD);
+        font.draw(batch, this.pingLabel, rightX - labelW, topY + lineH * 3);
 
         font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "JIT: " + this.jitter + "ms", rightX - labelW, topY + lineH * 4);
+        font.draw(batch, this.jitLabel, rightX - labelW, topY + lineH * 4);
 
         font.setColor(Color.WHITE);
     }
+
+    private static final Color COLOR_GOOD = new Color(0.4f, 1f, 0.4f, 1f);
+    private static final Color COLOR_WARN = new Color(1f, 1f, 0.4f, 1f);
+    private static final Color COLOR_BAD  = new Color(1f, 0.4f, 0.4f, 1f);
 
     /** Convenience accessor used by tests that want raw Gdx FPS too. */
     public int getGdxFps() {
