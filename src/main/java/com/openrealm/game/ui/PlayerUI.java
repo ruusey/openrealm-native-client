@@ -70,6 +70,16 @@ public class PlayerUI {
     private Player hoveredPlayer = null;
     private long lastNearbyRefresh = 0;
 
+    // Click-context menu shown next to a nearby-player entry. Mirrors
+    // webclient trade.js showPlayerContextMenu — Trade / Teleport options
+    // wired to the same SERVER_COMMAND payloads (/trade <name>, /tp <name>)
+    // the chat box uses. Set on player-name click; cleared on menu-button
+    // click or click-elsewhere.
+    private Player contextMenuPlayer = null;
+    private int contextMenuX = 0;
+    private int contextMenuY = 0;
+    private boolean prevContextMenuMouseDown = false;
+
     private int dragSourceIndex = -1;
     private boolean isDragging = false;
     private Vector2f dragStartPos = null;
@@ -489,6 +499,11 @@ public class PlayerUI {
             btn.input(mouse, key);
         }
 
+        // Trade/Teleport context menu — runs LAST in the pipeline so a
+        // click on a menu row isn't first consumed by an underlying
+        // nearby-player button (which would re-open the same menu).
+        this.handleContextMenuInput(mouse);
+
         try {
             this.playerChat.input(mouse, key, this.playState.getRealmManager().getClient());
         } catch (Exception e) {
@@ -855,6 +870,7 @@ public class PlayerUI {
         }
 
         this.renderPlayerTooltip(batch, shapes, font);
+        this.renderPlayerContextMenu(batch, shapes, font);
         this.renderStats(batch, font);
         this.renderPortalPrompt(batch, font);
         this.playerChat.render(batch, shapes, font);
@@ -1017,6 +1033,9 @@ public class PlayerUI {
             btn.getBounds().setWidth(colWidth);
             btn.getBounds().setHeight(entryHeight);
             final Player hoverTarget = p;
+            final int btnX = x;
+            final int btnY = y;
+            final int btnW = colWidth;
             btn.onHoverIn(event -> {
                 this.hoveredPlayer = hoverTarget;
             });
@@ -1024,6 +1043,14 @@ public class PlayerUI {
                 if (this.hoveredPlayer == hoverTarget) {
                     this.hoveredPlayer = null;
                 }
+            });
+            // Open the trade/tp context menu on left-click. Button has no
+            // onClick callback, so use onMouseDown (mirrors webclient
+            // trade.js click handler — show menu at click coords).
+            btn.onMouseDown(event -> {
+                this.contextMenuPlayer = hoverTarget;
+                this.contextMenuX = btnX + btnW + 4;
+                this.contextMenuY = btnY;
             });
             newButtons.add(btn);
         }
@@ -1074,6 +1101,113 @@ public class PlayerUI {
                 font.setColor(Color.WHITE);
             }
             font.draw(batch, displayName, x + iconSize + 4, y + 14);
+        }
+    }
+
+    /** Width / height of the trade-tp context menu. Two rows of options
+     *  plus a name header. Kept small so it fits next to a 2-col nearby
+     *  list entry on a typical screen. */
+    private static final int CTX_MENU_W = 130;
+    private static final int CTX_MENU_HEADER_H = 22;
+    private static final int CTX_MENU_OPTION_H = 22;
+
+    /**
+     * Render + input for the player context menu. Mirrors webclient
+     * trade.js {@code showPlayerContextMenu}: header with the player's
+     * name, then "Trade" / "Teleport" rows that send the same SERVER_COMMAND
+     * payloads chat would (/trade {@literal <name>}, /tp {@literal <name>}).
+     * Click anywhere outside dismisses, matching the web behavior.
+     */
+    private void renderPlayerContextMenu(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        if (this.contextMenuPlayer == null) return;
+        final Player p = this.contextMenuPlayer;
+        final int x = this.contextMenuX;
+        final int yHeader = this.contextMenuY;
+        final int yTrade = yHeader + CTX_MENU_HEADER_H;
+        final int yTp = yTrade + CTX_MENU_OPTION_H;
+        final int totalH = CTX_MENU_HEADER_H + 2 * CTX_MENU_OPTION_H;
+
+        // Background + border
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.96f);
+        shapes.rect(x, yHeader, CTX_MENU_W, totalH);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
+        shapes.rect(x, yHeader, CTX_MENU_W, totalH);
+        // Row separators
+        shapes.line(x, yTrade, x + CTX_MENU_W, yTrade);
+        shapes.line(x, yTp, x + CTX_MENU_W, yTp);
+        shapes.end();
+        batch.begin();
+
+        font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+        font.draw(batch, p.getName() == null ? "Player" : p.getName(),
+                x + 6, yHeader + 14);
+
+        font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
+        font.draw(batch, "Trade",    x + 6, yTrade + 14);
+        font.draw(batch, "Teleport", x + 6, yTp + 14);
+        font.setColor(Color.WHITE);
+    }
+
+    /**
+     * Mouse-driven hit-test for the context menu. Called from input()
+     * after the rest of the input pipeline so a click on a menu row
+     * doesn't get swallowed by anything below. Edge-triggered on
+     * mouse-down via prevContextMenuMouseDown to mirror the chat-tab
+     * click pattern; holding the button doesn't keep firing.
+     */
+    private void handleContextMenuInput(MouseHandler mouse) {
+        final boolean down = mouse.isPressed(1);
+        final boolean justClicked = down && !this.prevContextMenuMouseDown;
+        this.prevContextMenuMouseDown = down;
+        if (this.contextMenuPlayer == null) return;
+        if (!justClicked) return;
+
+        final int mx = mouse.getX();
+        final int my = mouse.getY();
+        final int x = this.contextMenuX;
+        final int yHeader = this.contextMenuY;
+        final int yTrade = yHeader + CTX_MENU_HEADER_H;
+        final int yTp = yTrade + CTX_MENU_OPTION_H;
+        final int yEnd = yTp + CTX_MENU_OPTION_H;
+        final boolean inX = mx >= x && mx <= x + CTX_MENU_W;
+        final boolean inMenuY = my >= yHeader && my <= yEnd;
+        if (!inX || !inMenuY) {
+            // Click-elsewhere — dismiss without action (matches web).
+            this.contextMenuPlayer = null;
+            return;
+        }
+        final Player target = this.contextMenuPlayer;
+        if (my >= yTrade && my < yTp) {
+            this.sendServerCommand("trade", target.getName());
+            this.enqueueChat(TextPacket.create("SYSTEM", target.getName(),
+                    "Trade request sent to " + target.getName()));
+        } else if (my >= yTp && my < yEnd) {
+            this.sendServerCommand("tp", target.getName());
+            this.enqueueChat(TextPacket.create("SYSTEM", target.getName(),
+                    "Teleporting to " + target.getName()));
+        }
+        this.contextMenuPlayer = null;
+    }
+
+    /**
+     * Send a SERVER_COMMAND CommandPacket — same path
+     * {@link PlayerChat#input} uses for typed slash commands. Delegates
+     * the parsing to {@link ServerCommandMessage#parseFromInput} so
+     * server-side handling stays uniform.
+     */
+    private void sendServerCommand(String command, String arg) {
+        try {
+            final String full = "/" + command + " " + (arg == null ? "" : arg);
+            final ServerCommandMessage msg = ServerCommandMessage.parseFromInput(full);
+            final CommandPacket packet = CommandPacket.create(this.playState.getPlayer(),
+                    CommandType.SERVER_COMMAND, msg);
+            this.playState.getRealmManager().getClient().sendRemote(packet);
+        } catch (Exception ex) {
+            log.error("Failed to send server command /{} {}: {}", command, arg, ex.getMessage());
         }
     }
 
