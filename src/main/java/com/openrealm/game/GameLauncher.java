@@ -1,7 +1,12 @@
 package com.openrealm.game;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
 import java.net.http.HttpClient;
+import java.time.Instant;
 
+import com.badlogic.gdx.Files;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
 import com.openrealm.account.dto.PingResponseDto;
@@ -11,7 +16,6 @@ import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.net.client.SocketClient;
 
 import lombok.extern.slf4j.Slf4j;
-import com.badlogic.gdx.Files;
 
 /**
  * Entry point for the OpenRealm native Java desktop client.
@@ -31,6 +35,39 @@ public class GameLauncher {
     public static final Boolean DEBUG_MODE = true;
 
     public static void main(String[] args) {
+        // Catch ANY startup error and dump it to ~/.openrealm/crash.log
+        // (plus stderr if a console is attached). jpackage-built EXEs run
+        // with no console by default, so an unhandled exception during
+        // LWJGL native loading, font init, etc. would otherwise produce
+        // a silent process exit and leave the user with nothing to debug.
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            writeCrashLog("Uncaught in thread " + t.getName(), e);
+        });
+        try {
+            launch(args);
+        } catch (Throwable t) {
+            writeCrashLog("Fatal in main()", t);
+            System.exit(-1);
+        }
+    }
+
+    private static void writeCrashLog(String header, Throwable t) {
+        try {
+            File dir = new File(System.getProperty("user.home", "."), ".openrealm");
+            if (!dir.exists()) dir.mkdirs();
+            File f = new File(dir, "crash.log");
+            try (PrintWriter pw = new PrintWriter(new FileWriter(f, true))) {
+                pw.println("==== " + Instant.now() + " ====");
+                pw.println(header);
+                t.printStackTrace(pw);
+                pw.println();
+            }
+        } catch (Exception ignored) { /* nothing else we can do */ }
+        try { t.printStackTrace(System.err); } catch (Exception ignored) {}
+        try { GameLauncher.log.error("Fatal: {}", t.toString(), t); } catch (Exception ignored) {}
+    }
+
+    private static void launch(String[] args) {
         GameLauncher.log.info("Starting OpenRealm Native Client v{}", GAME_VERSION);
 
         if (args.length == 0) {

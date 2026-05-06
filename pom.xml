@@ -255,6 +255,13 @@
 										<argument>${project.basedir}/src/main/resources/icon_min.ico</argument>
 										<argument>--win-shortcut</argument>
 										<argument>--win-menu</argument>
+										<!-- Attach a console window to the launched EXE so any
+										     stack trace from a startup crash is visible. Without
+										     this, jpackage builds a windowed app that silently
+										     dies on init failures. Crash output also goes to
+										     ~/.openrealm/crash.log via GameLauncher's
+										     UncaughtExceptionHandler. -->
+										<argument>--win-console</argument>
 									</arguments>
 								</configuration>
 							</execution>
