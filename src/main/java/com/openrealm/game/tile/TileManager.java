@@ -834,22 +834,6 @@ public class TileManager {
             batch.setColor(1, 1, 1, 1);
             ShaderManager.clearEffect(batch);
 
-            // Shader-based 1px outline replaces the previous 4-direction tinted-copy halo.
-            for (Tile t : wallTiles) {
-                TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
-                if (region == null) continue;
-                ShaderManager.applyOutlineShader(batch, region);
-                float wx = t.getPos().getWorldVar().x;
-                float wy = t.getPos().getWorldVar().y;
-                int sz = t.getWidth();
-                int rw = region.getRegionWidth();
-                int rh = region.getRegionHeight();
-                float padX = rw > 0 ? (float) sz / rw : 1f;
-                float padY = rh > 0 ? (float) sz / rh : 1f;
-                batch.draw(region, wx - padX, wy - padY, sz + 2 * padX, sz + 2 * padY);
-            }
-            ShaderManager.clearOutlineShader(batch);
-
             // Fake-3D side strip: same texture stretched into a band along the
             // south edge of the tile, darkened to suggest a shaded wall face.
             // Drawn before the top tile so the top sits cleanly on the seam.
@@ -889,22 +873,6 @@ public class TileManager {
             shapes.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
             batch.begin();
-
-            // Shader outline pass for collidable object/decoration tiles.
-            for (Tile t : objectTiles) {
-                TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
-                if (region == null) continue;
-                ShaderManager.applyOutlineShader(batch, region);
-                float wx = t.getPos().getWorldVar().x;
-                float wy = t.getPos().getWorldVar().y;
-                int sz = t.getWidth();
-                int rw = region.getRegionWidth();
-                int rh = region.getRegionHeight();
-                float padX = rw > 0 ? (float) sz / rw : 1f;
-                float padY = rh > 0 ? (float) sz / rh : 1f;
-                batch.draw(region, wx - padX, wy - padY, sz + 2 * padX, sz + 2 * padY);
-            }
-            ShaderManager.clearOutlineShader(batch);
 
             for (Tile t : objectTiles) {
                 t.render(batch);

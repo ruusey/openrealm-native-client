@@ -1064,23 +1064,6 @@ public class PlayState extends GameState {
             visibleEntities.get(i).updateEffectState();
         }
 
-        // Pass 1: shader-based 1px black outline around every entity (PixiJS
-        // OutlineFilter equivalent). Outline uniforms are per-region so we
-        // re-apply for each entity, but the shader stays bound across the
-        // whole pass so there's only one shader switch at the start/end.
-        boolean outlineActive = false;
-        for (int i = 0; i < visibleEntities.size(); i++) {
-            Entity e = visibleEntities.get(i);
-            TextureRegion frame = e.getCurrentFrame();
-            if (frame == null) continue;
-            ShaderManager.applyOutlineShader(batch, frame);
-            outlineActive = true;
-            e.renderOutline(batch);
-        }
-        if (outlineActive) {
-            ShaderManager.clearOutlineShader(batch);
-        }
-
         // Pass 2: All entity bodies grouped by effect (minimize shader switches)
         Sprite.EffectEnum currentEffect = null;
         for (int i = 0; i < visibleEntities.size(); i++) {
@@ -1094,22 +1077,7 @@ public class PlayState extends GameState {
         }
         ShaderManager.clearEffect(batch);
 
-        // Pass 3a: Bullet outlines (shader bound across the whole pass)
-        boolean bulletOutlineActive = false;
-        for (int i = 0; i < visibleBullets.size(); i++) {
-            Bullet b = visibleBullets.get(i);
-            if (b.getSpriteSheet() == null) continue;
-            TextureRegion frame = b.getSpriteSheet().getCurrentFrame();
-            if (frame == null) continue;
-            ShaderManager.applyOutlineShader(batch, frame);
-            bulletOutlineActive = true;
-            b.renderOutline(batch);
-        }
-        if (bulletOutlineActive) {
-            ShaderManager.clearOutlineShader(batch);
-        }
-
-        // Pass 3b: Bullet bodies (no shader needed)
+        // Pass 3: Bullet bodies (no shader needed)
         for (int i = 0; i < visibleBullets.size(); i++) {
             visibleBullets.get(i).render(batch);
         }
@@ -1140,16 +1108,6 @@ public class PlayState extends GameState {
         batch.begin();
 
         Collection<Portal> portals = this.realmManager.getRealm().getPortals().values();
-        boolean portalOutlineActive = false;
-        for (Portal portal : portals) {
-            if (portal.getSprite() == null || portal.getSprite().getRegion() == null) continue;
-            ShaderManager.applyOutlineShader(batch, portal.getSprite().getRegion());
-            portalOutlineActive = true;
-            portal.renderOutline(batch);
-        }
-        if (portalOutlineActive) {
-            ShaderManager.clearOutlineShader(batch);
-        }
         for (Portal portal : portals) {
             portal.render(batch);
         }
