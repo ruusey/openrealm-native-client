@@ -217,25 +217,28 @@ public class PlayState extends GameState {
             // through enemies after a hit". Server stays authoritative for
             // damage; this is purely a visual cull.
             //
+            // Mark-consumed pattern (NOT remove): set Bullet.consumedClient
+            // and let the render path skip the sprite. Removing the bullet
+            // from the realm map was fighting the server's LoadPacket diff,
+            // which keeps re-adding the bullet at its slightly-stale
+            // server-side position until the kill packet lands — that
+            // produced visibly "frozen" projectiles after a hit.
+            //
             // Circle-vs-circle test using GlobalConstants.HIT_RADIUS_FACTOR
             // so hit radius matches the server's circleHit() exactly.
-            // Pass-through-enemies projectiles keep flying after a hit.
+            // Pass-through-enemies projectiles skip the cull and keep flying.
             final Map<Long, Bullet> bullets = clientRealm.getBullets();
             final Map<Long, Enemy>  enemies = clientRealm.getEnemies();
             if (!bullets.isEmpty() && !enemies.isEmpty()) {
-                final java.util.Iterator<Map.Entry<Long, Bullet>> it =
-                        bullets.entrySet().iterator();
-                while (it.hasNext()) {
-                    final Map.Entry<Long, Bullet> entry = it.next();
-                    final Bullet b = entry.getValue();
+                for (final Bullet b : bullets.values()) {
                     if (b == null || b.getPos() == null) continue;
+                    if (b.isConsumedClient()) continue;
                     if (!b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE)) continue;
                     if (b.hasFlag(ProjectileFlag.PASS_THROUGH_ENEMIES)) continue;
                     final float bSize = b.getSize() > 0 ? b.getSize() : 4f;
                     final float br = bSize * GlobalConstants.HIT_RADIUS_FACTOR;
                     final float bcx = b.getPos().x + bSize * 0.5f;
                     final float bcy = b.getPos().y + bSize * 0.5f;
-                    boolean hit = false;
                     for (final Enemy e : enemies.values()) {
                         if (e == null || e.getPos() == null) continue;
                         final float eSize = e.getSize() > 0 ? e.getSize() : 32f;
@@ -247,12 +250,9 @@ public class PlayState extends GameState {
                         final float rsum = br + er;
                         if (dx > rsum || dx < -rsum || dy > rsum || dy < -rsum) continue;
                         if (dx * dx + dy * dy < rsum * rsum) {
-                            hit = true;
+                            b.setConsumedClient(true);
                             break;
                         }
-                    }
-                    if (hit) {
-                        it.remove();
                     }
                 }
             }
@@ -992,13 +992,30 @@ public class PlayState extends GameState {
                 final StringBuilder sb = new StringBuilder();
                 sb.append("[RENDER] players(").append(ps.size()).append(")=");
                 for (Player rp : ps) {
+                    String spriteState = "noSprite";
+                    if (rp.getSpriteSheet() != null) {
+                        try {
+                            // Distinguish "sheet exists but no frames" (setAnimSet
+                            // failed to find idle_side) from a fully usable sheet.
+                            // Without this, both states reported "ok" and the
+                            // invisible-player bug looked like a render-path issue.
+                            int frameCount = rp.getSpriteSheet().getFrameCount();
+                            spriteState = (rp.getSpriteSheet().getCurrentFrame() != null
+                                    && frameCount > 0)
+                                    ? "ok(" + frameCount + "f)"
+                                    : "noFrames(classId=" + rp.getClassId() + ")";
+                        } catch (Exception ex) {
+                            spriteState = "spriteErr:" + ex.getClass().getSimpleName();
+                        }
+                    }
                     sb.append('[')
                       .append(rp.getId())
                       .append('|').append(rp.getName())
                       .append('|').append(rp.getId() == localId ? "self" : "remote")
                       .append('|').append(rp.getPos() == null ? "null"
                               : (int) rp.getPos().x + "," + (int) rp.getPos().y)
-                      .append('|').append(rp.getSpriteSheet() == null ? "noSprite" : "ok")
+                      .append('|').append("size=").append(rp.getSize())
+                      .append('|').append(spriteState)
                       .append("] ");
                 }
                 log.info(sb.toString());
@@ -1018,7 +1035,13 @@ public class PlayState extends GameState {
                 visibleEntities.add(e);
                 visibleEnemies.add(e);
             } else if (gameObject[i] instanceof Bullet) {
-                visibleBullets.add((Bullet) gameObject[i]);
+                final Bullet b = (Bullet) gameObject[i];
+                // Skip locally-consumed bullets — set by the player-bullet
+                // hit prediction in update(). Sprite vanishes but the
+                // entry stays in the realm so the server's eventual
+                // UnloadPacket cleanly removes it.
+                if (b.isConsumedClient()) continue;
+                visibleBullets.add(b);
             }
             // Players already added above, skip to avoid double-render
         }

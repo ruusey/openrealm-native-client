@@ -407,6 +407,20 @@ public class GameSpriteManager {
         }
 
         classSprites.setAnimSet("idle_side");
+        // Fallback: if "idle_side" wasn't in the animation map for this
+        // class, sprites stays empty and getCurrentFrame() returns null,
+        // making the player invisible. Pick the FIRST defined anim set
+        // instead so at least the entity renders. This was the root cause
+        // of remote-player-invisible reports despite the spriteSheet being
+        // non-null — diagnostic only checked null, not frame count.
+        if (classSprites.getFrameCount() == 0
+                && animModel.getAnimations() != null
+                && !animModel.getAnimations().isEmpty()) {
+            final String fallbackName = animModel.getAnimations().keySet().iterator().next();
+            log.warn("No idle_side animation for classId={}, falling back to '{}'",
+                    cls.classId, fallbackName);
+            classSprites.setAnimSet(fallbackName);
+        }
         return classSprites;
     }
 

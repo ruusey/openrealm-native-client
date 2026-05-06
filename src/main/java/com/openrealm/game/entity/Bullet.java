@@ -165,10 +165,23 @@ public class Bullet extends GameObject  {
         cacheAngle();
     }
 
+    /** Client-side hit prediction marker. PlayState's per-frame circle hit
+     *  test sets this when a player bullet visually contacts an enemy.
+     *  Renderer skips consumed bullets so the sprite vanishes on hit, but
+     *  the entry stays in the realm map — removing on hit was fighting the
+     *  server's LoadPacket diff, which kept re-adding the bullet at its
+     *  server-side (slightly stale) position and produced visibly "frozen"
+     *  projectiles until the next UnloadPacket. The eventual UnloadPacket
+     *  cleans up for real. */
+    private transient boolean consumedClient = false;
+
+    public boolean isConsumedClient() { return this.consumedClient; }
+    public void setConsumedClient(boolean v) { this.consumedClient = v; }
+
     public boolean hasFlag(short flag) {
         return (this.flags != null) && (this.flags.contains(flag));
     }
-    
+
     public boolean hasFlag(ProjectileFlag flag) {
         return (this.flags != null) && (this.flags.contains(flag.flagId));
     }
