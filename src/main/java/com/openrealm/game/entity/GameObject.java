@@ -171,12 +171,8 @@ public abstract class GameObject {
     protected float correctionOffsetY = 0f;
     private static final float CORRECTION_BLEND_RATE = 0.15f;
     /** Time (sec) over which pos is lerped to target after a server packet
-     *  diverges from extrapolation. Web client uses 0.05 but at typical
-     *  network jitter (1-2 tile gaps) that closes at ~20 tiles/sec — faster
-     *  than enemy walk speed, which reads visually as rubberband. 0.15s
-     *  keeps the close tight enough to track but slow enough that the
-     *  correction blends with normal motion. */
-    private static final float CORRECTION_CLOSE_TIME_SEC = 0.15f;
+     *  diverges from extrapolation. Mirrors web's `dist / 0.05` formula. */
+    private static final float CORRECTION_CLOSE_TIME_SEC = 0.05f;
     // If target diverges by more than this from pos, hard-snap pos.
     private static final float CORRECTION_SNAP_THRESHOLD_SQ = (3 * 32) * (3 * 32);
     /** Web parity: if no server velocity update arrives for this long, the
@@ -327,18 +323,17 @@ public abstract class GameObject {
             }
         }
 
-        // Staleness cap: if the server hasn't acked velocity for >1.2 s
-        // while we're in viewport (packet loss, realm transition,
-        // entity death-without-unload), snap pos back to the last known
-        // server position so we don't extrapolate into the void.
-        if (this.lastVelUpdateMs != 0L && !Float.isNaN(this.serverPosX)) {
+        // Staleness cap: if the server hasn't acked velocity for a while,
+        // freeze extrapolation in place. Critical: ObjectMovePacket sends
+        // only the diff — a constant-velocity enemy isn't re-broadcast,
+        // so lastVelUpdateMs lags the actual server state. Snapping pos
+        // back to serverPosX (which is also stale) produces a visible
+        // backward rubberband. Freezing velocity lets the next real
+        // packet close any gap smoothly via the target mechanism.
+        if (this.lastVelUpdateMs != 0L) {
             if (System.currentTimeMillis() - this.lastVelUpdateMs > EXTRAP_STALENESS_CAP_MS) {
                 this.dx = 0f;
                 this.dy = 0f;
-                this.pos.x = this.serverPosX;
-                this.pos.y = this.serverPosY;
-                this.targetX = this.serverPosX;
-                this.targetY = this.serverPosY;
                 this.bounds = new Rectangle(this.pos, this.size, this.size);
                 return;
             }
@@ -355,9 +350,18 @@ public abstract class GameObject {
         // every frame for the thousands of idle enemies in a realm — both
         // a tiny perf win and a guarantee that idle enemies render at the
         // server-reported position byte-for-byte.
+        //
+        // Under-extrapolate pos: target advances at full server velocity
+        // (representing where the server estimates the entity is now),
+        // but pos advances at 70% so it always lags slightly behind
+        // target. Gap-close then closes the remainder going FORWARD —
+        // total motion still equals server speed at steady state, but
+        // pos never overshoots target, so server corrections never pull
+        // it backward (which read as rubberband).
         if (vx != 0f || vy != 0f) {
-            this.pos.x += vx * scale;
-            this.pos.y += vy * scale;
+            final float POS_EXTRAP_FACTOR = 0.7f;
+            this.pos.x += vx * scale * POS_EXTRAP_FACTOR;
+            this.pos.y += vy * scale * POS_EXTRAP_FACTOR;
             if (hasTarget) {
                 tx += vx * scale;
                 ty += vy * scale;
