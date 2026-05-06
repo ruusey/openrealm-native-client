@@ -449,4 +449,21 @@ public abstract class Entity extends GameObject {
 
     @Override
     public abstract void render(SpriteBatch batch);
+
+    /**
+     * Lifecycle hook invoked when the entity is removed from a Realm
+     * (death, despawn, viewport unload). Drops references to per-instance
+     * heap state so the GC can reclaim it even if some short-lived closure
+     * (e.g. an in-flight async attack callback, a packet handler iterator)
+     * still pins the Entity for a few more ticks.
+     *
+     * <p>The shared {@link com.badlogic.gdx.graphics.Texture} the SpriteSheet
+     * points at is owned by GameSpriteManager — never disposed here.
+     * What we ARE freeing is the per-instance SpriteSheet wrapper itself
+     * (TextureRegion[][] arrays, animSets HashMaps, Sprite lists), which
+     * for a fully-loaded enemy adds up to a few KB of heap each.
+     */
+    public void onRemoved() {
+        this.setSpriteSheet(null);
+    }
 }

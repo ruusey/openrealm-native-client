@@ -569,18 +569,36 @@ public class Player extends Entity {
 	private TextureRegion resolveDyedRegion(TextureRegion frame) {
 		final AnimationModel anim = GameDataManager.ANIMATIONS != null
 				? GameDataManager.ANIMATIONS.get(this.classId) : null;
-		if (anim == null) return null;
+		if (anim == null) {
+			dyeWarnOnce("anim-null-" + this.classId,
+					"[DYE] No AnimationModel for classId={}, dye won't apply", this.classId);
+			return null;
+		}
 		final String spriteKey = anim.getSpriteKey();
 		final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
 		final int spH = anim.getEffectiveSpriteHeight() > 0 ? anim.getEffectiveSpriteHeight() : spW;
 		if (frame == null || frame.getTexture() == null) return null;
 		final int col = frame.getRegionX() / spW;
-		final int rawY = frame.getRegionY();
-		// region is flipped (height becomes negative-region-style); use
-		// regionWidth/Height to recover the unflipped row.
-		final int absY = rawY < 0 ? frame.getTexture().getHeight() + rawY : rawY;
-		final int row = absY / spH;
-		return SpriteRecolorCache.getDyedRegion(spriteKey, this.classId, row, col, spW, this.dyeId);
+		final int row = frame.getRegionY() / spH;
+		final TextureRegion dyed = SpriteRecolorCache.getDyedRegion(
+				spriteKey, this.classId, row, col, spW, this.dyeId);
+		if (dyed == null) {
+			dyeWarnOnce("dye-miss-" + this.classId + "-" + row + "-" + col + "-" + this.dyeId,
+					"[DYE] Recolor returned null for classId={} sheet={} row={} col={} dyeId={}",
+					this.classId, spriteKey, row, col, this.dyeId);
+		} else {
+			dyeWarnOnce("dye-hit-" + this.classId + "-" + this.dyeId,
+					"[DYE] Recolor applied for classId={} sheet={} dyeId={} (first hit)",
+					this.classId, spriteKey, this.dyeId);
+		}
+		return dyed;
+	}
+
+	/** One-shot diagnostic logger to keep the hot render path quiet. */
+	private static final java.util.Set<String> DYE_WARNED =
+			java.util.concurrent.ConcurrentHashMap.newKeySet();
+	private static void dyeWarnOnce(String key, String fmt, Object... args) {
+		if (DYE_WARNED.add(key)) log.warn(fmt, args);
 	}
 
 

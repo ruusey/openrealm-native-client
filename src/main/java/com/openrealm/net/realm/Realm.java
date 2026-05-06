@@ -487,6 +487,9 @@ public class Realm {
         }
         this.shortIdAllocator.release(player.getId());
         this.releasePlayerLock();
+        if (p != null) {
+            p.onRemoved();
+        }
         return p != null;
     }
 
@@ -645,6 +648,9 @@ public class Realm {
             this.spatialGrid.remove(enemy.getId());
         }
         this.shortIdAllocator.release(enemy.getId());
+        if (e != null) {
+            e.onRemoved();
+        }
         return e != null;
     }
 

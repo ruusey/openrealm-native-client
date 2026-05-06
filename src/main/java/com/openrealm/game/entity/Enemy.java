@@ -926,6 +926,22 @@ public class Enemy extends Entity {
     }
 
     @Override
+    public void onRemoved() {
+        super.onRemoved();
+        // Per-phase scratch arrays, only allocated when an enemy actually
+        // had multi-phase attacks. Drop them so GC sees the dead enemy as
+        // a no-allocation-tail leaf.
+        this.attackCooldowns = null;
+        this.attackAngleAccumulators = null;
+        this.spawnPos = null;
+        this.stats = null;
+        // model is a SHARED pointer into GameDataManager.ENEMIES — DO NOT null
+        // its registry entry, just drop our reference so the Enemy instance
+        // doesn't keep that EnemyModel reachable through us specifically.
+        this.model = null;
+    }
+
+    @Override
     public void render(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
         this.updateEffectState();

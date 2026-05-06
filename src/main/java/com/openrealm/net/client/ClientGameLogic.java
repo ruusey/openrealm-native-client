@@ -63,6 +63,7 @@ import com.openrealm.game.ui.FameStoreWindow;
 import com.openrealm.game.ui.ForgeWindow;
 import com.openrealm.net.client.packet.OpenFameStorePacket;
 import com.openrealm.net.client.packet.OpenForgePacket;
+import com.openrealm.net.server.ServerFameStoreHelper;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import java.util.ArrayList;
 import java.util.List;
@@ -332,6 +333,11 @@ public class ClientGameLogic {
 			if (cli.getState() == null || cli.getState().getPui() == null) return;
 			final ForgeWindow forge = cli.getState().getPui().getForgeWindow();
 			forge.setRealmManager(cli);
+			// PlayState ref so the forge UI can resolve a forge-slot
+			// inventory index back to the actual GameItem (used to draw
+			// the icon inside the slot square + the target weapon as
+			// the paint canvas background).
+			forge.setPlayState(cli.getState());
 			forge.show();
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenForge Packet. Reason: {}", e);
@@ -352,12 +358,37 @@ public class ClientGameLogic {
 			// When the server emits a catalog payload, replace this with the
 			// served list.
 			List<FameStoreWindow.Entry> entries = new ArrayList<>();
-			entries.add(new FameStoreWindow.Entry(700, "Crimson Dye", 25));
-			entries.add(new FameStoreWindow.Entry(701, "Cobalt Dye", 25));
-			entries.add(new FameStoreWindow.Entry(702, "Verdant Dye", 25));
-			entries.add(new FameStoreWindow.Entry(703, "Onyx Dye", 50));
-			entries.add(new FameStoreWindow.Entry(704, "Ivory Dye", 50));
-			entries.add(new FameStoreWindow.Entry(705, "Royal Dye", 100));
+			// Catalog mirrors ServerFameStoreHelper's accepted itemId
+			// ranges and per-tier costs:
+			//   821-828  → 8 dyes      (500 fame each)
+			//   808-815  → 8 crystals  (1000 fame each)
+			//   830-836  → 7 gems      (5000 fame each — endgame power tier)
+			final long DYE_COST     = ServerFameStoreHelper.DYE_FAME_COST;
+			final long CRYSTAL_COST = ServerFameStoreHelper.CRYSTAL_FAME_COST;
+			final long GEM_COST     = ServerFameStoreHelper.GEM_FAME_COST;
+			entries.add(new FameStoreWindow.Entry(821, "Green Dye",  DYE_COST));
+			entries.add(new FameStoreWindow.Entry(822, "Yellow Dye", DYE_COST));
+			entries.add(new FameStoreWindow.Entry(823, "Red Dye",    DYE_COST));
+			entries.add(new FameStoreWindow.Entry(824, "Blue Dye",   DYE_COST));
+			entries.add(new FameStoreWindow.Entry(825, "Purple Dye", DYE_COST));
+			entries.add(new FameStoreWindow.Entry(826, "Orange Dye", DYE_COST));
+			entries.add(new FameStoreWindow.Entry(827, "White Dye",  DYE_COST));
+			entries.add(new FameStoreWindow.Entry(828, "Black Dye",  DYE_COST));
+			entries.add(new FameStoreWindow.Entry(808, "Vit Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(809, "Wis Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(810, "HP Crystal",  CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(811, "MP Crystal",  CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(812, "Att Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(813, "Def Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(814, "Spd Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(815, "Dex Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreWindow.Entry(830, "Wisdom Scaling Gem", GEM_COST));
+			entries.add(new FameStoreWindow.Entry(831, "Swift Scaling Gem",  GEM_COST));
+			entries.add(new FameStoreWindow.Entry(832, "Multishot Gem",      GEM_COST));
+			entries.add(new FameStoreWindow.Entry(833, "Crushing Gem",       GEM_COST));
+			entries.add(new FameStoreWindow.Entry(834, "Slowing Gem",        GEM_COST));
+			entries.add(new FameStoreWindow.Entry(835, "Vampiric Gem",       GEM_COST));
+			entries.add(new FameStoreWindow.Entry(836, "Brutal Gem",         GEM_COST));
 			store.setEntries(entries);
 			store.show();
 		} catch (Exception e) {
@@ -540,13 +571,24 @@ public class ClientGameLogic {
 	public static void handleUnloadClient(RealmManagerClient cli, Packet packet) {
 		final UnloadPacket unloadPacket = (UnloadPacket) packet;
 		try {
+			final Realm realm = cli.getRealm();
 			for (final Long p : unloadPacket.getPlayers()) {
 				if (p == cli.getCurrentPlayerId()) {
 					continue;
 				}
-				final Player removed = cli.getRealm().getPlayers().remove(p);
-				if (removed == null) {
+				final Player existing = realm.getPlayers().get(p);
+				if (existing == null) {
 					ClientGameLogic.log.error("[CLIENT] Player {} does not exist", p);
+					continue;
+				}
+				// WHY: route through removePlayer so spatialGrid /
+				// shortIdAllocator entries are released too. Bypassing it
+				// (which the previous code did) leaked one grid + one
+				// allocator entry per despawn.
+				final short shortId = realm.getShortIdAllocator().toShort(p);
+				realm.removePlayer(existing);
+				if (shortId != 0) {
+					cli.getShortIdToLongId().remove(shortId);
 				}
 			}
 			for (final Long lc : unloadPacket.getContainers()) {
@@ -562,9 +604,20 @@ public class ClientGameLogic {
 				}
 			}
 			for (final Long e : unloadPacket.getEnemies()) {
-				final Enemy removed = cli.getRealm().getEnemies().remove(e);
-				if (removed == null) {
+				final Enemy existing = realm.getEnemies().get(e);
+				if (existing == null) {
 					ClientGameLogic.log.error("[CLIENT] Enemy {} does not exist", e);
+					continue;
+				}
+				// Same reasoning as the player branch above — go through
+				// removeEnemy so spatialGrid + short-id state are cleaned
+				// and the entity's onRemoved() drops its SpriteSheet wrapper
+				// (TextureRegion[][] arrays + animSets HashMaps), which is
+				// the bulk of per-enemy heap retention.
+				final short shortId = realm.getShortIdAllocator().toShort(e);
+				realm.removeEnemy(existing);
+				if (shortId != 0) {
+					cli.getShortIdToLongId().remove(shortId);
 				}
 			}
 			for (final Long p : unloadPacket.getPortals()) {
@@ -758,6 +811,15 @@ public class ClientGameLogic {
 						new Vector2f(loginResponse.getSpawnX(), loginResponse.getSpawnY()), GlobalConstants.PLAYER_SIZE,
 						cls);
 				ClientGameLogic.log.info("[CLIENT] Login succesful, added Player ID {}", player.getId());
+				// Carry the server-resolved chatRole (sysadmin / admin /
+				// mod / demo) onto the local Player up front. Without
+				// this, the local nameplate stayed off-white because
+				// LoadPacket only ships chatRole for REMOTE players —
+				// the local entry is filtered out at line 409 — so
+				// nothing else writes the field for us.
+				if (loginResponse.getChatRole() != null && !loginResponse.getChatRole().isEmpty()) {
+					player.setChatRole(loginResponse.getChatRole());
+				}
 				player.setSpriteSheet(GameSpriteManager.loadClassSprites(cls));
 				ClientGameLogic.DATA_SERVICE.setSessionToken(loginResponse.getToken());
 				cli.getState().setAccount(loginResponse.getAccount());

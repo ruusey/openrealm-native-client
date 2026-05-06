@@ -3,6 +3,7 @@ package com.openrealm.game.state;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
@@ -40,6 +41,20 @@ public class PauseState extends GameState {
     private final LeaderboardPanel leaderboard = new LeaderboardPanel();
     private final VaultWindow vault = new VaultWindow();
 
+    // WHY: returnToCharSelect used to do a synchronous svc.getAccount() on
+    // the GL thread. HttpClient.newHttpClient() ships with NO request
+    // timeout, so a slow/unreachable data service would hang the renderer
+    // indefinitely — user saw the dark pause overlay frozen forever and
+    // described it as a "black screen". The teardown is now staged across
+    // frames: input() flips returnPending and kicks off a worker, the
+    // worker drops its result into one of these refs, and update() applies
+    // the GL-thread state transition on a later frame.
+    private boolean returnPending = false;
+    private final AtomicReference<PlayerAccountDto> returnAcctResult = new AtomicReference<>();
+    private final AtomicReference<String> returnError = new AtomicReference<>();
+    /** True once the worker thread has reported back, regardless of outcome. */
+    private volatile boolean returnWorkerDone = false;
+
     public PauseState(GameStateManager gsm, PlayerAccountDto account) {
         super(gsm);
         this.account = account;
@@ -51,6 +66,27 @@ public class PauseState extends GameState {
     @Override
     public void update(double time) {
         this.vault.update();
+        // Drain the in-flight char-select transition. We don't push the new
+        // state from input() any more (see returnPending field) — the
+        // worker thread sets one of these refs and the GL thread applies
+        // the slot swap here on the next frame.
+        if (this.returnPending && this.returnWorkerDone) {
+            this.returnPending = false;
+            this.returnWorkerDone = false;
+            PlayerAccountDto acct = this.returnAcctResult.getAndSet(null);
+            String err = this.returnError.getAndSet(null);
+            // Tear down play/pause regardless of which branch we take so the
+            // user isn't stuck staring at a stale pause overlay.
+            this.gsm.pop(GameStateManager.PLAY);
+            this.gsm.pop(GameStateManager.PAUSE);
+            if (acct != null) {
+                this.gsm.add(GameStateManager.CHARSELECT,
+                        new CharacterSelectState(this.gsm, acct));
+            } else {
+                if (err != null) log.warn("Falling back to login after char-select refresh failed: {}", err);
+                this.gsm.add(GameStateManager.LOGIN, new LoginState(this.gsm));
+            }
+        }
     }
 
     private List<CharacterDto> aliveChars() {
@@ -64,6 +100,10 @@ public class PauseState extends GameState {
 
     @Override
     public void input(MouseHandler mouse, KeyHandler key) {
+        // Once the char-select transition is in flight, ignore input — every
+        // click would otherwise queue another worker or attempt another
+        // doLogin against a freshly-shut-down socket.
+        if (this.returnPending) return;
         // V opens the vault overlay (web-parity char-select feature).
         if (Gdx.input.isKeyJustPressed(Input.Keys.V)) {
             if (this.vault.isVisible()) this.vault.hide(); else this.vault.show();
@@ -131,9 +171,15 @@ public class PauseState extends GameState {
     }
 
     private void returnToCharSelect() {
+        if (this.returnPending) return;
+        this.returnPending = true;
+        this.returnWorkerDone = false;
         ClientGameLogic.GAME_OVER = false;
-        SessionStore store = SessionStore.get();
-        OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
+        final SessionStore store = SessionStore.get();
+        final OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
+        // Tear the socket down immediately so the dying connection doesn't
+        // outlive the user's intent — the actual slot swap happens in
+        // update() once the account refresh worker reports back.
         try {
             PlayState play = this.gsm.getPlayState();
             if (play != null && play.getRealmManager() != null) {
@@ -142,19 +188,25 @@ public class PauseState extends GameState {
         } catch (Exception e) {
             log.warn("Failed to shut down realm manager on pause exit: {}", e.getMessage());
         }
-        this.gsm.pop(GameStateManager.PLAY);
-        this.gsm.pop(GameStateManager.PAUSE);
 
-        if (store.hasSession() && svc != null && svc.getSessionToken() != null) {
+        if (!(store.hasSession() && svc != null && svc.getSessionToken() != null)) {
+            // No session to refresh — short-circuit to login on the next tick.
+            this.returnAcctResult.set(null);
+            this.returnError.set("no-session");
+            this.returnWorkerDone = true;
+            return;
+        }
+
+        new Thread(() -> {
             try {
                 PlayerAccountDto acct = svc.getAccount(store.getAccountGuid());
-                this.gsm.add(GameStateManager.CHARSELECT, new CharacterSelectState(this.gsm, acct));
-                return;
+                this.returnAcctResult.set(acct);
             } catch (Exception e) {
-                log.warn("Failed to refresh account on pause exit, falling back to login: {}", e.getMessage());
+                this.returnError.set(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            } finally {
+                this.returnWorkerDone = true;
             }
-        }
-        this.gsm.add(GameStateManager.LOGIN, new LoginState(this.gsm));
+        }, "openrealm-pause-return").start();
     }
 
     @Override
@@ -169,6 +221,12 @@ public class PauseState extends GameState {
 
         font.setColor(Color.WHITE);
         font.draw(batch, "PAUSED - Press ESC to resume", OpenRealmGame.width / 2f - 150, OpenRealmGame.height / 2f - 48);
+        if (this.returnPending) {
+            font.setColor(0.78f, 0.66f, 0.43f, 1f);
+            font.draw(batch, "Returning to character select...",
+                    OpenRealmGame.width / 2f - 150, OpenRealmGame.height / 2f - 16);
+            font.setColor(Color.WHITE);
+        }
 
         int i = 0;
         int rowHeight = 100;

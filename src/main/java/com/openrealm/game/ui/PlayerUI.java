@@ -159,7 +159,7 @@ public class PlayerUI {
         this.layoutBarsY    = this.layoutMinimapBot + 6;          // 3 bars * 22 = 66
         this.layoutStatsY   = this.layoutBarsY + 22 * 3 + 8;      // 3-row stats
         this.layoutEquipY   = this.layoutStatsY + 22 * 3 + 14;
-        this.layoutBagTabY  = this.layoutEquipY + SLOT_SIZE + 10;
+        this.layoutBagTabY  = this.layoutEquipY + SLOT_SIZE + 18;
         this.layoutBag1Y    = this.layoutBagTabY + 24 + 4;
         this.layoutBag2Y    = this.layoutBag1Y + SLOT_SIZE + SLOT_GAP;
         this.layoutPotionY  = this.layoutBag2Y + SLOT_SIZE + 10;
@@ -808,11 +808,14 @@ public class PlayerUI {
         font.draw(batch, "EQUIPMENT", startX + PANEL_INSET, this.layoutEquipY - 6);
         font.setColor(Color.WHITE);
 
-        // BAG tab labels — centered with GlyphLayout
+        // BAG tab labels — centered horizontally AND vertically. Vertical
+        // formula matches TextField's centering: text baseline at
+        // `tabY + (tabH + gl.height)/2`, which puts the glyph visually centered
+        // in the tab rect rather than sitting on its bottom edge.
         GlyphLayout gl = new GlyphLayout();
-        float bagY = tabY + 16;
-        font.setColor(this.activeBag == 0 ? cAccent : cMuted);
         gl.setText(font, "BAG 1");
+        float bagY = tabY + (tabH + gl.height) / 2f;
+        font.setColor(this.activeBag == 0 ? cAccent : cMuted);
         float bag1X = tab1X + (tabW - gl.width) / 2f;
         font.draw(batch, "BAG 1", bag1X, bagY);
         font.setColor(this.activeBag == 1 ? cAccent : cMuted);
@@ -1497,6 +1500,33 @@ public class PlayerUI {
         if (fromIndex == targetIndex) return;
 
         this.setActionTime();
+
+        // Forge drop-zones take priority when the forge window is up:
+        // dragging an inventory item onto the Target / Crystal / Essence
+        // slot binds it to that forge slot (web parity, forge.js
+        // dropzones). Without this, drag-drop into the forge silently
+        // fell through to executeDrop's normal swap path and the forge
+        // slots stayed empty no matter what the player tried.
+        if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex <= 19) {
+            final int mx = com.badlogic.gdx.Gdx.input.getX();
+            final int my = com.badlogic.gdx.Gdx.input.getY();
+            final Slots srcSlot = this.inventory[fromIndex];
+            final GameItem srcItem = srcSlot != null ? srcSlot.getItem() : null;
+            int crystalItemId = -1;
+            int crystalStatId = -1;
+            if (srcItem != null) {
+                crystalItemId = srcItem.getItemId();
+                // The crystal's stat id is encoded as itemId - 808
+                // (see ServerFameStoreHelper.CRYSTAL_ITEM_MIN). For non-
+                // crystal drops the value is ignored by the forge slot.
+                if (crystalItemId >= 808 && crystalItemId <= 815) {
+                    crystalStatId = crystalItemId - 808;
+                }
+            }
+            if (this.forgeWindow.tryAcceptDrop(mx, my, fromIndex, crystalItemId, crystalStatId)) {
+                return;
+            }
+        }
 
         boolean fromIsGround = fromIndex >= 20 && fromIndex <= 27;
         boolean targetIsGround = targetIndex >= 20 && targetIndex <= 27;

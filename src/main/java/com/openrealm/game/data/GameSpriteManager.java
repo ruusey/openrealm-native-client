@@ -65,6 +65,15 @@ public class GameSpriteManager {
     public static Map<String, Texture> TEXTURE_CACHE;
     public static Map<Integer, TextureRegion> TILE_SPRITES;
     public static Map<Integer, TextureRegion> ITEM_SPRITES;
+    /** Source Pixmaps held in CPU memory parallel to the GPU textures
+     *  in {@link #TEXTURE_CACHE}. SpriteRecolorCache reads from these
+     *  to do per-pixel dye / enchantment work without having to re-
+     *  fetch the PNG. The class sheets (rotmg-classes-*.png) and item
+     *  sheets are the only ones recolor really needs, but populating
+     *  the whole map is a small RAM cost (~10–20 MB total) for a much
+     *  simpler invariant: any sheet that's in TEXTURE_CACHE is also
+     *  here. */
+    public static Map<String, Pixmap> PIXMAP_CACHE;
 
     public static void loadItemSprites() {
         if (GameSpriteManager.TEXTURE_CACHE == null) return;
@@ -292,7 +301,7 @@ public class GameSpriteManager {
             Pixmap pixmap = new Pixmap(bytes, 0, bytes.length);
             Texture texture = new Texture(pixmap);
             texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
-            pixmap.dispose();
+            cachePixmap(file, pixmap);
             return texture;
         } catch (Exception e) {
             return null;
@@ -311,7 +320,7 @@ public class GameSpriteManager {
             Pixmap pixmap = new Pixmap(bytes, 0, bytes.length);
             texture = new Texture(pixmap);
             texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
-            pixmap.dispose();
+            cachePixmap(file, pixmap);
         } catch (Exception e) {
             GameSpriteManager.log.error("ERROR: could not load file: {}", file);
         }
@@ -331,11 +340,27 @@ public class GameSpriteManager {
             Pixmap pixmap = new Pixmap(bytes, 0, bytes.length);
             texture = new Texture(pixmap);
             texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
-            pixmap.dispose();
+            cachePixmap(file, pixmap);
         } catch (Exception e) {
             GameSpriteManager.log.error("ERROR: could not load remote file: {}. Reason: {}", file, e.getMessage());
         }
         return texture;
+    }
+
+    /** Stash the CPU-side Pixmap behind whatever sprite-key the GPU
+     *  texture is registered under. The path argument arrives as either
+     *  a bare key ("rotmg-classes-0.png") or with a folder prefix
+     *  ("entity/rotmg-classes-0.png" / "ui/buttons.png"); we strip the
+     *  prefix so SpriteRecolorCache can look it up by the same key
+     *  TEXTURE_CACHE uses. The Pixmap is intentionally NOT disposed
+     *  here — recolor work needs to read its pixels later. */
+    private static void cachePixmap(String path, Pixmap pixmap) {
+        if (PIXMAP_CACHE == null) PIXMAP_CACHE = new HashMap<>();
+        String key = path;
+        int slash = key.lastIndexOf('/');
+        if (slash >= 0) key = key.substring(slash + 1);
+        Pixmap existing = PIXMAP_CACHE.put(key, pixmap);
+        if (existing != null && existing != pixmap) existing.dispose();
     }
 
     private static byte[] readAllBytes(InputStream is) throws Exception {

@@ -314,15 +314,30 @@ public class Minimap {
         }
     }
 
-    private float[] computeSrcRect() {
+    /** Tile-space position of the LOCAL player, computed from the same
+     *  lerped render coords the world uses. The previous code read
+     *  raw {@code pos.x} which advances in 1/64-second tick steps, so
+     *  the dot lagged the visible sprite by up to a tick. With the
+     *  minimap heavily zoomed out, scaleX shrinks the visible offset
+     *  to a pixel or two — but combined with the texture-bounds bug
+     *  below it added up to a clearly off-by-character-width dot.
+     *  Centered on the player sprite (pos + size/2). */
+    private float[] localPlayerTile() {
         final Player player = this.playState.getPlayer();
+        if (player == null) return new float[]{ this.mapWidth * 0.5f, this.mapHeight * 0.5f };
         final int ts = GlobalConstants.BASE_TILE_SIZE;
-        float pTileX = this.mapWidth * 0.5f;
-        float pTileY = this.mapHeight * 0.5f;
-        if (player != null) {
-            pTileX = (player.getPos().x + player.getSize() / 2f) / ts;
-            pTileY = (player.getPos().y + player.getSize() / 2f) / ts;
-        }
+        final float px = player.getEffectiveRenderX();
+        final float py = player.getEffectiveRenderY();
+        return new float[]{
+                (px + player.getSize() / 2f) / ts,
+                (py + player.getSize() / 2f) / ts
+        };
+    }
+
+    private float[] computeSrcRect() {
+        final float[] pt = localPlayerTile();
+        final float pTileX = pt[0];
+        final float pTileY = pt[1];
         final float viewW = Math.max(1f, this.mapWidth * this.zoom);
         final float viewH = Math.max(1f, this.mapHeight * this.zoom);
         float srcX = pTileX - viewW / 2f;
@@ -398,14 +413,14 @@ public class Minimap {
             }
         } catch (Exception ignored) { }
 
-        // Local player on top, green
+        // Local player on top, green. computeSrcRect already centers
+        // the view on the LERPED player position, and we re-derive the
+        // dot from the SAME source so the dot is always exactly at the
+        // visual center of the viewport — no zoom-dependent drift.
         if (local != null) {
-            final int ts = GlobalConstants.BASE_TILE_SIZE;
-            final Vector2f pos = local.getPos();
-            final float tx = (pos.x + local.getSize() / 2f) / ts;
-            final float ty = (pos.y + local.getSize() / 2f) / ts;
-            final float sx = this.drawX + (tx - srcX) * scaleX;
-            final float sy = this.drawY + (ty - srcY) * scaleY;
+            final float[] pt = localPlayerTile();
+            final float sx = this.drawX + (pt[0] - srcX) * scaleX;
+            final float sy = this.drawY + (pt[1] - srcY) * scaleY;
             shapes.setColor(LOCAL_COLOR);
             shapes.circle(sx, sy, 4f);
         }

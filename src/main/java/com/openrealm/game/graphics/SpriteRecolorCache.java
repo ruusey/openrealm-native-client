@@ -10,6 +10,7 @@ import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.openrealm.game.data.GameDataManager;
+import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.entity.item.Enchantment;
 import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.model.ClassMaskModel;
@@ -62,11 +63,24 @@ public class SpriteRecolorCache {
     public static TextureRegion getDyedRegion(String spriteKey, int classId, int row, int col,
                                               int spriteSize, int dyeId) {
         if (dyeId <= 0 || spriteKey == null) return null;
-        if (GameDataManager.DYE_ASSETS == null || GameDataManager.CLASS_MASK_FRAMES == null) return null;
+        if (GameDataManager.DYE_ASSETS == null || GameDataManager.CLASS_MASK_FRAMES == null) {
+            warnOnce("dye-data-missing", "Dye recolor skipped: DYE_ASSETS={} CLASS_MASK_FRAMES={}",
+                    GameDataManager.DYE_ASSETS != null,
+                    GameDataManager.CLASS_MASK_FRAMES != null);
+            return null;
+        }
         final DyeAssetModel dye = GameDataManager.DYE_ASSETS.get(dyeId);
-        if (dye == null) return null;
+        if (dye == null) {
+            warnOnce("dye-id-" + dyeId, "Dye recolor skipped: dyeId {} not in registry", dyeId);
+            return null;
+        }
         final ClassMaskModel.Frame frame = GameDataManager.CLASS_MASK_FRAMES.get(classId + ":" + row + ":" + col);
-        if (frame == null || frame.getMask() == null) return null;
+        if (frame == null || frame.getMask() == null) {
+            warnOnce("mask-" + classId + "-" + row + "-" + col,
+                    "Dye recolor skipped: no mask for classId={} row={} col={} (sheet={})",
+                    classId, row, col, spriteKey);
+            return null;
+        }
 
         final String cacheKey = classId + ":" + row + ":" + col + ":" + dyeId;
         final TextureRegion cached = DYE_CACHE.get(cacheKey);
@@ -185,21 +199,25 @@ public class SpriteRecolorCache {
 
     private static int clamp(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
 
-    /** Lazy source-PNG pixmap fetch. Tries the bundled classpath copy
-     *  first (entity/<key>, then ui/<key>) and falls back to the data
-     *  service's /game-data/entity/<key> endpoint that already serves
-     *  the rest of the sprite atlases. Pixmaps are retained for the
-     *  process lifetime — at ~64 KB per 256x256 sheet that's a fixed,
-     *  small RAM cost in exchange for instant recolor on every dye
-     *  change. */
+    /** Source-PNG pixmap, served first from GameSpriteManager.PIXMAP_CACHE
+     *  (populated on initial sheet load so recolor never has to hit the
+     *  network or disk again) and only as a last resort by re-reading
+     *  bytes from the classpath / data service. The earlier cache miss
+     *  was the real reason "black dye doesn't show" — class sheets
+     *  aren't bundled in the JAR, so the classpath read returned null
+     *  and the remote retry sometimes 404'd or returned text/html. */
     private static Pixmap sourcePixmap(String spriteKey) {
+        if (GameSpriteManager.PIXMAP_CACHE != null) {
+            Pixmap shared = GameSpriteManager.PIXMAP_CACHE.get(spriteKey);
+            if (shared != null) return shared;
+        }
         Pixmap cached = SOURCE_PIXMAPS.get(spriteKey);
         if (cached != null) return cached;
         byte[] bytes = readClasspath("entity/" + spriteKey);
         if (bytes == null) bytes = readClasspath("ui/" + spriteKey);
         if (bytes == null) bytes = readRemote(spriteKey);
         if (bytes == null) {
-            log.warn("[RECOLOR] No source bytes for spriteKey={}", spriteKey);
+            warnOnce("src-" + spriteKey, "No source bytes for spriteKey={}", spriteKey);
             return null;
         }
         try {
@@ -207,8 +225,38 @@ public class SpriteRecolorCache {
             SOURCE_PIXMAPS.put(spriteKey, pix);
             return pix;
         } catch (Exception e) {
-            log.warn("[RECOLOR] Pixmap decode failed for spriteKey={}: {}", spriteKey, e.getMessage());
+            warnOnce("decode-" + spriteKey, "Pixmap decode failed for spriteKey={}: {}",
+                    spriteKey, e.getMessage());
             return null;
+        }
+    }
+
+    /** Per-key one-shot warn so the log tells you exactly which lookup
+     *  is bailing out without spamming a line per render frame. */
+    private static final java.util.Set<String> WARNED = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static void warnOnce(String key, String fmt, Object... args) {
+        if (WARNED.add(key)) log.warn("[RECOLOR] " + fmt, args);
+    }
+
+    /** Boot-time sanity check. Call once after GameDataManager has
+     *  finished loading so the log clearly says whether the dye
+     *  pipeline has everything it needs. If anything is missing, dye
+     *  silently no-ops at draw time — the previous "still no dye"
+     *  reports were impossible to root-cause without this log. */
+    public static void logBootstrap() {
+        final int dyeCount = GameDataManager.DYE_ASSETS == null ? -1 : GameDataManager.DYE_ASSETS.size();
+        final int maskCount = GameDataManager.CLASS_MASK_FRAMES == null ? -1 : GameDataManager.CLASS_MASK_FRAMES.size();
+        final int pixCount = GameSpriteManager.PIXMAP_CACHE == null ? -1 : GameSpriteManager.PIXMAP_CACHE.size();
+        log.info("[RECOLOR] bootstrap: dyeAssets={} classMaskFrames={} pixmapCache={}",
+                dyeCount, maskCount, pixCount);
+        if (GameSpriteManager.PIXMAP_CACHE != null) {
+            // List the class-sheet pixmaps specifically since those are
+            // what the dye path uses.
+            for (String k : GameSpriteManager.PIXMAP_CACHE.keySet()) {
+                if (k != null && k.startsWith("rotmg-classes")) {
+                    log.info("[RECOLOR]   class pixmap cached: {}", k);
+                }
+            }
         }
     }
 

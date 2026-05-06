@@ -31,6 +31,10 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     // and expose public routine specific methods.
     // eg. getPlayerAccount(String accountUuid)
     private static final transient ObjectMapper REQUEST_MAPPER = new ObjectMapper();
+    // WHY: per-request hard cap so a hung HTTP/2 stream or a server that
+    // accepts the TCP connection but never writes a response can't pin a
+    // worker thread (or the GL thread, on legacy paths) indefinitely.
+    private static final java.time.Duration REQ_TIMEOUT = java.time.Duration.ofSeconds(15);
     private HttpClient httpClient;
     private String baseUrl;
     private String sessionToken;
@@ -56,7 +60,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
-                .uri(targetURI).DELETE();
+                .uri(targetURI).DELETE().timeout(REQ_TIMEOUT);
         this.setAuth(httpRequest);
 
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
@@ -74,7 +78,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         final BodyPublisher body = HttpRequest.BodyPublishers
                 .ofString(OpenRealmClientDataService.REQUEST_MAPPER.writeValueAsString(object));
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
-                .uri(targetURI).POST(body);
+                .uri(targetURI).POST(body).timeout(REQ_TIMEOUT);
         this.setAuth(httpRequest);
 
         HttpResponse<String> response = this.httpClient.send(httpRequest.build(), HttpResponse.BodyHandlers.ofString());
@@ -91,7 +95,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         final BodyPublisher body = HttpRequest.BodyPublishers
                 .ofString(OpenRealmClientDataService.REQUEST_MAPPER.writeValueAsString(object));
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
-                .uri(targetURI).PUT(body);
+                .uri(targetURI).PUT(body).timeout(REQ_TIMEOUT);
         this.setAuth(httpRequest);
 
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
@@ -107,7 +111,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         final long t0 = System.nanoTime();
         URI targetURI = new URI(this.baseUrl + path);
         HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
-                .uri(targetURI).GET();
+                .uri(targetURI).GET().timeout(REQ_TIMEOUT);
         HttpResponse<String> response = this.httpClient.send(httpRequest.build(), HttpResponse.BodyHandlers.ofString());
         this.setAuth(httpRequest);
 
@@ -123,7 +127,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         final long t0 = System.nanoTime();
         final URI targetURI = new URI(this.baseUrl + path);
         final HttpRequest.Builder httpRequest = HttpRequest.newBuilder().header("Content-Type", "application/json")
-                .uri(targetURI).GET();
+                .uri(targetURI).GET().timeout(REQ_TIMEOUT);
         this.setAuth(httpRequest);
         final HttpResponse<String> response = this.httpClient.send(httpRequest.build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -141,6 +145,7 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         final HttpRequest request = HttpRequest.newBuilder()
                 .uri(targetURI)
                 .GET()
+                .timeout(REQ_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .header("Authorization", token)
                 .build();

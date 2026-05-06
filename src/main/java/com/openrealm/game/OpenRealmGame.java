@@ -109,6 +109,11 @@ public class OpenRealmGame implements ApplicationListener {
         GameSpriteManager.loadSpriteImages(true);
         GameSpriteManager.loadTileSprites();
         GameSpriteManager.loadItemSprites();
+        // Recolor pipeline sanity check — the dye pipeline silently
+        // no-ops at draw time when any of these caches is empty, so
+        // surfacing the sizes at boot saves a debugging round-trip
+        // when "still no dye" reports come in.
+        com.openrealm.game.graphics.SpriteRecolorCache.logBootstrap();
 
         // Initialize shaders for sprite effects
         ShaderManager.init();

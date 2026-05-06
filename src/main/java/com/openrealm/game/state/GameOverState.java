@@ -1,5 +1,7 @@
 package com.openrealm.game.state;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
@@ -28,16 +30,43 @@ public class GameOverState extends GameState {
 
     private boolean prevMouseDown = false;
 
+    // WHY: returnToCharSelect used to do a synchronous svc.getAccount() on
+    // the GL thread. HttpClient.newHttpClient() ships with NO request
+    // timeout, so a slow/unreachable data service hung the renderer
+    // indefinitely and the user was stuck on a frozen "GAME OVER" overlay.
+    // Same staged-teardown approach as PauseState.
+    private boolean returnPending = false;
+    private final AtomicReference<PlayerAccountDto> returnAcctResult = new AtomicReference<>();
+    private final AtomicReference<String> returnError = new AtomicReference<>();
+    private volatile boolean returnWorkerDone = false;
+
     public GameOverState(GameStateManager gsm) {
         super(gsm);
     }
 
     @Override
     public void update(double time) {
+        if (this.returnPending && this.returnWorkerDone) {
+            this.returnPending = false;
+            this.returnWorkerDone = false;
+            PlayerAccountDto acct = this.returnAcctResult.getAndSet(null);
+            String err = this.returnError.getAndSet(null);
+            this.gsm.pop(GameStateManager.PLAY);
+            this.gsm.pop(GameStateManager.PAUSE);
+            this.gsm.pop(GameStateManager.GAMEOVER);
+            if (acct != null) {
+                this.gsm.add(GameStateManager.CHARSELECT,
+                        new CharacterSelectState(this.gsm, acct));
+            } else {
+                if (err != null) log.warn("Falling back to login after game-over refresh failed: {}", err);
+                this.gsm.add(GameStateManager.LOGIN, new LoginState(this.gsm));
+            }
+        }
     }
 
     @Override
     public void input(MouseHandler mouse, KeyHandler key) {
+        if (this.returnPending) return;
         key.escape.tick();
         key.enter.tick();
 
@@ -76,12 +105,14 @@ public class GameOverState extends GameState {
     }
 
     private void returnToCharSelect() {
+        if (this.returnPending) return;
+        this.returnPending = true;
+        this.returnWorkerDone = false;
         ClientGameLogic.GAME_OVER = false;
-        SessionStore store = SessionStore.get();
-        OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
-        // Tear down the active PlayState (this also disconnects the socket
-        // via OpenRealmGame's shutdown hook path on dispose; here we just
-        // null the slot).
+        final SessionStore store = SessionStore.get();
+        final OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
+        // Tear down the live socket immediately; the slot swap waits for
+        // the account refresh worker so the GL thread doesn't block.
         try {
             PlayState play = this.gsm.getPlayState();
             if (play != null && play.getRealmManager() != null) {
@@ -90,21 +121,24 @@ public class GameOverState extends GameState {
         } catch (Exception e) {
             log.warn("Failed to shut down realm manager on game-over: {}", e.getMessage());
         }
-        this.gsm.pop(GameStateManager.PLAY);
-        this.gsm.pop(GameStateManager.PAUSE);
-        this.gsm.pop(GameStateManager.GAMEOVER);
 
-        if (store.hasSession() && svc != null && svc.getSessionToken() != null) {
+        if (!(store.hasSession() && svc != null && svc.getSessionToken() != null)) {
+            this.returnAcctResult.set(null);
+            this.returnError.set("no-session");
+            this.returnWorkerDone = true;
+            return;
+        }
+
+        new Thread(() -> {
             try {
                 PlayerAccountDto acct = svc.getAccount(store.getAccountGuid());
-                this.gsm.add(GameStateManager.CHARSELECT, new CharacterSelectState(this.gsm, acct));
-                return;
+                this.returnAcctResult.set(acct);
             } catch (Exception e) {
-                log.warn("Failed to refresh account on game-over, falling back to login: {}", e.getMessage());
+                this.returnError.set(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            } finally {
+                this.returnWorkerDone = true;
             }
-        }
-        // No valid session → bounce back to login.
-        this.gsm.add(GameStateManager.LOGIN, new LoginState(this.gsm));
+        }, "openrealm-gameover-return").start();
     }
 
     @Override
@@ -120,6 +154,11 @@ public class GameOverState extends GameState {
 
         font.setColor(Color.RED);
         font.draw(batch, "GAME OVER", OpenRealmGame.width / 2f - 60, OpenRealmGame.height / 2f - 32);
+        if (this.returnPending) {
+            font.setColor(0.78f, 0.66f, 0.43f, 1f);
+            font.draw(batch, "Returning to character select...",
+                    OpenRealmGame.width / 2f - 150, OpenRealmGame.height / 2f - 8);
+        }
         font.setColor(Color.WHITE);
         font.draw(batch, "Your character has fallen. Choose your next path.",
                 OpenRealmGame.width / 2f - 220, OpenRealmGame.height / 2f);

@@ -749,6 +749,10 @@ public class RealmManagerServer implements Runnable {
 										this.enqueueServerPacket(player.getValue(), unloadDelta);
 										for (long unloadedEnemy : unloadDelta.getEnemies()) {
 											this.enemyUpdateState.remove(unloadedEnemy);
+											// WHY: PlayerStatePacket entries get populated for every enemy the player
+											// can see (line ~877). Clearing only enemyUpdateState here leaked one
+											// PlayerStatePacket per dead/unloaded enemy per viewer indefinitely.
+											this.playerStateState.remove(unloadedEnemy);
 										}
 									}
 								} else if (!oldLoad.equals(loadPacket)) {
@@ -767,6 +771,10 @@ public class RealmManagerServer implements Runnable {
 										this.enqueueServerPacket(player.getValue(), unloadDelta);
 										for (long unloadedEnemy : unloadDelta.getEnemies()) {
 											this.enemyUpdateState.remove(unloadedEnemy);
+											// WHY: PlayerStatePacket entries get populated for every enemy the player
+											// can see (line ~877). Clearing only enemyUpdateState here leaked one
+											// PlayerStatePacket per dead/unloaded enemy per viewer indefinitely.
+											this.playerStateState.remove(unloadedEnemy);
 										}
 									}
 								}

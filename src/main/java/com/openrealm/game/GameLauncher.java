@@ -9,6 +9,7 @@ import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.time.Instant;
 
 import javax.swing.JDialog;
@@ -162,7 +163,14 @@ public class GameLauncher {
             dataServiceUrl = "http://" + addr + "/";
         }
 
-        ClientGameLogic.DATA_SERVICE = new OpenRealmClientDataService(HttpClient.newHttpClient(),
+        // WHY 10s connect timeout: the default HttpClient has none, so a
+        // dropped data-service host would leave every send() hanging until
+        // the OS TCP timeout (minutes). Per-request read timeouts are set
+        // at the HttpRequest level inside OpenRealmClientDataService.
+        final HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        ClientGameLogic.DATA_SERVICE = new OpenRealmClientDataService(httpClient,
                 dataServiceUrl, null);
         pingClient();
         GameDataManager.loadGameData(true);

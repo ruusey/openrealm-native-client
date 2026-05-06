@@ -36,14 +36,38 @@ public class ServerFameStoreHelper {
     /** itemId range covering the 8 enchantment crystals (Vit/Wis/HP/MP/Att/Def/Spd/Dex). */
     public static final int CRYSTAL_ITEM_MIN = 808;
     public static final int CRYSTAL_ITEM_MAX = 815;
-    /** Cost in fame for any fame-store item. Centralized so we can add tiers later. */
-    public static final long DYE_FAME_COST = 500L;
-    public static final long ITEM_FAME_COST = DYE_FAME_COST;
+    /** itemId range covering the 7 endgame gems (Wisdom Scaling, Swift Scaling,
+     *  Multishot, Crushing, Slowing, Vampiric, Brutal). Gems are deliberately
+     *  the most expensive fame-shop tier — they're a power upgrade rather
+     *  than a cosmetic / forge consumable. */
+    public static final int GEM_ITEM_MIN = 830;
+    public static final int GEM_ITEM_MAX = 836;
+    /** Per-tier fame costs. Cheapest cosmetics → expensive gems. Kept as
+     *  separate constants (vs. a Map) so a search for the cost name
+     *  surfaces every callsite, including the client catalog and the
+     *  webclient mirror. */
+    public static final long DYE_FAME_COST     = 500L;
+    public static final long CRYSTAL_FAME_COST = 1000L;
+    public static final long GEM_FAME_COST     = 5000L;
+    /** Legacy alias — old callers. Kept for source compatibility but
+     *  prefer the tier-specific constants going forward. */
+    public static final long ITEM_FAME_COST    = DYE_FAME_COST;
 
     /** Whether the given itemId is sellable through the fame store. */
     private static boolean isFameStoreItem(int itemId) {
-        return (itemId >= DYE_ITEM_MIN && itemId <= DYE_ITEM_MAX)
-            || (itemId >= CRYSTAL_ITEM_MIN && itemId <= CRYSTAL_ITEM_MAX);
+        return (itemId >= DYE_ITEM_MIN     && itemId <= DYE_ITEM_MAX)
+            || (itemId >= CRYSTAL_ITEM_MIN && itemId <= CRYSTAL_ITEM_MAX)
+            || (itemId >= GEM_ITEM_MIN     && itemId <= GEM_ITEM_MAX);
+    }
+
+    /** Resolve the fame cost for a sellable item id. Returns -1 for ids
+     *  outside the supported ranges so the caller can reject the buy
+     *  before touching the data service. */
+    public static long fameCost(int itemId) {
+        if (itemId >= DYE_ITEM_MIN     && itemId <= DYE_ITEM_MAX)     return DYE_FAME_COST;
+        if (itemId >= CRYSTAL_ITEM_MIN && itemId <= CRYSTAL_ITEM_MAX) return CRYSTAL_FAME_COST;
+        if (itemId >= GEM_ITEM_MIN     && itemId <= GEM_ITEM_MAX)     return GEM_FAME_COST;
+        return -1L;
     }
 
     /**
@@ -127,14 +151,21 @@ public class ServerFameStoreHelper {
             }
             // Deduct fame on the data service. If fame is insufficient, the
             // service throws and we bail out before granting any item.
+            // Cost is per-tier (DYE 500 / CRYSTAL 1000 / GEM 5000).
+            final long cost = fameCost(itemId);
+            if (cost < 0) {
+                log.warn("[FameStore] Player {} item {} has no defined fame cost", player.getId(), itemId);
+                notifyPlayer(mgr, player, "That item isn't sold here.");
+                return;
+            }
             Long newTotal;
             try {
                 newTotal = ServerGameLogic.DATA_SERVICE.executePost(
-                        "/data/account/" + player.getAccountUuid() + "/fame/spend?amount=" + DYE_FAME_COST,
+                        "/data/account/" + player.getAccountUuid() + "/fame/spend?amount=" + cost,
                         null, Long.class);
             } catch (Exception spendEx) {
                 log.warn("[FameStore] Fame spend failed for player {} ({} fame, item {}): {}",
-                        player.getId(), DYE_FAME_COST, itemId, spendEx.getMessage());
+                        player.getId(), cost, itemId, spendEx.getMessage());
                 notifyPlayer(mgr, player, "Not enough fame.");
                 return;
             }
@@ -147,7 +178,7 @@ public class ServerFameStoreHelper {
             // without needing another GET.
             if (newTotal != null) player.setCachedAccountFame(newTotal);
             log.info("[FameStore] Player {} bought item {} for {} fame (now {} fame, slot {})",
-                    player.getId(), itemId, DYE_FAME_COST, newTotal, slot);
+                    player.getId(), itemId, cost, newTotal, slot);
             // Push the inventory update + an OpenStore refresh with the new
             // balance so the modal can reflect it without a refetch.
             sendInventoryUpdate(mgr, realm, player);
