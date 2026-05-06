@@ -7,6 +7,8 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.client.packet.CreateEffectPacket;
 import com.openrealm.net.realm.Realm;
 import com.openrealm.net.realm.RealmManagerServer;
+import com.openrealm.game.contants.EntityType;
+import com.openrealm.game.contants.TextEffect;
 
 /**
  * Helm of the Juggernaut (UT) — applies Berserk to nearby players
@@ -49,8 +51,8 @@ public class JuggernautHelmScript extends UseableItemScriptBase {
 
         // Apply Armored to self (doubles DEF)
         player.addEffect(StatusEffectType.ARMORED, duration);
-        this.mgr.broadcastTextEffect(com.openrealm.game.contants.EntityType.PLAYER, player,
-                com.openrealm.game.contants.TextEffect.PLAYER_INFO, "ARMORED");
+        this.mgr.broadcastTextEffect(EntityType.PLAYER, player,
+                TextEffect.PLAYER_INFO, "ARMORED");
 
         // Broadcast buff visual
         final Vector2f center = player.getPos().clone(player.getSize() / 2, player.getSize() / 2);

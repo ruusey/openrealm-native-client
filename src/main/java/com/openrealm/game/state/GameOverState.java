@@ -14,6 +14,7 @@ import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
 
 /**
  * Death overlay. Mirrors the web client's {@code death-overlay} flow: the
@@ -109,8 +110,8 @@ public class GameOverState extends GameState {
     @Override
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         batch.end();
-        com.badlogic.gdx.Gdx.gl.glEnable(GL20.GL_BLEND);
-        com.badlogic.gdx.Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0f, 0f, 0f, 0.85f);
         shapes.rect(0, 0, OpenRealmGame.width, OpenRealmGame.height);

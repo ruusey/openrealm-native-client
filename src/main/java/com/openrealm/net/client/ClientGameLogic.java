@@ -56,6 +56,13 @@ import com.openrealm.net.server.packet.TextPacket;
 import com.openrealm.util.PacketHandlerClient;
 
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.game.ui.FameStoreWindow;
+import com.openrealm.game.ui.ForgeWindow;
+import com.openrealm.net.client.packet.OpenFameStorePacket;
+import com.openrealm.net.client.packet.OpenForgePacket;
+import com.openrealm.net.client.packet.PlayerStatePacket;
+import java.util.ArrayList;
+import java.util.List;
 
 @Slf4j
 public class ClientGameLogic {
@@ -225,6 +232,9 @@ public class ClientGameLogic {
 				float diff = 0f;
 				try { diff = cli.getRealm().getDifficulty(); } catch (Exception ignored) {}
 				cli.getState().getPui().getRealmTransition().trigger(zoneName, diff);
+				// Clear chat on realm change so the log doesn't carry over
+				// across maps / instances. Mirrors the web client.
+				try { cli.getState().getPui().getPlayerChat().clearChat(); } catch (Exception ignored) {}
 			}
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle LoadMap Packet. Reason: {}", e);
@@ -292,11 +302,11 @@ public class ClientGameLogic {
 		}
 	}
 
-	@PacketHandlerClient(com.openrealm.net.client.packet.OpenForgePacket.class)
+	@PacketHandlerClient(OpenForgePacket.class)
 	public static void handleOpenForgeClient(RealmManagerClient cli, Packet packet) {
 		try {
 			if (cli.getState() == null || cli.getState().getPui() == null) return;
-			final com.openrealm.game.ui.ForgeWindow forge = cli.getState().getPui().getForgeWindow();
+			final ForgeWindow forge = cli.getState().getPui().getForgeWindow();
 			forge.setRealmManager(cli);
 			forge.show();
 		} catch (Exception e) {
@@ -304,12 +314,12 @@ public class ClientGameLogic {
 		}
 	}
 
-	@PacketHandlerClient(com.openrealm.net.client.packet.OpenFameStorePacket.class)
+	@PacketHandlerClient(OpenFameStorePacket.class)
 	public static void handleOpenFameStoreClient(RealmManagerClient cli, Packet packet) {
 		try {
 			if (cli.getState() == null || cli.getState().getPui() == null) return;
-			final com.openrealm.net.client.packet.OpenFameStorePacket open = (com.openrealm.net.client.packet.OpenFameStorePacket) packet;
-			final com.openrealm.game.ui.FameStoreWindow store = cli.getState().getPui().getFameStoreWindow();
+			final OpenFameStorePacket open = (OpenFameStorePacket) packet;
+			final FameStoreWindow store = cli.getState().getPui().getFameStoreWindow();
 			store.setRealmManager(cli);
 			store.setAccountFame(open.getAccountFame());
 			// The native client doesn't yet receive the catalog over the wire;
@@ -317,13 +327,13 @@ public class ClientGameLogic {
 			// initial fame-store stock so the UI is interactive end-to-end.
 			// When the server emits a catalog payload, replace this with the
 			// served list.
-			java.util.List<com.openrealm.game.ui.FameStoreWindow.Entry> entries = new java.util.ArrayList<>();
-			entries.add(new com.openrealm.game.ui.FameStoreWindow.Entry(700, "Crimson Dye", 25));
-			entries.add(new com.openrealm.game.ui.FameStoreWindow.Entry(701, "Cobalt Dye", 25));
-			entries.add(new com.openrealm.game.ui.FameStoreWindow.Entry(702, "Verdant Dye", 25));
-			entries.add(new com.openrealm.game.ui.FameStoreWindow.Entry(703, "Onyx Dye", 50));
-			entries.add(new com.openrealm.game.ui.FameStoreWindow.Entry(704, "Ivory Dye", 50));
-			entries.add(new com.openrealm.game.ui.FameStoreWindow.Entry(705, "Royal Dye", 100));
+			List<FameStoreWindow.Entry> entries = new ArrayList<>();
+			entries.add(new FameStoreWindow.Entry(700, "Crimson Dye", 25));
+			entries.add(new FameStoreWindow.Entry(701, "Cobalt Dye", 25));
+			entries.add(new FameStoreWindow.Entry(702, "Verdant Dye", 25));
+			entries.add(new FameStoreWindow.Entry(703, "Onyx Dye", 50));
+			entries.add(new FameStoreWindow.Entry(704, "Ivory Dye", 50));
+			entries.add(new FameStoreWindow.Entry(705, "Royal Dye", 100));
 			store.setEntries(entries);
 			store.show();
 		} catch (Exception e) {
@@ -575,8 +585,8 @@ public class ClientGameLogic {
 	}
 
 	public static void handlePlayerStateClient(RealmManagerClient cli, Packet packet) {
-		final com.openrealm.net.client.packet.PlayerStatePacket statePacket =
-			(com.openrealm.net.client.packet.PlayerStatePacket) packet;
+		final PlayerStatePacket statePacket =
+			(PlayerStatePacket) packet;
 		final Player toUpdate = cli.getRealm().getPlayer(statePacket.getPlayerId());
 		if (toUpdate != null) {
 			toUpdate.applyState(statePacket);

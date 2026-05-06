@@ -14,6 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.UUID;
 
 @Data
 @NoArgsConstructor
@@ -97,7 +98,7 @@ public class LootTableModel {
         final GameItem template = GameDataManager.GAME_ITEMS.get(itemId);
         if (template == null) return null;
         final GameItem stack = template.clone();
-        stack.setUid(java.util.UUID.randomUUID().toString());
+        stack.setUid(UUID.randomUUID().toString());
         final int max = stack.getMaxStack() > 0 ? stack.getMaxStack() : 1;
         stack.setStackCount(Math.max(1, Math.min(max, qty)));
         return stack;

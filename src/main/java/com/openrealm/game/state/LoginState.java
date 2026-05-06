@@ -24,6 +24,10 @@ import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Account login / registration / guest screen — replaces the legacy
@@ -71,13 +75,13 @@ public class LoginState extends GameState {
      * into that camera renders upside-down. Flipping V once at load time
      * is cheaper than rebinding flipped UVs on every draw.
      */
-    private com.badlogic.gdx.graphics.g2d.TextureRegion logoRegion;
-    private com.badlogic.gdx.graphics.g2d.TextureRegion getLogo() {
+    private TextureRegion logoRegion;
+    private TextureRegion getLogo() {
         if (this.logoRegion == null) {
             try {
-                com.badlogic.gdx.graphics.Texture tex = new com.badlogic.gdx.graphics.Texture(
+                Texture tex = new Texture(
                         Gdx.files.classpath("icon_min.png"));
-                this.logoRegion = new com.badlogic.gdx.graphics.g2d.TextureRegion(tex);
+                this.logoRegion = new TextureRegion(tex);
                 this.logoRegion.flip(false, true);
             } catch (Exception e) {
                 log.debug("[LOGIN] no logo texture: {}", e.getMessage());
@@ -123,8 +127,8 @@ public class LoginState extends GameState {
      * silent "no valid session, just show the form" from an actual error
      * that needs surfacing in red.
      */
-    private final java.util.concurrent.atomic.AtomicBoolean autoLoginCleared =
-            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final AtomicBoolean autoLoginCleared =
+            new AtomicBoolean(false);
 
     /** Try the persisted token before showing the login form. */
     private void tryAutoLogin() {
@@ -496,7 +500,7 @@ public class LoginState extends GameState {
         batch.begin();
 
         // Logo + title block inside the card.
-        com.badlogic.gdx.graphics.g2d.TextureRegion logo = this.getLogo();
+        TextureRegion logo = this.getLogo();
         int logoSize = 96;
         if (logo != null) {
             float logoX = cardX + (cardW - logoSize) / 2f;
@@ -589,7 +593,7 @@ public class LoginState extends GameState {
 
     /** Centers a string horizontally around `cx`, drawing its top at `topY`. */
     private void drawCenteredText(SpriteBatch batch, BitmapFont font, String s, float cx, float topY) {
-        com.badlogic.gdx.graphics.g2d.GlyphLayout layout = new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, s);
+        GlyphLayout layout = new GlyphLayout(font, s);
         font.draw(batch, s, cx - layout.width / 2f, topY);
     }
 
@@ -621,7 +625,7 @@ public class LoginState extends GameState {
      */
     private void drawTextCenteredInBox(SpriteBatch batch, BitmapFont font,
                                         String text, int x, int y, int w, int h) {
-        com.badlogic.gdx.graphics.g2d.GlyphLayout layout = new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, text);
+        GlyphLayout layout = new GlyphLayout(font, text);
         float textX = x + (w - layout.width) / 2f;
         float textY = y + (h - layout.height) / 2f;
         font.draw(batch, text, textX, textY);

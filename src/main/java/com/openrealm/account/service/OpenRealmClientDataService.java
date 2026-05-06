@@ -20,6 +20,7 @@ import com.openrealm.account.dto.SessionTokenDto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import java.util.Collections;
 
 @AllArgsConstructor
 @Data
@@ -156,8 +157,8 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
                 .password(password)
                 .accountName(accountName)
                 .guest(guest)
-                .accountProvisions(java.util.Collections.<AccountProvision>emptyList())
-                .accountSubscriptions(java.util.Collections.emptyList())
+                .accountProvisions(Collections.<AccountProvision>emptyList())
+                .accountSubscriptions(Collections.emptyList())
                 .build();
         return this.executePost("/admin/account/register", body, AccountDto.class);
     }

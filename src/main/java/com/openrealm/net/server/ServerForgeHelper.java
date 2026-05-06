@@ -22,6 +22,7 @@ import com.openrealm.net.server.packet.ForgeEnchantPacket;
 import com.openrealm.net.server.packet.InteractTilePacket;
 
 import lombok.extern.slf4j.Slf4j;
+import java.util.UUID;
 
 /**
  * Server-side handlers for the pixel-forge enchantment system: stat-shard
@@ -99,7 +100,7 @@ public class ServerForgeHelper {
         // otherwise leave the partial shard stack and place the crystal in the first free slot.
         if (stack.getStackCount() == SHARDS_PER_CRYSTAL) {
             final GameItem crystal = crystalTemplate.clone();
-            crystal.setUid(java.util.UUID.randomUUID().toString());
+            crystal.setUid(UUID.randomUUID().toString());
             crystal.setStackCount(1);
             player.getInventory()[slot] = crystal;
         } else {
@@ -112,7 +113,7 @@ public class ServerForgeHelper {
                 return;
             }
             final GameItem crystal = crystalTemplate.clone();
-            crystal.setUid(java.util.UUID.randomUUID().toString());
+            crystal.setUid(UUID.randomUUID().toString());
             crystal.setStackCount(1);
             player.getInventory()[empty] = crystal;
         }

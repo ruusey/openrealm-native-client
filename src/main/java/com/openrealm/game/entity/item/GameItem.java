@@ -52,11 +52,11 @@ public class GameItem extends SpriteModel {
     @Builder.Default
     private int stackCount = 1;
     @Builder.Default
-    private List<Enchantment> enchantments = new java.util.ArrayList<>();
+    private List<Enchantment> enchantments = new ArrayList<>();
     @Builder.Default
     private byte rarity = 0;
     @Builder.Default
-    private List<AttributeModifier> attributeModifiers = new java.util.ArrayList<>();
+    private List<AttributeModifier> attributeModifiers = new ArrayList<>();
     @Builder.Default
     private byte gemEffectType = -1;
     @Builder.Default
@@ -74,9 +74,9 @@ public class GameItem extends SpriteModel {
         this.forgeStatId = -1;
         this.forgeSlotId = -1;
         this.stackCount = 1;
-        this.enchantments = new java.util.ArrayList<>();
+        this.enchantments = new ArrayList<>();
         this.rarity = 0;
-        this.attributeModifiers = new java.util.ArrayList<>();
+        this.attributeModifiers = new ArrayList<>();
         this.gemEffectType = -1;
         this.gemParam1 = 0;
         this.gemMagnitude = 0;
@@ -103,7 +103,7 @@ public class GameItem extends SpriteModel {
         }
 
         if (this.enchantments != null && !this.enchantments.isEmpty()) {
-            final java.util.List<Enchantment> copy = new java.util.ArrayList<>(this.enchantments.size());
+            final List<Enchantment> copy = new ArrayList<>(this.enchantments.size());
             for (Enchantment e : this.enchantments) {
                 copy.add(e == null ? null : e.clone());
             }
@@ -111,7 +111,7 @@ public class GameItem extends SpriteModel {
         }
 
         if (this.attributeModifiers != null && !this.attributeModifiers.isEmpty()) {
-            final java.util.List<AttributeModifier> copy = new java.util.ArrayList<>(this.attributeModifiers.size());
+            final List<AttributeModifier> copy = new ArrayList<>(this.attributeModifiers.size());
             for (AttributeModifier m : this.attributeModifiers) {
                 copy.add(m == null ? null : m.clone());
             }

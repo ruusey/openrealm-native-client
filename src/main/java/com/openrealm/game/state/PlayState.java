@@ -62,6 +62,9 @@ import com.openrealm.util.WorkerThread;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Input;
+import com.openrealm.game.graphics.ShaderManager;
+import com.openrealm.game.graphics.Sprite;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -204,13 +207,15 @@ public class PlayState extends GameState {
             player.update(time);
             this.movePlayer(player);
 
-            // Camera follow MUST run AFTER movePlayer so the lerp from
-            // interpFromX → current pos has actually advanced. Otherwise
-            // the camera reads the pre-tick position while interpFromX
-            // still points at the same pre-tick position, the lerp
-            // always evaluates to that single value, and the camera
-            // appears to teleport once per tick instead of sliding
-            // smoothly across the tick window.
+            // Compute the lerped visual position. The simulation pos
+            // (player.getPos()) advances in 1/64 s tick steps; we lerp
+            // from preTick (interpFromX) to postTick (player.pos) over
+            // the time we're inside the current tick window.
+            // CRITICAL: Both the camera AND the player sprite must be
+            // anchored to this same lerped value, otherwise the player
+            // appears offset from screen center by up to one tick of
+            // travel each frame — the visible "lurch". The web client
+            // does exactly this with _renderX / _renderY (main.js).
             final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
             final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
             float renderX = player.getPos().x;
@@ -221,6 +226,13 @@ public class PlayState extends GameState {
                 renderX = this.interpFromX + (player.getPos().x - this.interpFromX) * interpFrac;
                 renderY = this.interpFromY + (player.getPos().y - this.interpFromY) * interpFrac;
             }
+            // Drive the player sprite render position from the same lerped
+            // value we'll center the camera on. Without this the sprite
+            // draws at player.pos (postTick) while the camera centers on
+            // renderX (lerped) — visible as the per-tick forward jump
+            // followed by a slide-back the user reported as "lurching".
+            player.setRenderPos(renderX, renderY);
+
             // Center on the visible playable area (everything left of the
             // right-side HUD panel). The HUD is width/5 of the window, so
             // shift the camera left by half that. True vertical center;
@@ -535,6 +547,25 @@ public class PlayState extends GameState {
                 }
 
             }
+            // R = teleport to Nexus (map 29). Mirrors the web client's
+            // hotkey. Suppressed while the chat input is capturing keys
+            // so the user can type 'r' in messages without TPing out.
+            if (!key.captureMode
+                    && Gdx.input.isKeyJustPressed(Input.Keys.R)
+                    && canUsePortal
+                    && this.realmManager.getRealm().getMapId() != 29) {
+                try {
+                    UsePortalPacket usePortal = UsePortalPacket.toNexus(
+                            this.realmManager.getRealm().getRealmId(), this.getPlayerId());
+                    this.realmManager.getClient().sendRemote(usePortal);
+                    this.realmManager.getRealm().loadMap(29);
+                    this.realmManager.setAwaitingRealmTransition(true);
+                    this.realmManager.getClient().sendRemote(LoginAckPacket.from(this.getPlayerId()));
+                    this.lastPortalTick = System.currentTimeMillis();
+                } catch (Exception e) {
+                    PlayState.log.error("Failed to send Nexus UsePortalPacket", e.getMessage());
+                }
+            }
             if (key.f1.clicked && canUsePortal) {
                 try {
                     if (this.realmManager.getRealm().getMapId() != 1) {
@@ -576,7 +607,7 @@ public class PlayState extends GameState {
 
         // Toggle the in-game options window with O — mirrors the web client's
         // gear-icon shortcut. Doesn't conflict with PauseState (ESC).
-        if (this.pui != null && com.badlogic.gdx.Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.O)) {
+        if (this.pui != null && Gdx.input.isKeyJustPressed(Input.Keys.O)) {
             this.pui.getOptionsWindow().toggle();
         }
 
@@ -810,24 +841,24 @@ public class PlayState extends GameState {
         }
 
         // Pass 1: All silhouette outlines (1 shader switch, 2 draws per entity)
-        com.openrealm.game.graphics.ShaderManager.applyEffect(batch, com.openrealm.game.graphics.Sprite.EffectEnum.SILHOUETTE);
+        ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
         for (int i = 0; i < visibleEntities.size(); i++) {
             visibleEntities.get(i).renderOutline(batch);
         }
-        com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
+        ShaderManager.clearEffect(batch);
 
         // Pass 2: All entity bodies grouped by effect (minimize shader switches)
-        com.openrealm.game.graphics.Sprite.EffectEnum currentEffect = null;
+        Sprite.EffectEnum currentEffect = null;
         for (int i = 0; i < visibleEntities.size(); i++) {
             Entity e = visibleEntities.get(i);
-            com.openrealm.game.graphics.Sprite.EffectEnum effect = e.getCurrentEffect();
+            Sprite.EffectEnum effect = e.getCurrentEffect();
             if (effect != currentEffect) {
-                com.openrealm.game.graphics.ShaderManager.applyEffect(batch, effect);
+                ShaderManager.applyEffect(batch, effect);
                 currentEffect = effect;
             }
             e.renderBody(batch);
         }
-        com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
+        ShaderManager.clearEffect(batch);
 
         // Pass 3: All bullets (no shader needed)
         for (int i = 0; i < visibleBullets.size(); i++) {
@@ -836,8 +867,8 @@ public class PlayState extends GameState {
 
         // Pass 4: Enemy health bars
         batch.end();
-        com.badlogic.gdx.Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
-        com.badlogic.gdx.Gdx.gl.glBlendFunc(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA, com.badlogic.gdx.graphics.GL20.GL_ONE_MINUS_SRC_ALPHA);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int i = 0; i < visibleEnemies.size(); i++) {
             Enemy enemy = visibleEnemies.get(i);
@@ -856,7 +887,7 @@ public class PlayState extends GameState {
         // Pass 5: Visual ability effects (rings, arcs, particles)
         this.renderVisualEffects(shapes);
 
-        com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+        Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
         Collection<Portal> portals = this.realmManager.getRealm().getPortals().values();
@@ -1132,7 +1163,7 @@ public class PlayState extends GameState {
 
         // Thick bright outer ring (draw multiple concentric rings for thickness)
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        com.badlogic.gdx.Gdx.gl.glLineWidth(4f);
+        Gdx.gl.glLineWidth(4f);
         shapes.setColor(r, g, b, alpha);
         drawCircleOutline(shapes, cx, cy, currentRadius, 64);
         shapes.setColor(r, g, b, alpha * 0.7f);
@@ -1143,7 +1174,7 @@ public class PlayState extends GameState {
         // Second inner ring, pulsing
         float pulse = 0.7f + 0.3f * (float) Math.sin(t * Math.PI * 8);
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        com.badlogic.gdx.Gdx.gl.glLineWidth(2f);
+        Gdx.gl.glLineWidth(2f);
         shapes.setColor(r, g, b, alpha * 0.8f * pulse);
         drawCircleOutline(shapes, cx, cy, currentRadius * 0.6f, 48);
         shapes.end();
@@ -1185,7 +1216,7 @@ public class PlayState extends GameState {
         }
         shapes.end();
 
-        com.badlogic.gdx.Gdx.gl.glLineWidth(1f);
+        Gdx.gl.glLineWidth(1f);
     }
 
     private void renderLineEffect(ShapeRenderer shapes, ActiveVisualEffect vfx, float t, float wx, float wy) {

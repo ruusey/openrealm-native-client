@@ -10,6 +10,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import java.util.Random;
 
 @Data
 @AllArgsConstructor
@@ -41,7 +42,7 @@ public class MapModel {
      */
     public Vector2f getRandomSpawnPoint() {
         if (this.spawnPoints != null && !this.spawnPoints.isEmpty()) {
-            float[] sp = this.spawnPoints.get(new java.util.Random().nextInt(this.spawnPoints.size()));
+            float[] sp = this.spawnPoints.get(new Random().nextInt(this.spawnPoints.size()));
             return new Vector2f(sp[0], sp[1]);
         }
         return getCenter();

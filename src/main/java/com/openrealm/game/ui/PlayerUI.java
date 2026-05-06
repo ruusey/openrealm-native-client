@@ -36,6 +36,11 @@ import com.openrealm.util.MouseHandler;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
+import com.openrealm.game.entity.Portal;
+import com.openrealm.game.model.PortalModel;
 
 @Data
 @Slf4j
@@ -555,9 +560,9 @@ public class PlayerUI {
 
         // ====== SHAPES PASS: all backgrounds in one ShapeRenderer batch ======
         batch.end();
-        com.badlogic.gdx.Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
-        com.badlogic.gdx.Gdx.gl.glBlendFunc(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA,
-                com.badlogic.gdx.graphics.GL20.GL_ONE_MINUS_SRC_ALPHA);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA,
+                GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
         // Panel background
@@ -634,26 +639,11 @@ public class PlayerUI {
         this.mp.renderShapes(shapes);
         this.xp.renderShapes(shapes);
 
-        // Difficulty + Account Fame badges. Positioned at the very TOP of
-        // the right HUD column (above the player name+level row), matching
-        // the web client's layout. The previous code put them at the bottom
-        // of the screen which read as mystery red/gold strips below the
-        // inventory.
-        int badgeW = (panelWidth - 12) / 2;
-        int badgeH = 22;
-        int badgeY = 2;
-        float diffVal = 0f;
-        try {
-            if (this.playState != null && this.playState.getRealmManager() != null
-                    && this.playState.getRealmManager().getRealm() != null) {
-                diffVal = this.playState.getRealmManager().getRealm().getDifficulty();
-            }
-        } catch (Exception ignored) { /* realm may not be loaded yet */ }
-        float diffShade = Math.max(0f, Math.min(1f, diffVal / 10f));
-        shapes.setColor(0.55f + 0.35f * diffShade, 0.10f, 0.10f, 0.85f);
-        shapes.rect(startX + 4, badgeY, badgeW, badgeH);
-        shapes.setColor(0.55f, 0.45f, 0.05f, 0.85f);
-        shapes.rect(startX + 8 + badgeW, badgeY, badgeW, badgeH);
+        // (Difficulty + Fame badge bars removed — they overlapped the player
+        // name / role text rendered at the top of the HUD column and read
+        // as random red/gold pills. Difficulty is shown in the realm
+        // transition splash; account fame is shown on the char-select
+        // screen, which matches the web client's HUD layout more closely.)
 
         // HP / MP potion quick-slot backgrounds — sit directly below the
         // bag rows so they match the web client's "potions under inventory"
@@ -669,21 +659,34 @@ public class PlayerUI {
         shapes.rect(startX + 8 + potionSize + potionGapX, potionY, potionSize, potionSize);
 
         shapes.end();
-        com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+        Gdx.gl.glDisable(GL20.GL_BLEND);
 
         // ====== SPRITE PASS: all item sprites + text in one SpriteBatch ======
         batch.begin();
 
         // BAG tab labels — must be in the sprite pass since text rendering
-        // can only happen between batch.begin/end. Position math mirrors
-        // the shapes pass exactly.
+        // can only happen between batch.begin/end. Center each label inside
+        // its tab rect using GlyphLayout so a font swap doesn't drift the
+        // labels off-center the way a hard-coded "-18" pixel offset did.
         int tabPanelW = (OpenRealmGame.width / 5);
         int tabStartX = OpenRealmGame.width - tabPanelW;
         int tabLabelW = (tabPanelW / 2) - 8;
+        int tabRowY = 420;
+        int tabRowH = 24;
+        GlyphLayout gl = new GlyphLayout();
+        // y baseline math: BitmapFont with the project's flipped (y-down)
+        // ortho needs the baseline near the bottom of the tab rect. The
+        // legacy "+18" landed about there for the previous font, so keep
+        // that as the baseline and only fix horizontal centering here.
+        float bagY = tabRowY + 18;
         font.setColor(this.activeBag == 0 ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
-        font.draw(batch, "BAG 1", tabStartX + 4 + tabLabelW / 2 - 18, 420 + 18);
+        gl.setText(font, "BAG 1");
+        float bag1X = tabStartX + 4 + (tabLabelW - gl.width) / 2f;
+        font.draw(batch, "BAG 1", bag1X, bagY);
         font.setColor(this.activeBag == 1 ? Color.WHITE : new Color(0.65f, 0.60f, 0.55f, 1f));
-        font.draw(batch, "BAG 2", tabStartX + 8 + tabLabelW + tabLabelW / 2 - 18, 420 + 18);
+        gl.setText(font, "BAG 2");
+        float bag2X = tabStartX + 8 + tabLabelW + (tabLabelW - gl.width) / 2f;
+        font.draw(batch, "BAG 2", bag2X, bagY);
         font.setColor(Color.WHITE);
 
         // HP / MP potion labels + hotkey hints (Z drinks HP, X drinks MP).
@@ -728,29 +731,8 @@ public class PlayerUI {
         this.mp.renderText(batch, font);
         this.xp.renderText(batch, font);
 
-        // Difficulty + Account Fame badge text
-        long fameVal = 0L;
-        float diffValText = 0f;
-        try {
-            if (this.playState != null && this.playState.getPlayer() != null) {
-                fameVal = this.playState.getPlayer().getCachedAccountFame();
-            }
-            if (this.playState != null && this.playState.getRealmManager() != null
-                    && this.playState.getRealmManager().getRealm() != null) {
-                diffValText = this.playState.getRealmManager().getRealm().getDifficulty();
-            }
-        } catch (Exception ignored) {}
-        int badgeWText = (panelWidth - 12) / 2;
-        int badgeHText = 22;
-        // Match the SHAPES pass which draws the badge backgrounds at y=2.
-        // The previous "height - badgeH - 4" rendered the TEXT at the
-        // bottom of the screen while the rects were at the top, producing
-        // the orphan red "X 1.0" / gold "* 0" pills the user saw cut off
-        // along the bottom edge.
-        int badgeYText = 2;
-        font.setColor(Color.WHITE);
-        font.draw(batch, String.format("X %.1f", diffValText), startX + 8, badgeYText + badgeHText - 6);
-        font.draw(batch, "* " + fameVal, startX + 12 + badgeWText, badgeYText + badgeHText - 6);
+        // (Difficulty / fame badge text removed alongside the shapes pass
+        // above — see note there.)
 
         // Trade UI (still uses old rendering for now - it's conditional/rare)
         if (this.isTrading) {
@@ -1187,11 +1169,11 @@ public class PlayerUI {
         try {
             final Vector2f pPos = this.playState.getPlayer().getPos();
             if (pPos == null) return;
-            final com.openrealm.game.entity.Portal nearest = this.playState.getClosestPortal(pPos, 32f);
+            final Portal nearest = this.playState.getClosestPortal(pPos, 32f);
             if (nearest == null) return;
             String name = "Portal";
             try {
-                final com.openrealm.game.model.PortalModel pm = GameDataManager.PORTALS != null
+                final PortalModel pm = GameDataManager.PORTALS != null
                         ? GameDataManager.PORTALS.get((int) nearest.getPortalId()) : null;
                 if (pm != null && pm.getPortalName() != null && !pm.getPortalName().isEmpty()) {
                     name = pm.getPortalName();

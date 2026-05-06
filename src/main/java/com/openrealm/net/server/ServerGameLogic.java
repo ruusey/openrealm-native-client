@@ -185,9 +185,9 @@ public class ServerGameLogic {
 			// Save vault chests if leaving vault
 			if (currentRealm.getMapId() == 1) {
 				try {
-					java.util.List<com.openrealm.account.dto.ChestDto> chestsToSave = currentRealm.serializeChests();
+					List<ChestDto> chestsToSave = currentRealm.serializeChests();
 					ServerGameLogic.DATA_SERVICE.executePost(
-							"/data/account/" + user.getAccountUuid() + "/chest", chestsToSave, com.openrealm.account.dto.PlayerAccountDto.class);
+							"/data/account/" + user.getAccountUuid() + "/chest", chestsToSave, PlayerAccountDto.class);
 				} catch (Exception e) {
 					log.error("[SERVER] Failed to save vault chests: {}", e.getMessage());
 				}
@@ -602,7 +602,7 @@ public class ServerGameLogic {
 	
 	public static void handleConsumeShardStackServer(RealmManagerServer mgr, Packet packet) {
 		try {
-			com.openrealm.net.server.ServerForgeHelper.handleConsumeShardStack(mgr, packet);
+			ServerForgeHelper.handleConsumeShardStack(mgr, packet);
 		} catch (Exception e) {
 			ServerGameLogic.log.error("Failed to handle ConsumeShardStack packet. Reason: {}", e);
 		}
@@ -610,7 +610,7 @@ public class ServerGameLogic {
 
 	public static void handleInteractTileServer(RealmManagerServer mgr, Packet packet) {
 		try {
-			com.openrealm.net.server.ServerForgeHelper.handleInteractTile(mgr, packet);
+			ServerForgeHelper.handleInteractTile(mgr, packet);
 		} catch (Exception e) {
 			ServerGameLogic.log.error("Failed to handle InteractTile packet. Reason: {}", e);
 		}
@@ -618,7 +618,7 @@ public class ServerGameLogic {
 
 	public static void handleForgeEnchantServer(RealmManagerServer mgr, Packet packet) {
 		try {
-			com.openrealm.net.server.ServerForgeHelper.handleForgeEnchant(mgr, packet);
+			ServerForgeHelper.handleForgeEnchant(mgr, packet);
 		} catch (Exception e) {
 			ServerGameLogic.log.error("Failed to handle ForgeEnchant packet. Reason: {}", e);
 		}
@@ -626,7 +626,7 @@ public class ServerGameLogic {
 
 	public static void handleForgeDisenchantServer(RealmManagerServer mgr, Packet packet) {
 		try {
-			com.openrealm.net.server.ServerForgeHelper.handleForgeDisenchant(mgr, packet);
+			ServerForgeHelper.handleForgeDisenchant(mgr, packet);
 		} catch (Exception e) {
 			ServerGameLogic.log.error("Failed to handle ForgeDisenchant packet. Reason: {}", e);
 		}
@@ -634,7 +634,7 @@ public class ServerGameLogic {
 
 	public static void handleBuyFameItemServer(RealmManagerServer mgr, Packet packet) {
 		try {
-			com.openrealm.net.server.ServerFameStoreHelper.handleBuy(mgr, packet);
+			ServerFameStoreHelper.handleBuy(mgr, packet);
 		} catch (Exception e) {
 			ServerGameLogic.log.error("Failed to handle BuyFameItem packet. Reason: {}", e);
 		}
@@ -753,7 +753,7 @@ public class ServerGameLogic {
 				// Relocate any equipped items that don't actually match their
 				// slot type or class. This cleans up legacy-bad state on
 				// every login so a single-time bug doesn't persist forever.
-				com.openrealm.net.server.ServerItemHelper.reconcileEquipment(player);
+				ServerItemHelper.reconcileEquipment(player);
 				player.applyStats(targetCharacter.getStats());
 				player.setName(accountName);
 				player.setHeadless(false);

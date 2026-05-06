@@ -36,13 +36,17 @@ import com.openrealm.util.WorkerThread;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.graphics.GL20;
+import java.util.Collections;
+import java.util.HashMap;
 
 @Data
 @Slf4j
 public class TileManager {
     private static final Integer VIEWPORT_TILE_MIN = 10;
     private static final Integer VIEWPORT_TILE_MAX = 20;
-    private final java.util.concurrent.locks.ReentrantLock mapLock = new java.util.concurrent.locks.ReentrantLock();
+    private final ReentrantLock mapLock = new ReentrantLock();
     private List<TileMap> mapLayers;
     private Vector2f bossSpawnPos;
     private Vector2f playerSpawnPos;
@@ -140,8 +144,8 @@ public class TileManager {
             final float maxDist = (float) Math.sqrt(centerX * centerX + centerY * centerY);
 
             // Pre-resolve tile models per group: base terrain (layer 0) and decorations (layer 1)
-            final Map<Integer, List<TileModel>> baseByGroup = new java.util.HashMap<>();
-            final Map<Integer, List<TileModel>> decorationByGroup = new java.util.HashMap<>();
+            final Map<Integer, List<TileModel>> baseByGroup = new HashMap<>();
+            final Map<Integer, List<TileModel>> decorationByGroup = new HashMap<>();
             for (TileGroup group : params.getTileGroups()) {
                 List<TileModel> baseTiles = group.getTileIds().stream()
                         .map(id -> GameDataManager.TILES.get(id))
@@ -153,7 +157,7 @@ public class TileManager {
                 List<TileModel> decoTiles = (decoIds != null) ? decoIds.stream()
                         .map(id -> GameDataManager.TILES.get(id))
                         .filter(tm -> tm != null)
-                        .collect(Collectors.toList()) : new java.util.ArrayList<>();
+                        .collect(Collectors.toList()) : new ArrayList<>();
                 decorationByGroup.put(group.getOrdinal(), decoTiles);
             }
 
@@ -197,7 +201,7 @@ public class TileManager {
 
                     // Decoration/collision layer tile (placed on layer 1 over the base)
                     List<TileModel> decoTiles = decorationByGroup.getOrDefault(groupOrd,
-                            java.util.Collections.emptyList());
+                            Collections.emptyList());
                     if (!decoTiles.isEmpty()) {
                         TileModel tile = decoTiles.get(random.nextInt(decoTiles.size()));
                         float rarity = group.getRarities().getOrDefault(tile.getTileId() + "", 0.0f);
@@ -219,7 +223,7 @@ public class TileManager {
                 List<TileModel> decoTiles = (decoIds != null) ? decoIds.stream()
                         .map(id -> GameDataManager.TILES.get(id))
                         .filter(tm -> tm != null)
-                        .collect(Collectors.toList()) : new java.util.ArrayList<>();
+                        .collect(Collectors.toList()) : new ArrayList<>();
 
                 // Fill base layer with terrain tiles
                 for (int i = 0; i < height; i++) {
@@ -799,9 +803,9 @@ public class TileManager {
         // Pass 3: Render object tiles (collision decorations) with circular shadow
         if (!objectTiles.isEmpty()) {
             batch.end();
-            com.badlogic.gdx.Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
-            com.badlogic.gdx.Gdx.gl.glBlendFunc(com.badlogic.gdx.graphics.GL20.GL_SRC_ALPHA,
-                    com.badlogic.gdx.graphics.GL20.GL_ONE_MINUS_SRC_ALPHA);
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA,
+                    GL20.GL_ONE_MINUS_SRC_ALPHA);
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(0f, 0f, 0f, 0.3f);
             for (Tile t : objectTiles) {
@@ -813,7 +817,7 @@ public class TileManager {
                 shapes.ellipse(cx - sz * 0.35f, cy - sz * 0.08f, sz * 0.7f, sz * 0.16f);
             }
             shapes.end();
-            com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+            Gdx.gl.glDisable(GL20.GL_BLEND);
             batch.begin();
 
             for (Tile t : objectTiles) {

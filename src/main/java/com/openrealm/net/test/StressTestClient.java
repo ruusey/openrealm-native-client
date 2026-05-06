@@ -28,6 +28,8 @@ import com.openrealm.util.TimedWorkerThread;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.net.client.packet.PlayerDeathPacket;
+import com.openrealm.net.core.PacketCompression;
 
 /**
  * A stress test client that connects to the game server, performs login,
@@ -203,8 +205,8 @@ public class StressTestClient implements Runnable {
                 }
             }
             // Handle death - shutdown this bot
-            if (packet.getId() == com.openrealm.game.contants.PacketType.getPacketId(
-                    com.openrealm.net.client.packet.PlayerDeathPacket.class)) {
+            if (packet.getId() == PacketType.getPacketId(
+                    PlayerDeathPacket.class)) {
                 log.info("[Client-{}] Bot died, shutting down", this.clientIndex);
                 this.shutdown();
                 return;
@@ -301,9 +303,9 @@ public class StressTestClient implements Runnable {
 
                     try {
                         // Handle compressed packets (high bit set on packetId)
-                        if (com.openrealm.net.core.PacketCompression.isCompressed(packetId)) {
-                            packetId = com.openrealm.net.core.PacketCompression.getRealPacketId(packetId);
-                            packetBytes = com.openrealm.net.core.PacketCompression.decompressPayload(packetBytes);
+                        if (PacketCompression.isCompressed(packetId)) {
+                            packetId = PacketCompression.getRealPacketId(packetId);
+                            packetBytes = PacketCompression.decompressPayload(packetBytes);
                         }
                         final Class<? extends Packet> packetClass = PacketType.valueOf(packetId);
                         if (packetClass == null) continue;

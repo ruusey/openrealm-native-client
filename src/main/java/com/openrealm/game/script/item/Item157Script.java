@@ -7,6 +7,8 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.client.packet.CreateEffectPacket;
 import com.openrealm.net.realm.Realm;
 import com.openrealm.net.realm.RealmManagerServer;
+import com.openrealm.game.contants.EntityType;
+import com.openrealm.game.contants.TextEffect;
 
 /**
  * Priest Tome ability — heals self and nearby players.
@@ -59,8 +61,8 @@ public class Item157Script extends UseableItemScriptBase {
                 int toHeal = Math.min(healAmount, missing);
                 target.setHealth(target.getHealth() + toHeal);
                 this.mgr.broadcastTextEffect(
-                    com.openrealm.game.contants.EntityType.PLAYER, target,
-                    com.openrealm.game.contants.TextEffect.HEAL, "+" + toHeal);
+                    EntityType.PLAYER, target,
+                    TextEffect.HEAL, "+" + toHeal);
             }
         }
     }

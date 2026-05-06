@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.math.Matrix4;
 
 @Slf4j
 public class ShaderManager {
@@ -176,23 +177,23 @@ public class ShaderManager {
         "}\n";
 
     // Pre-cached Matrix4 objects to avoid per-call allocations
-    private static com.badlogic.gdx.math.Matrix4 MAT_IDENTITY;
-    private static com.badlogic.gdx.math.Matrix4 MAT_SEPIA;
-    private static com.badlogic.gdx.math.Matrix4 MAT_REDISH;
-    private static com.badlogic.gdx.math.Matrix4 MAT_GRAYSCALE;
-    private static com.badlogic.gdx.math.Matrix4 MAT_DECAY;
-    private static com.badlogic.gdx.math.Matrix4 MAT_NEGATIVE;
-    private static com.badlogic.gdx.math.Matrix4 MAT_SILHOUETTE;
-    private static com.badlogic.gdx.math.Matrix4 MAT_STASIS;
-    private static com.badlogic.gdx.math.Matrix4 MAT_CURSED;
-    private static com.badlogic.gdx.math.Matrix4 MAT_POISONED;
-    private static com.badlogic.gdx.math.Matrix4 MAT_ARMORED;
-    private static com.badlogic.gdx.math.Matrix4 MAT_INVINCIBLE;
-    private static com.badlogic.gdx.math.Matrix4 MAT_ARMOR_BROKEN;
-    private static com.badlogic.gdx.math.Matrix4 MAT_STUNNED;
-    private static com.badlogic.gdx.math.Matrix4 MAT_BERSERK;
-    private static com.badlogic.gdx.math.Matrix4 MAT_DAMAGING;
-    private static com.badlogic.gdx.math.Matrix4 MAT_DAZED;
+    private static Matrix4 MAT_IDENTITY;
+    private static Matrix4 MAT_SEPIA;
+    private static Matrix4 MAT_REDISH;
+    private static Matrix4 MAT_GRAYSCALE;
+    private static Matrix4 MAT_DECAY;
+    private static Matrix4 MAT_NEGATIVE;
+    private static Matrix4 MAT_SILHOUETTE;
+    private static Matrix4 MAT_STASIS;
+    private static Matrix4 MAT_CURSED;
+    private static Matrix4 MAT_POISONED;
+    private static Matrix4 MAT_ARMORED;
+    private static Matrix4 MAT_INVINCIBLE;
+    private static Matrix4 MAT_ARMOR_BROKEN;
+    private static Matrix4 MAT_STUNNED;
+    private static Matrix4 MAT_BERSERK;
+    private static Matrix4 MAT_DAMAGING;
+    private static Matrix4 MAT_DAZED;
 
     private static final String VERT_SHADER =
         "attribute vec4 a_position;\n" +
@@ -270,23 +271,23 @@ public class ShaderManager {
         }
 
         // Pre-cache Matrix4 objects
-        MAT_IDENTITY = new com.badlogic.gdx.math.Matrix4(IDENTITY);
-        MAT_SEPIA = new com.badlogic.gdx.math.Matrix4(SEPIA);
-        MAT_REDISH = new com.badlogic.gdx.math.Matrix4(REDISH);
-        MAT_GRAYSCALE = new com.badlogic.gdx.math.Matrix4(GRAYSCALE);
-        MAT_DECAY = new com.badlogic.gdx.math.Matrix4(DECAY);
-        MAT_NEGATIVE = new com.badlogic.gdx.math.Matrix4(NEGATIVE);
-        MAT_SILHOUETTE = new com.badlogic.gdx.math.Matrix4(SILHOUETTE);
-        MAT_STASIS = new com.badlogic.gdx.math.Matrix4(STASIS);
-        MAT_CURSED = new com.badlogic.gdx.math.Matrix4(CURSED);
-        MAT_POISONED = new com.badlogic.gdx.math.Matrix4(POISONED);
-        MAT_ARMORED = new com.badlogic.gdx.math.Matrix4(ARMORED);
-        MAT_INVINCIBLE = new com.badlogic.gdx.math.Matrix4(INVINCIBLE);
-        MAT_ARMOR_BROKEN = new com.badlogic.gdx.math.Matrix4(ARMOR_BROKEN);
-        MAT_STUNNED = new com.badlogic.gdx.math.Matrix4(STUNNED);
-        MAT_BERSERK = new com.badlogic.gdx.math.Matrix4(BERSERK);
-        MAT_DAMAGING = new com.badlogic.gdx.math.Matrix4(DAMAGING);
-        MAT_DAZED = new com.badlogic.gdx.math.Matrix4(DAZED);
+        MAT_IDENTITY = new Matrix4(IDENTITY);
+        MAT_SEPIA = new Matrix4(SEPIA);
+        MAT_REDISH = new Matrix4(REDISH);
+        MAT_GRAYSCALE = new Matrix4(GRAYSCALE);
+        MAT_DECAY = new Matrix4(DECAY);
+        MAT_NEGATIVE = new Matrix4(NEGATIVE);
+        MAT_SILHOUETTE = new Matrix4(SILHOUETTE);
+        MAT_STASIS = new Matrix4(STASIS);
+        MAT_CURSED = new Matrix4(CURSED);
+        MAT_POISONED = new Matrix4(POISONED);
+        MAT_ARMORED = new Matrix4(ARMORED);
+        MAT_INVINCIBLE = new Matrix4(INVINCIBLE);
+        MAT_ARMOR_BROKEN = new Matrix4(ARMOR_BROKEN);
+        MAT_STUNNED = new Matrix4(STUNNED);
+        MAT_BERSERK = new Matrix4(BERSERK);
+        MAT_DAMAGING = new Matrix4(DAMAGING);
+        MAT_DAZED = new Matrix4(DAZED);
     }
 
     private static Sprite.EffectEnum lastAppliedEffect = null;
@@ -310,7 +311,7 @@ public class ShaderManager {
         if (effect == lastAppliedEffect) return;
 
         batch.setShader(effectShader);
-        com.badlogic.gdx.math.Matrix4 matrix;
+        Matrix4 matrix;
         switch (effect) {
             case SEPIA: matrix = MAT_SEPIA; break;
             case REDISH: matrix = MAT_REDISH; break;

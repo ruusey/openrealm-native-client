@@ -20,6 +20,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import java.util.List;
 
 @Getter
 @Setter
@@ -92,7 +93,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		n.magnitude = b.getMagnitude();
 		n.range = b.getRange();
 		n.damage = b.getDamage();
-		final java.util.List<Short> bf = b.getFlags();
+		final List<Short> bf = b.getFlags();
 		if (bf != null && !bf.isEmpty()) {
 			n.flags = bf.toArray(new Short[0]);
 		} else {

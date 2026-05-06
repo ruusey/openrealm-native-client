@@ -17,6 +17,7 @@ import com.openrealm.game.model.TerrainGenerationParameters;
 import com.openrealm.net.server.packet.TextPacket;
 
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.game.entity.Player;
 
 /**
  * Overseer AI that manages a realm's ecosystem:
@@ -706,7 +707,7 @@ public class RealmOverseer {
 
     // ========== MESSAGING ==========
 
-    public void welcomePlayer(com.openrealm.game.entity.Player player) {
+    public void welcomePlayer(Player player) {
         String taunt = randomChoice(WELCOME_TAUNTS);
         try {
             mgr.enqueueServerPacket(player,

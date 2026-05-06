@@ -14,6 +14,7 @@ import com.openrealm.game.model.ProjectileGroup;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import com.openrealm.game.model.ProjectileEffect;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -40,7 +41,7 @@ public class Bullet extends GameObject  {
      * Applied to the target entity when this bullet hits.
      * NOT behavior flags — those go in {@link #flags}.
      */
-    private List<com.openrealm.game.model.ProjectileEffect> effects;
+    private List<ProjectileEffect> effects;
 
     private boolean invert = false;
 

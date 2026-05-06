@@ -7,6 +7,7 @@ import com.openrealm.game.math.Rectangle;
 import com.openrealm.game.math.Vector2f;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.openrealm.game.contants.GlobalConstants;
 
 @Data
 @NoArgsConstructor
@@ -14,7 +15,7 @@ public class Tile {
 	private short tileId;
 	private short row;
 	private short col;
-	private short tileSize = (short) com.openrealm.game.contants.GlobalConstants.BASE_TILE_SIZE;
+	private short tileSize = (short) GlobalConstants.BASE_TILE_SIZE;
 	// Pack collision/slows/damaging/isWall into a single byte to eliminate TileData object per tile.
 	// Bit 0 = collision, bit 1 = slows, bit 2 = damaging, bit 3 = isWall
 	private byte flags;

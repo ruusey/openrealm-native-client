@@ -123,6 +123,9 @@ import com.openrealm.util.WorkerThread;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.account.dto.ChestDto;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 
 @Data
 @Slf4j
@@ -144,10 +147,10 @@ public class RealmManagerServer implements Runnable {
 	// Thread-safe queue for pending realm joins. Worker threads (async login) push
 	// here instead of mutating realm state directly, and the tick thread drains it
 	// at the start of each tick to avoid race conditions with enqueueGameData().
-	private final java.util.concurrent.ConcurrentLinkedQueue<PendingRealmJoin> pendingRealmJoins = new java.util.concurrent.ConcurrentLinkedQueue<>();
+	private final ConcurrentLinkedQueue<PendingRealmJoin> pendingRealmJoins = new ConcurrentLinkedQueue<>();
 	// Thread-safe queue for async realm generation completions. Worker threads generate
 	// the realm (heavy CPU), then enqueue here for tick-thread integration.
-	private final java.util.concurrent.ConcurrentLinkedQueue<PendingRealmTransition> pendingRealmTransitions = new java.util.concurrent.ConcurrentLinkedQueue<>();
+	private final ConcurrentLinkedQueue<PendingRealmTransition> pendingRealmTransitions = new ConcurrentLinkedQueue<>();
 	// Delta cache for other-player UpdatePackets (keyed by viewerPlayerId -> targetPlayerId -> packet)
 	private Map<Long, Map<Long, UpdatePacket>> otherPlayerUpdateState = new ConcurrentHashMap<>();
 	
@@ -191,7 +194,7 @@ public class RealmManagerServer implements Runnable {
 	private List<UseableItemScriptBase> itemScripts = new ArrayList<>();
 	// Note: realmLock is currently unnecessary — all realm access happens on the single tick thread.
 	// Kept as a ReentrantLock for safety if threading model changes in the future.
-	private final java.util.concurrent.locks.ReentrantLock realmLock = new java.util.concurrent.locks.ReentrantLock();
+	private final ReentrantLock realmLock = new ReentrantLock();
 	private int currentTickCount = 0;
 	private long tickSampleTime = 0;
 
@@ -460,10 +463,10 @@ public class RealmManagerServer implements Runnable {
 							// Save vault chests if player is in vault
 							if (playerRealm.getMapId() == 1) {
 								try {
-									java.util.List<com.openrealm.account.dto.ChestDto> chestsToSave = playerRealm.serializeChests();
+									List<ChestDto> chestsToSave = playerRealm.serializeChests();
 									ServerGameLogic.DATA_SERVICE.executePost(
 											"/data/account/" + dcPlayer.getAccountUuid() + "/chest",
-											chestsToSave, com.openrealm.account.dto.PlayerAccountDto.class);
+											chestsToSave, PlayerAccountDto.class);
 									log.info("[SERVER] Saved vault chests for DC'd player {}", dcPlayer.getName());
 								} catch (Exception e) {
 									log.error("[SERVER] Failed to save vault on DC for {}. Reason: {}",
@@ -595,7 +598,7 @@ public class RealmManagerServer implements Runnable {
 				realm.clearTickMovementCache();
 				realm.clearTickStrippedUpdateCache();
 
-				final Map<Player, String> toRemoveReasons = new java.util.LinkedHashMap<>();
+				final Map<Player, String> toRemoveReasons = new LinkedHashMap<>();
 				final float viewportRadius = 10 * GlobalConstants.BASE_TILE_SIZE;
 
 				// Snapshot teleport flags before packet building clears them
@@ -686,7 +689,7 @@ public class RealmManagerServer implements Runnable {
 								this.playerStateState.put(player.getKey(), statePacket);
 								this.enqueueServerPacket(player.getValue(), statePacket);
 							} else {
-								boolean effectsChanged = !java.util.Arrays.equals(
+								boolean effectsChanged = !Arrays.equals(
 									oldState.getEffectIds(), statePacket.getEffectIds());
 								if (effectsChanged) {
 									// Effects changed — send immediately (affects client movement prediction)
@@ -1071,10 +1074,10 @@ public class RealmManagerServer implements Runnable {
 			if (playerRealm != null) {
 				if (playerRealm.getMapId() == 1) {
 					try {
-						java.util.List<com.openrealm.account.dto.ChestDto> chestsToSave = playerRealm.serializeChests();
+						List<ChestDto> chestsToSave = playerRealm.serializeChests();
 						ServerGameLogic.DATA_SERVICE.executePost(
 								"/data/account/" + player.getAccountUuid() + "/chest",
-								chestsToSave, com.openrealm.account.dto.PlayerAccountDto.class);
+								chestsToSave, PlayerAccountDto.class);
 						log.info("[SERVER] Saved vault chests for disconnecting player {}", player.getName());
 					} catch (Exception e) {
 						log.error("[SERVER] Failed to save vault chests on disconnect for {}. Reason: {}",
@@ -1383,7 +1386,7 @@ public class RealmManagerServer implements Runnable {
 					if (isAdminRestricted != null) {
 						ServerCommandHandler.RESTRICTED_COMMAND_PROVISIONS.put(commandToHandle.value(), isAdminRestricted.provisions());
 						log.info("[SERVER] Command {} registered as restricted (requires {})", commandToHandle.value(),
-								java.util.Arrays.toString(isAdminRestricted.provisions()));
+								Arrays.toString(isAdminRestricted.provisions()));
 					}
 				}
 			} catch (Exception e) {
@@ -1590,7 +1593,7 @@ public class RealmManagerServer implements Runnable {
 			// Collect realm IDs that are referenced as a sourceRealmId by any
 			// active dungeon. These must stay alive so the boss-drop exit portal
 			// can link back to them when the dungeon boss is killed.
-			final java.util.Set<Long> referencedAsSource = new java.util.HashSet<>();
+			final Set<Long> referencedAsSource = new HashSet<>();
 			for (final Realm r : this.realms.values()) {
 				if (r.getSourceRealmId() != 0) {
 					referencedAsSource.add(r.getSourceRealmId());
@@ -1635,7 +1638,7 @@ public class RealmManagerServer implements Runnable {
             p.setRight(false);
             p.setLeft(false);
             // Still increment lastProcessedInputSeq so acks stay in sync
-            if (p.getInputQueue() == null) p.setInputQueue(new java.util.concurrent.ConcurrentLinkedQueue<>());
+            if (p.getInputQueue() == null) p.setInputQueue(new ConcurrentLinkedQueue<>());
             while (!p.getInputQueue().isEmpty()) {
                 float[] queued = p.getInputQueue().poll();
                 p.setLastProcessedInputSeq((int) queued[0]);
@@ -1646,7 +1649,7 @@ public class RealmManagerServer implements Runnable {
 		// Process ALL queued inputs this tick. At high ping, inputs arrive in
 		// bursts — processing all of them prevents server position from drifting
 		// behind the client. Capped at 8 per tick (125ms catch-up) to prevent abuse.
-		if (p.getInputQueue() == null) p.setInputQueue(new java.util.concurrent.ConcurrentLinkedQueue<>());
+		if (p.getInputQueue() == null) p.setInputQueue(new ConcurrentLinkedQueue<>());
 		while (!p.getInputQueue().isEmpty() && (int) p.getInputQueue().peek()[0] <= p.getLastProcessedInputSeq()) {
 		    p.getInputQueue().poll();
 		}
@@ -1898,7 +1901,7 @@ public class RealmManagerServer implements Runnable {
 		if (player == null) return;
 
 		// Use spatial grid for O(cells) instead of O(all_entities) brute-force
-		final float collisionRadius = 10 * com.openrealm.game.contants.GlobalConstants.BASE_TILE_SIZE;
+		final float collisionRadius = 10 * GlobalConstants.BASE_TILE_SIZE;
 		final Vector2f center = player.getPos();
 
 		// Collect bullets and enemies near this player using spatial grid
@@ -1924,7 +1927,7 @@ public class RealmManagerServer implements Runnable {
 			}
 		} else {
 			// Fallback: brute-force (only when no spatial grid)
-			final com.openrealm.game.math.Rectangle viewport = targetRealm.getTileManager().getRenderViewPort(player);
+			final Rectangle viewport = targetRealm.getTileManager().getRenderViewPort(player);
 			for (final Bullet b : targetRealm.getBullets().values()) {
 				if (b.getBounds().intersect(viewport)) nearbyBullets.add(b);
 			}
@@ -2073,7 +2076,7 @@ public class RealmManagerServer implements Runnable {
 	 * client mirrors this exactly in game.js — if you change the formula here,
 	 * change it there too.
 	 */
-	private static boolean circleHit(final Bullet b, final com.openrealm.game.entity.GameObject e) {
+	private static boolean circleHit(final Bullet b, final GameObject e) {
 		final float br = b.getSize() * GlobalConstants.HIT_RADIUS_FACTOR;
 		final float er = e.getSize() * GlobalConstants.HIT_RADIUS_FACTOR;
 		final float bcx = b.getPos().x + b.getSize() * 0.5f;
@@ -2686,9 +2689,9 @@ public class RealmManagerServer implements Runnable {
 				if (t.usedPortal != null) {
 					t.usedPortal.setToRealmId(t.generatedRealm.getRealmId());
 				}
-				t.player.addEffect(com.openrealm.game.contants.StatusEffectType.INVINCIBLE, 4000);
-				this.broadcastTextEffect(com.openrealm.game.contants.EntityType.PLAYER, t.player,
-					com.openrealm.game.contants.TextEffect.PLAYER_INFO, "Invincible");
+				t.player.addEffect(StatusEffectType.INVINCIBLE, 4000);
+				this.broadcastTextEffect(EntityType.PLAYER, t.player,
+					TextEffect.PLAYER_INFO, "Invincible");
 				t.generatedRealm.addPlayer(t.player);
 				this.clearPlayerState(t.player.getId());
 				this.invalidateRealmLoadState(t.generatedRealm);
@@ -2877,7 +2880,7 @@ public class RealmManagerServer implements Runnable {
 		}
 		if (found == null) {
 			log.info("[SERVER] searchRealmsForPlayer('{}') not found. Online players: {}",
-				playerName, allPlayers.stream().map(p -> p.getName()).collect(java.util.stream.Collectors.toList()));
+				playerName, allPlayers.stream().map(p -> p.getName()).collect(Collectors.toList()));
 		}
 		return found;
 	}

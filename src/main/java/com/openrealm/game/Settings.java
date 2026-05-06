@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Input;
 
 /**
  * Persisted user settings for the native client (graphics, controls, audio).
@@ -62,20 +63,20 @@ public class Settings {
 
     private static Map<String, Integer> defaultKeybinds() {
         Map<String, Integer> m = new HashMap<>();
-        m.put("moveUp", com.badlogic.gdx.Input.Keys.W);
-        m.put("moveDown", com.badlogic.gdx.Input.Keys.S);
-        m.put("moveLeft", com.badlogic.gdx.Input.Keys.A);
-        m.put("moveRight", com.badlogic.gdx.Input.Keys.D);
-        m.put("autofire", com.badlogic.gdx.Input.Keys.I);
-        m.put("inventory", com.badlogic.gdx.Input.Keys.R);
-        m.put("hpPotion", com.badlogic.gdx.Input.Keys.Z);
-        m.put("mpPotion", com.badlogic.gdx.Input.Keys.X);
-        m.put("rotateLeft", com.badlogic.gdx.Input.Keys.Q);
-        m.put("rotateRight", com.badlogic.gdx.Input.Keys.E);
-        m.put("resetCamera", com.badlogic.gdx.Input.Keys.C);
-        m.put("lootPickup", com.badlogic.gdx.Input.Keys.F);
-        m.put("chat", com.badlogic.gdx.Input.Keys.ENTER);
-        m.put("menu", com.badlogic.gdx.Input.Keys.ESCAPE);
+        m.put("moveUp", Input.Keys.W);
+        m.put("moveDown", Input.Keys.S);
+        m.put("moveLeft", Input.Keys.A);
+        m.put("moveRight", Input.Keys.D);
+        m.put("autofire", Input.Keys.I);
+        m.put("inventory", Input.Keys.R);
+        m.put("hpPotion", Input.Keys.Z);
+        m.put("mpPotion", Input.Keys.X);
+        m.put("rotateLeft", Input.Keys.Q);
+        m.put("rotateRight", Input.Keys.E);
+        m.put("resetCamera", Input.Keys.C);
+        m.put("lootPickup", Input.Keys.F);
+        m.put("chat", Input.Keys.ENTER);
+        m.put("menu", Input.Keys.ESCAPE);
         return m;
     }
 

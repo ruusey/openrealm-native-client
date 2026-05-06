@@ -34,6 +34,11 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import com.openrealm.game.entity.item.Enchantment;
+import com.openrealm.game.graphics.ShaderManager;
+import com.openrealm.net.client.packet.PlayerStatePacket;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Data
 @Builder
@@ -67,7 +72,7 @@ public class Player extends Entity {
 	private float currentVy = 0f;
 	// Queue elements: float[]{seq (cast from int), vx, vy}
 	@Builder.Default
-	private transient java.util.Queue<float[]> inputQueue = new java.util.concurrent.ConcurrentLinkedQueue<>();
+	private transient Queue<float[]> inputQueue = new ConcurrentLinkedQueue<>();
 
 	// Consumable potion storage (separate from inventory)
 	public static final int MAX_CONSUMABLE_POTIONS = 6;
@@ -93,6 +98,31 @@ public class Player extends Entity {
 	@Builder.Default
 	private transient long cachedAccountFame = 0L;
 
+	// Visual interpolation override. The simulation position (this.pos) advances
+	// in 1/64 s tick steps; rendering THAT directly at 144 FPS produces a
+	// per-tick "lurch" because the camera (lerped) and the sprite (postTick)
+	// disagree by up to one tick distance every render frame between ticks.
+	// Web client mirrors this by exposing _renderX / _renderY and rendering
+	// both camera AND player at the same lerped value. Set NaN means "use
+	// pos.x / pos.y" (default for non-local players or before first tick).
+	@Builder.Default
+	private transient float renderX = Float.NaN;
+	@Builder.Default
+	private transient float renderY = Float.NaN;
+
+	public void setRenderPos(float rx, float ry) {
+		this.renderX = rx;
+		this.renderY = ry;
+	}
+
+	public float getEffectiveRenderX() {
+		return Float.isNaN(this.renderX) ? this.pos.x : this.renderX;
+	}
+
+	public float getEffectiveRenderY() {
+		return Float.isNaN(this.renderY) ? this.pos.y : this.renderY;
+	}
+
 	public Player() {
 		super(0, null, 0);
 	}
@@ -100,7 +130,8 @@ public class Player extends Entity {
 	public Player(GameItem[] inventory, long lastStatsTime, LootContainer currentLootContainer, int classId,
 			String accountUuid, String characterUuid, long experience, Stats stats, boolean headless, boolean bot,
 			String chatRole, int lastInputSeq, int lastProcessedInputSeq, float currentVx, float currentVy,
-			java.util.Queue<float[]> inputQueue, int hpPotions, int mpPotions, int dyeId, long cachedAccountFame) {
+			Queue<float[]> inputQueue, int hpPotions, int mpPotions, int dyeId, long cachedAccountFame,
+			float renderX, float renderY) {
 		super(0, null, 0);
 		this.inventory = inventory;
 		this.lastStatsTime = lastStatsTime;
@@ -117,11 +148,13 @@ public class Player extends Entity {
 		this.lastProcessedInputSeq = lastProcessedInputSeq;
 		this.currentVx = currentVx;
 		this.currentVy = currentVy;
-		this.inputQueue = inputQueue != null ? inputQueue : new java.util.concurrent.ConcurrentLinkedQueue<>();
+		this.inputQueue = inputQueue != null ? inputQueue : new ConcurrentLinkedQueue<>();
 		this.hpPotions = hpPotions;
 		this.mpPotions = mpPotions;
 		this.dyeId = dyeId;
 		this.cachedAccountFame = cachedAccountFame;
+		this.renderX = renderX;
+		this.renderY = renderY;
 	}
 
 	public Player(long id, Vector2f origin, int size, CharacterClass characterClass) {
@@ -288,7 +321,7 @@ public class Player extends Entity {
 				// Pixel-forge enchantments: each entry adds +deltaValue to the
 				// matching stat. statId order: 0=VIT 1=WIS 2=HP 3=MP 4=ATT 5=DEF 6=SPD 7=DEX
 				if (item.getEnchantments() != null && !item.getEnchantments().isEmpty()) {
-					for (com.openrealm.game.entity.item.Enchantment e : item.getEnchantments()) {
+					for (Enchantment e : item.getEnchantments()) {
 						final short delta = e.getDeltaValue();
 						switch (e.getStatId()) {
 						case 0: stats.setVit((short) (stats.getVit() + delta)); break;
@@ -406,15 +439,21 @@ public class Player extends Entity {
 		if (frame != null) {
 			int rs = GlobalConstants.PLAYER_RENDER_SIZE;
 			float offset = (rs - this.size) / 2f;
-			float wx = this.pos.getWorldVar().x - offset;
-			float wy = this.pos.getWorldVar().y - offset;
+			// Use the lerped render position when set (PlayState recomputes it
+			// every frame) so the sprite stays at screen center between ticks.
+			// Falling back to pos.x / pos.y here means non-local players (no
+			// override set) draw at their last received network position.
+			float px = this.getEffectiveRenderX();
+			float py = this.getEffectiveRenderY();
+			float wx = (px - Vector2f.worldX) - offset;
+			float wy = (py - Vector2f.worldY) - offset;
 
 			// Soft drop shadow under the sprite. A flat dark ellipse in
 			// world-space, drawn as a stretched silhouette of the texture
 			// shifted down by ~3 px. Mirrors the web client's small shadow
 			// disc at the player's feet — gives depth without the chunky
 			// 4-direction silhouette outline the legacy code used.
-			com.openrealm.game.graphics.ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
+			ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
 			batch.setColor(0f, 0f, 0f, 0.35f);
 			float shadowYOffset = 3f;
 			if (this.left) {
@@ -423,20 +462,20 @@ public class Player extends Entity {
 				batch.draw(frame, wx, wy + shadowYOffset, rs, rs);
 			}
 			batch.setColor(1f, 1f, 1f, 1f);
-			com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
+			ShaderManager.clearEffect(batch);
 
 			// (Outline pass removed per user request — only shadow + body.)
 
 			// Body sprite with whatever effect tint is active (POISONED,
 			// HEALING, etc. or NORMAL).
 			Sprite.EffectEnum currentEffect = this.getSpriteSheet().getCurrentEffect();
-			com.openrealm.game.graphics.ShaderManager.applyEffect(batch, currentEffect);
+			ShaderManager.applyEffect(batch, currentEffect);
 			if (this.left) {
 				batch.draw(frame, wx + rs, wy, -rs, rs);
 			} else {
 				batch.draw(frame, wx, wy, rs, rs);
 			}
-			com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
+			ShaderManager.clearEffect(batch);
 		}
 	}
 
@@ -472,7 +511,7 @@ public class Player extends Entity {
 	}
 
 	public void queueInput(int seq, float vx, float vy) {
-		if (this.inputQueue == null) this.inputQueue = new java.util.concurrent.ConcurrentLinkedQueue<>();
+		if (this.inputQueue == null) this.inputQueue = new ConcurrentLinkedQueue<>();
 		if (seq > this.lastProcessedInputSeq) {
 			this.inputQueue.add(new float[]{(float) seq, vx, vy});
 		}
@@ -549,7 +588,7 @@ public class Player extends Entity {
 		}
 	}
 
-	public void applyState(com.openrealm.net.client.packet.PlayerStatePacket packet) {
+	public void applyState(PlayerStatePacket packet) {
 		this.health = packet.getHealth();
 		this.mana = packet.getMana();
 		this.setEffectIds(packet.getEffectIds());

@@ -25,6 +25,7 @@ import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.net.server.ServerGameLogic;
 
 import lombok.extern.slf4j.Slf4j;
+import java.util.Set;
 
 @Slf4j
 public class GameSpriteManager {
@@ -162,8 +163,8 @@ public class GameSpriteManager {
      * bundles them under {@code resources/ui/} — we don't want a missing
      * remote path or a stale data service to crash the launcher.
      */
-    private static final java.util.Set<String> BUNDLED_HUD_SHEETS =
-            java.util.Set.of("ui.png", "buttons.png");
+    private static final Set<String> BUNDLED_HUD_SHEETS =
+            Set.of("ui.png", "buttons.png");
 
     public static void loadSpriteImages(boolean loadRemote) {
         GameSpriteManager.TEXTURE_CACHE = new HashMap<>();

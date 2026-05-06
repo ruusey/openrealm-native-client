@@ -9,6 +9,7 @@ import com.openrealm.net.entity.NetObjectMovement;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
 
 @Data
 @Slf4j
@@ -200,8 +201,8 @@ public abstract class GameObject {
             }
         }
         final float TICK_RATE = 64f;
-        float dt = com.badlogic.gdx.Gdx.graphics != null
-                ? Math.min(com.badlogic.gdx.Gdx.graphics.getDeltaTime(), 1f / 30f)
+        float dt = Gdx.graphics != null
+                ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
                 : 1f / 60f;
         float scale = dt * TICK_RATE;
         this.pos.x += this.dx * scale;

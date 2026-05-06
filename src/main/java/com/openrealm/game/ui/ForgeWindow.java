@@ -17,6 +17,7 @@ import com.openrealm.net.server.packet.ForgeEnchantPacket;
 
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import java.lang.reflect.Method;
 
 /**
  * Pixel-painting forge UI, mirroring the web client's enchant flow.
@@ -256,7 +257,7 @@ public class ForgeWindow {
             // stay decoupled from any private packet field changes.
             ForgeEnchantPacket packet = new ForgeEnchantPacket();
             try {
-                java.lang.reflect.Method m;
+                Method m;
                 m = packet.getClass().getMethod("setTargetItemId", int.class);    m.invoke(packet, this.targetItemId);
                 m = packet.getClass().getMethod("setCrystalItemId", int.class);   m.invoke(packet, this.crystalItemId);
                 m = packet.getClass().getMethod("setEssenceItemId", int.class);   m.invoke(packet, this.essenceItemId);
@@ -277,7 +278,7 @@ public class ForgeWindow {
         try {
             ForgeDisenchantPacket packet = new ForgeDisenchantPacket();
             try {
-                java.lang.reflect.Method m = packet.getClass().getMethod("setTargetItemId", int.class);
+                Method m = packet.getClass().getMethod("setTargetItemId", int.class);
                 m.invoke(packet, this.targetItemId);
             } catch (NoSuchMethodException ignored) { /* shape change — server still authoritative */ }
             this.realmManager.getClient().getOutboundPacketQueue().add(packet);

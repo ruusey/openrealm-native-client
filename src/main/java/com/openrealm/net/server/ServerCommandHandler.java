@@ -48,6 +48,11 @@ import com.openrealm.util.GameObjectUtils;
 import com.openrealm.util.WorkerThread;
 
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.game.entity.Portal;
+import com.openrealm.game.model.RealmEventModel;
+import com.openrealm.net.realm.RealmOverseer;
+import java.util.Collections;
+import java.util.Comparator;
 
 @Slf4j
 public class ServerCommandHandler {
@@ -404,11 +409,11 @@ public class ServerCommandHandler {
         if (message.getArgs() == null || message.getArgs().size() < 1) {
             final StringBuilder sb = new StringBuilder("Realm events:");
             if (GameDataManager.REALM_EVENTS != null) {
-                final java.util.List<com.openrealm.game.model.RealmEventModel> sorted =
+                final List<RealmEventModel> sorted =
                         new ArrayList<>(GameDataManager.REALM_EVENTS.values());
-                sorted.sort(java.util.Comparator.comparingInt(
-                        com.openrealm.game.model.RealmEventModel::getEventId));
-                for (final com.openrealm.game.model.RealmEventModel ev : sorted) {
+                sorted.sort(Comparator.comparingInt(
+                        RealmEventModel::getEventId));
+                for (final RealmEventModel ev : sorted) {
                     sb.append('\n').append("  ").append(ev.getEventId()).append(" — ").append(ev.getName());
                 }
             }
@@ -428,7 +433,7 @@ public class ServerCommandHandler {
         if (GameDataManager.REALM_EVENTS == null) {
             throw new IllegalStateException("Realm event registry not loaded yet");
         }
-        final com.openrealm.game.model.RealmEventModel eventModel =
+        final RealmEventModel eventModel =
                 GameDataManager.REALM_EVENTS.get(eventId);
         if (eventModel == null) {
             throw new IllegalArgumentException("No realm event with id " + eventId
@@ -443,7 +448,7 @@ public class ServerCommandHandler {
         if (playerRealm == null) {
             throw new IllegalStateException("No realm for player " + target.getName());
         }
-        final com.openrealm.net.realm.RealmOverseer overseer = playerRealm.getOverseer();
+        final RealmOverseer overseer = playerRealm.getOverseer();
         if (overseer == null) {
             throw new IllegalStateException(
                     "Current realm has no overseer (nexus/vault/static map) — run from an outdoor realm");
@@ -455,8 +460,8 @@ public class ServerCommandHandler {
         // doesn't end up standing on the boss / inside the setpiece.
         // Setpieces terraform freely under whatever's there, so the
         // spawn cannot fail for placement reasons.
-        final int tileSize = com.openrealm.game.contants.GlobalConstants.BASE_TILE_SIZE;
-        final com.openrealm.game.math.Vector2f spawnAt = target.getPos().clone();
+        final int tileSize = GlobalConstants.BASE_TILE_SIZE;
+        final Vector2f spawnAt = target.getPos().clone();
         spawnAt.y -= 6 * tileSize;
         final boolean ok = overseer.spawnRealmEvent(eventModel, spawnAt);
         if (!ok) {
@@ -595,13 +600,13 @@ public class ServerCommandHandler {
                 throw new IllegalArgumentException("Cannot teleport to " + destPlayer.getName() + " — they are in a different area.");
             }
             // Check teleportable (not invisible/stasis)
-            if (destPlayer.hasEffect(com.openrealm.game.contants.StatusEffectType.INVISIBLE)
-                    || destPlayer.hasEffect(com.openrealm.game.contants.StatusEffectType.STASIS)) {
+            if (destPlayer.hasEffect(StatusEffectType.INVISIBLE)
+                    || destPlayer.hasEffect(StatusEffectType.STASIS)) {
                 throw new IllegalArgumentException(destPlayer.getName() + " cannot be teleported to right now.");
             }
             target.setPos(destPlayer.getPos().clone());
             mgr.enqueueServerPacket(target,
-                    com.openrealm.net.server.packet.TextPacket.from("SYSTEM", target.getName(),
+                    TextPacket.from("SYSTEM", target.getName(),
                             "Teleported to " + destPlayer.getName()));
         }
     }
@@ -728,7 +733,7 @@ public class ServerCommandHandler {
         }
 
         // Create and link portal at player position
-        final com.openrealm.game.entity.Portal portal = new com.openrealm.game.entity.Portal(
+        final Portal portal = new Portal(
                 Realm.RANDOM.nextLong(), (short) portalModel.getPortalId(), target.getPos().clone());
         portal.linkPortal(currentRealm, destinationRealm);
         portal.setNeverExpires();
@@ -779,7 +784,7 @@ public class ServerCommandHandler {
 
         WorkerThread.doAsync(() -> {
             // Phase 1: Pre-create ALL accounts and characters in parallel batches of 10
-            final List<String[]> botCredentials = java.util.Collections.synchronizedList(new ArrayList<>());
+            final List<String[]> botCredentials = Collections.synchronizedList(new ArrayList<>());
             log.info("[BOTS] Phase 1: Creating {} accounts (10 at a time)...", count);
             for (int batch = 0; batch < count; batch += 10) {
                 final int batchEnd = Math.min(batch + 10, count);
@@ -907,7 +912,7 @@ public class ServerCommandHandler {
             // identified by the canonical "Bot_" name prefix (see spawnbots
             // line ~531) which never collides with real players.
             try {
-                final java.util.List<Player> allPlayers = mgr.getPlayers();
+                final List<Player> allPlayers = mgr.getPlayers();
                 for (final Player p : allPlayers) {
                     final String name = p.getName();
                     if (name != null && name.startsWith("Bot_")) {
@@ -1002,7 +1007,7 @@ public class ServerCommandHandler {
 
             // Clean up empty dungeon when last player leaves
             if (currentRealm.getPlayers().size() == 0 && currentRealm.getNodeId() != null) {
-                final com.openrealm.game.model.DungeonGraphNode node =
+                final DungeonGraphNode node =
                         GameDataManager.DUNGEON_GRAPH.get(currentRealm.getNodeId());
                 if (node != null && !node.isEntryPoint()) {
                     currentRealm.setShutdown(true);

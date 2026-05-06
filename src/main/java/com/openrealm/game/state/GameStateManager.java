@@ -11,6 +11,7 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.util.Camera;
 import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
+import com.openrealm.net.client.SocketClient;
 
 public class GameStateManager {
 
@@ -59,9 +60,9 @@ public class GameStateManager {
         //   - If GameLauncher's CLI form supplied creds + characterUuid, jump
         //     straight into PlayState (used by automation).
         //   - Otherwise show the login screen and let the user pick a flow.
-        boolean cliCreds = com.openrealm.net.client.SocketClient.PLAYER_EMAIL != null
-                && com.openrealm.net.client.SocketClient.PLAYER_PASSWORD != null
-                && com.openrealm.net.client.SocketClient.CHARACTER_UUID != null;
+        boolean cliCreds = SocketClient.PLAYER_EMAIL != null
+                && SocketClient.PLAYER_PASSWORD != null
+                && SocketClient.CHARACTER_UUID != null;
         if (cliCreds) {
             this.add(GameStateManager.PLAY);
         } else {

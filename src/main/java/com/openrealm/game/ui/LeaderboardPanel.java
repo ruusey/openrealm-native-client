@@ -13,6 +13,8 @@ import com.openrealm.account.service.OpenRealmClientDataService;
 import com.openrealm.net.client.ClientGameLogic;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
+import java.util.ArrayList;
 
 /**
  * Top-N leaderboard panel for the character-select / pause screen.
@@ -62,7 +64,7 @@ public class LeaderboardPanel {
             // (LeaderboardEntryDto has accountName, characterClass, level,
             //  fame, equipment, stats — see openrealm-data).
             JsonNode body = svc.executeGet("data/stats/top?count=10", null, JsonNode.class);
-            java.util.List<Row> parsed = new java.util.ArrayList<>();
+            List<Row> parsed = new ArrayList<>();
             if (body != null && body.isArray()) {
                 int rank = 1;
                 for (JsonNode entry : body) {
@@ -87,8 +89,8 @@ public class LeaderboardPanel {
         this.refreshIfStale();
 
         batch.end();
-        com.badlogic.gdx.Gdx.gl.glEnable(GL20.GL_BLEND);
-        com.badlogic.gdx.Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.10f, 0.10f, 0.12f, 0.90f);
         shapes.rect(x, y, w, h);

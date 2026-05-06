@@ -14,6 +14,8 @@ import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 
 @Slf4j
 public class OpenRealmGame implements ApplicationListener {
@@ -60,15 +62,15 @@ public class OpenRealmGame implements ApplicationListener {
      */
     private static BitmapFont loadOryxFont() {
         try {
-            com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator gen =
-                    new com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator(
+            FreeTypeFontGenerator gen =
+                    new FreeTypeFontGenerator(
                             Gdx.files.classpath("oryx-simplex.ttf"));
-            com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator.FreeTypeFontParameter p =
-                    new com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator.FreeTypeFontParameter();
+            FreeTypeFontGenerator.FreeTypeFontParameter p =
+                    new FreeTypeFontGenerator.FreeTypeFontParameter();
             p.size = 18;
             p.flip = true;            // y-down camera
-            p.minFilter = com.badlogic.gdx.graphics.Texture.TextureFilter.Nearest;
-            p.magFilter = com.badlogic.gdx.graphics.Texture.TextureFilter.Nearest;
+            p.minFilter = Texture.TextureFilter.Nearest;
+            p.magFilter = Texture.TextureFilter.Nearest;
             BitmapFont f = gen.generateFont(p);
             gen.dispose();
             return f;

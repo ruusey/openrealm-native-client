@@ -31,6 +31,11 @@ import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
+import com.badlogic.gdx.math.Rectangle;
+import com.badlogic.gdx.scenes.scene2d.utils.ScissorStack;
+import com.badlogic.gdx.utils.viewport.ScalingViewport;
 
 /**
  * Visual character-select screen — replaces the JOptionPane dropdown that
@@ -438,17 +443,17 @@ public class CharacterSelectState extends GameState {
             // partially in/out are cropped at the edges instead of bleeding
             // over the picker / leaderboard below.
             batch.flush();
-            com.badlogic.gdx.math.Rectangle scissor = new com.badlogic.gdx.math.Rectangle();
-            com.badlogic.gdx.math.Rectangle clipBounds = new com.badlogic.gdx.math.Rectangle(
+            Rectangle scissor = new Rectangle();
+            Rectangle clipBounds = new Rectangle(
                     L.listX, L.listY, L.listW, L.listH);
-            com.badlogic.gdx.scenes.scene2d.utils.ScissorStack.calculateScissors(
-                    com.badlogic.gdx.utils.viewport.ScalingViewport.class.cast(null) == null
-                            ? new com.badlogic.gdx.graphics.OrthographicCamera() : null,
+            ScissorStack.calculateScissors(
+                    ScalingViewport.class.cast(null) == null
+                            ? new OrthographicCamera() : null,
                     batch.getTransformMatrix(), clipBounds, scissor);
             // Calculator above can be unreliable with our flipped Y-down camera;
             // fall back to a manual clip rect: just trust list bounds.
             scissor.set(L.listX, OpenRealmGame.height - (L.listY + L.listH), L.listW, L.listH);
-            com.badlogic.gdx.scenes.scene2d.utils.ScissorStack.pushScissors(scissor);
+            ScissorStack.pushScissors(scissor);
             for (int i = 0; i < chars.size(); i++) {
                 int rowY = L.listY + i * L.rowH - (int) this.scrollOffset;
                 if (rowY + L.rowH <= L.listY) continue;            // above viewport
@@ -459,7 +464,7 @@ public class CharacterSelectState extends GameState {
                         this.tab == Tab.GRAVEYARD);
             }
             batch.flush();
-            com.badlogic.gdx.scenes.scene2d.utils.ScissorStack.popScissors();
+            ScissorStack.popScissors();
 
             // Scroll indicator: tiny tan thumb on the right edge of the list
             // so the user knows there's more content offscreen.
@@ -700,8 +705,8 @@ public class CharacterSelectState extends GameState {
      */
     private static void drawCenteredInBox(SpriteBatch batch, BitmapFont font,
                                           String text, int x, int y, int w, int h) {
-        com.badlogic.gdx.graphics.g2d.GlyphLayout layout =
-                new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, text);
+        GlyphLayout layout =
+                new GlyphLayout(font, text);
         float tx = x + (w - layout.width) / 2f;
         float ty = y + (h - layout.height) / 2f;
         font.draw(batch, text, tx, ty);

@@ -21,6 +21,7 @@ import com.openrealm.util.WorkerThread;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import java.net.SocketTimeoutException;
 
 @Slf4j
 @Data
@@ -98,7 +99,7 @@ public class SocketClient implements Runnable {
             try {
                 bytesRead = stream.read(this.remoteBuffer, this.remoteBufferIndex,
                         this.remoteBuffer.length - this.remoteBufferIndex);
-            } catch (java.net.SocketTimeoutException e) {
+            } catch (SocketTimeoutException e) {
                 return; // No data within timeout — normal, just retry
             }
             this.lastDataTime = Instant.now().toEpochMilli();

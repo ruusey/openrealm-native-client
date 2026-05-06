@@ -7,6 +7,7 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 
 /**
  * Lightweight Swing-style text field for raw SpriteBatch UIs (LoginState,
@@ -165,14 +166,14 @@ public class TextField {
         // — the previous 0.65*h heuristic put the baseline below the box for
         // the project's 1.8x-scaled flipped BitmapFont, which made the border
         // line appear to slice through the text.
-        com.badlogic.gdx.graphics.g2d.GlyphLayout layout =
-                new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, shown.isEmpty() ? "X" : shown);
+        GlyphLayout layout =
+                new GlyphLayout(font, shown.isEmpty() ? "X" : shown);
         float textY = this.y + (this.h - layout.height) / 2f;
         float textX = this.x + 10;
         font.draw(batch, shown, textX, textY);
         if (this.focused && this.caretVisible) {
             float caretX = placeholderActive ? textX
-                    : textX + new com.badlogic.gdx.graphics.g2d.GlyphLayout(font, shown).width + 1;
+                    : textX + new GlyphLayout(font, shown).width + 1;
             font.draw(batch, "|", caretX, textY);
         }
         font.setColor(Color.WHITE);

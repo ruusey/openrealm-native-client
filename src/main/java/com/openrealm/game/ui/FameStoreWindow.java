@@ -16,6 +16,7 @@ import com.openrealm.net.server.packet.BuyFameItemPacket;
 
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import java.lang.reflect.Method;
 
 /**
  * Fame Store UI — buy cosmetic dyes (and future patterned cloths) with the
@@ -173,7 +174,7 @@ public class FameStoreWindow {
         try {
             BuyFameItemPacket packet = new BuyFameItemPacket();
             try {
-                java.lang.reflect.Method m = packet.getClass().getMethod("setItemId", int.class);
+                Method m = packet.getClass().getMethod("setItemId", int.class);
                 m.invoke(packet, entry.itemId);
             } catch (NoSuchMethodException nsme) {
                 log.debug("[FAME] BuyFameItemPacket field shape changed: {}", nsme.getMessage());

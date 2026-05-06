@@ -24,6 +24,8 @@ import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input;
 
 @Slf4j
 public class PauseState extends GameState {
@@ -51,7 +53,7 @@ public class PauseState extends GameState {
     @Override
     public void input(MouseHandler mouse, KeyHandler key) {
         // V opens the vault overlay (web-parity char-select feature).
-        if (com.badlogic.gdx.Gdx.input.isKeyJustPressed(com.badlogic.gdx.Input.Keys.V)) {
+        if (Gdx.input.isKeyJustPressed(Input.Keys.V)) {
             if (this.vault.isVisible()) this.vault.hide(); else this.vault.show();
         }
         // While the vault overlay has focus, suppress the click-to-switch

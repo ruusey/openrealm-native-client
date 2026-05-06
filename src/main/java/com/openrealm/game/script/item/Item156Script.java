@@ -6,6 +6,9 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.client.packet.CreateEffectPacket;
 import com.openrealm.net.realm.Realm;
 import com.openrealm.net.realm.RealmManagerServer;
+import com.openrealm.game.contants.EntityType;
+import com.openrealm.game.contants.StatusEffectType;
+import com.openrealm.game.contants.TextEffect;
 
 /**
  * Warrior Helm ability — applies SPEEDY buff to nearby players.
@@ -32,17 +35,17 @@ public class Item156Script extends UseableItemScriptBase {
         for (final Player target : targetRealm
                 .getPlayersInBounds(targetRealm.getTileManager().getRenderViewPort(player, 5))) {
             // Berserk (attack speed) to all nearby players
-            target.addEffect(com.openrealm.game.contants.StatusEffectType.BERSERK, duration);
+            target.addEffect(StatusEffectType.BERSERK, duration);
             if (target.getId() == player.getId()) {
                 // Speedy (move speed) to self only
-                target.addEffect(com.openrealm.game.contants.StatusEffectType.SPEEDY, duration);
+                target.addEffect(StatusEffectType.SPEEDY, duration);
                 this.mgr.broadcastTextEffect(
-                    com.openrealm.game.contants.EntityType.PLAYER, target,
-                    com.openrealm.game.contants.TextEffect.PLAYER_INFO, "BERSERK + SPEEDY");
+                    EntityType.PLAYER, target,
+                    TextEffect.PLAYER_INFO, "BERSERK + SPEEDY");
             } else {
                 this.mgr.broadcastTextEffect(
-                    com.openrealm.game.contants.EntityType.PLAYER, target,
-                    com.openrealm.game.contants.TextEffect.PLAYER_INFO, "BERSERK");
+                    EntityType.PLAYER, target,
+                    TextEffect.PLAYER_INFO, "BERSERK");
             }
         }
         // Broadcast warrior buff visual — distinct from priest heal so the

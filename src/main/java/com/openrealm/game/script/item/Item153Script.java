@@ -7,6 +7,8 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.client.packet.CreateEffectPacket;
 import com.openrealm.net.realm.Realm;
 import com.openrealm.net.realm.RealmManagerServer;
+import com.openrealm.game.contants.EntityType;
+import com.openrealm.game.contants.TextEffect;
 
 /**
  * Paladin Seal ability — applies HEALING + DAMAGING buff to nearby players.
@@ -35,8 +37,8 @@ public class Item153Script extends UseableItemScriptBase {
             target.addEffect(abilityItem.getEffect().getEffectId(), duration);
             target.addEffect(StatusEffectType.DAMAGING, duration * 2);
             this.mgr.broadcastTextEffect(
-                com.openrealm.game.contants.EntityType.PLAYER, target,
-                com.openrealm.game.contants.TextEffect.PLAYER_INFO, "HEALING + DAMAGING");
+                EntityType.PLAYER, target,
+                TextEffect.PLAYER_INFO, "HEALING + DAMAGING");
         }
         // Broadcast paladin seal — its own holy-cross visual so it doesn't
         // read as a priest heal. Tier carries through for the colour tint.

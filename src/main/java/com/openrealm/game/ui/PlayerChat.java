@@ -20,6 +20,9 @@ import com.openrealm.util.MouseHandler;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.graphics.GL20;
+import com.openrealm.game.entity.Player;
 
 @Data
 @Slf4j
@@ -46,6 +49,13 @@ public class PlayerChat {
                 return this.size() > PlayerChat.CHAT_SIZE;
             }
         };
+    }
+
+    /** Wipe the chat log. Called on realm transitions to mirror the web
+     *  client's clean-slate-per-realm behavior so chat doesn't carry a
+     *  history from a previous map / instance. */
+    public void clearChat() {
+        this.playerChat.clear();
     }
 
     public void addChatMessage(final TextPacket packet) {
@@ -115,9 +125,31 @@ public class PlayerChat {
         float originalScale = font.getData().scaleX;
         font.getData().setScale(1.0f);
 
-        float lineHeight = 14f;
+        // Increased line height so messages don't visually crash into each
+        // other (was 14 — too tight for readability per user feedback).
+        float lineHeight = 22f;
         // Web-parity: chat panel pinned to 1/5 of total screen width.
         final float chatWidth = OpenRealmGame.width / 5f;
+
+        // Solid black panel behind the chat log so the messages are legible
+        // over busy world tiles and entities. Only drawn if there's at
+        // least one message, so an empty chat doesn't paint a stray box.
+        if (!this.playerChat.isEmpty()) {
+            float bgTop    = OpenRealmGame.height - (PlayerChat.CHAT_SIZE * lineHeight) - 100 - 4;
+            float bgBottom = OpenRealmGame.height - (1 * lineHeight) - 100 + lineHeight - 2;
+            float bgH = bgBottom - bgTop;
+            batch.end();
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA,
+                    GL20.GL_ONE_MINUS_SRC_ALPHA);
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0f, 0f, 0f, 0.7f);
+            shapes.rect(4, bgTop, chatWidth, bgH);
+            shapes.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+            batch.begin();
+        }
+
         font.setColor(Color.WHITE);
 
         int index = PlayerChat.CHAT_SIZE;
@@ -180,7 +212,7 @@ public class PlayerChat {
     private Color roleColorByName(String name) {
         if (name == null || name.isEmpty()) return new Color(0.93f, 0.93f, 0.93f, 1f);
         try {
-            for (com.openrealm.game.entity.Player p : this.state.getRealmManager().getRealm().getPlayers().values()) {
+            for (Player p : this.state.getRealmManager().getRealm().getPlayers().values()) {
                 if (p == null || p.getName() == null) continue;
                 if (!name.equals(p.getName())) continue;
                 final String role = p.getChatRole();

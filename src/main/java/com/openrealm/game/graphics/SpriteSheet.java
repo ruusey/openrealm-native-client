@@ -16,6 +16,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Gdx;
 
 @Data
 @Slf4j
@@ -24,7 +25,13 @@ import lombok.extern.slf4j.Slf4j;
 public class SpriteSheet {
     private Texture spriteSheetTexture;
     private int animationFrame = 0;
-    private int elapsedFrames = 0;
+    // Wall-clock animation accumulator. Incremented in animate() by
+    // dt * 60 so that animationFrames durations (originally tuned in
+    // 60-FPS frame counts) advance at the same wall-clock rate
+    // regardless of render fps. At 144 fps the per-frame increment
+    // is ~0.417 instead of 1, so a "duration 6" frame still takes
+    // ~100 ms instead of running 2.4× too fast.
+    private float elapsedFrames = 0f;
     private TextureRegion[][] spriteSheetRegions;
     private List<Sprite> sprites;
     private List<Integer> animationFrames;
@@ -155,7 +162,7 @@ public class SpriteSheet {
         if ((this.animationFrames != null) && (this.animationFrames.size() > 0)) {
             int currentAnimationFrames = this.animationFrames.get(this.animationFrame);
             if (this.elapsedFrames >= currentAnimationFrames) {
-                this.elapsedFrames = 0;
+                this.elapsedFrames = 0f;
                 if (this.animationFrame == (this.animationFrames.size() - 1)) {
                     this.animationFrame = 0;
                 } else {
@@ -163,7 +170,15 @@ public class SpriteSheet {
                 }
             }
         }
-        this.elapsedFrames++;
+        // Advance by wall-clock time scaled to a 60-FPS reference. dt here
+        // is the LibGDX frame delta (capped at 1/30 to avoid huge jumps
+        // after a paused window). At 60 FPS this contributes ~1.0 per frame
+        // (matching legacy behavior); at 144 FPS it's ~0.417 per frame so
+        // animations no longer play 2.4× too fast.
+        float dt = Gdx.graphics != null
+                ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
+                : 1f / 60f;
+        this.elapsedFrames += dt * 60f;
     }
 
     public boolean hasEffect(final EffectEnum effect) {
@@ -198,7 +213,7 @@ public class SpriteSheet {
         this.sprites = frames;
         this.animationFrames = durations;
         this.animationFrame = 0;
-        this.elapsedFrames = 0;
+        this.elapsedFrames = 0f;
         for (Sprite sprite : this.sprites) {
             sprite.setEffect(this.currentEffect);
         }

@@ -13,6 +13,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.net.core.nettypes.SerializableInt;
 
 /**
  * Player movement input packet.
@@ -36,7 +37,7 @@ import lombok.extern.slf4j.Slf4j;
 public class PlayerMovePacket extends Packet {
 	@SerializableField(order = 0, type = SerializableLong.class)
     private long entityId;
-	@SerializableField(order = 1, type = com.openrealm.net.core.nettypes.SerializableInt.class)
+	@SerializableField(order = 1, type = SerializableInt.class)
     private int seq;
 	@SerializableField(order = 2, type = SerializableFloat.class)
     private float vx;

@@ -29,6 +29,8 @@ import com.openrealm.util.WorkerThread;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.game.graphics.ShaderManager;
+import com.openrealm.net.client.packet.PlayerStatePacket;
 
 @Data
 @EqualsAndHashCode(callSuper = false)
@@ -119,7 +121,7 @@ public class Enemy extends Entity {
         }
     }
 
-    public void applyState(com.openrealm.net.client.packet.PlayerStatePacket packet) {
+    public void applyState(PlayerStatePacket packet) {
         this.health = packet.getHealth();
         this.mana = packet.getMana();
         this.setEffectIds(packet.getEffectIds());
@@ -754,7 +756,7 @@ public class Enemy extends Entity {
         // Pass the local player center as the gate reference.
         float refX = 0f, refY = 0f;
         try {
-            final com.openrealm.game.entity.Player local = mgr != null && mgr.getState() != null
+            final Player local = mgr != null && mgr.getState() != null
                     ? mgr.getState().getPlayer() : null;
             if (local != null && local.getPos() != null) {
                 final float halfSize = (local.getSize() > 0 ? local.getSize() : 32) * 0.5f;
@@ -931,28 +933,32 @@ public class Enemy extends Entity {
         if (frame != null) {
             float wx = this.pos.getWorldVar().x;
             float wy = this.pos.getWorldVar().y;
-            float ox = 2.5f;
-            com.openrealm.game.graphics.ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
+
+            // Soft drop shadow underneath, matching the player. Replaces the
+            // chunky 4-direction silhouette outline (2.5 px offset draws on
+            // each axis) the legacy code drew — that produced a 3–4 px black
+            // halo on every enemy sprite which the user repeatedly asked to
+            // remove. The web client uses a small shadow disc instead and
+            // skips the outline entirely.
+            ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
+            batch.setColor(0f, 0f, 0f, 0.35f);
+            float shadowYOffset = 3f;
             if (this.left) {
-                batch.draw(frame, wx + this.size + ox, wy, -this.size, this.size);
-                batch.draw(frame, wx + this.size - ox, wy, -this.size, this.size);
-                batch.draw(frame, wx + this.size, wy + ox, -this.size, this.size);
-                batch.draw(frame, wx + this.size, wy - ox, -this.size, this.size);
+                batch.draw(frame, wx + this.size, wy + shadowYOffset, -this.size, this.size);
             } else {
-                batch.draw(frame, wx + ox, wy, this.size, this.size);
-                batch.draw(frame, wx - ox, wy, this.size, this.size);
-                batch.draw(frame, wx, wy + ox, this.size, this.size);
-                batch.draw(frame, wx, wy - ox, this.size, this.size);
+                batch.draw(frame, wx, wy + shadowYOffset, this.size, this.size);
             }
-            com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
+            batch.setColor(1f, 1f, 1f, 1f);
+            ShaderManager.clearEffect(batch);
+
             Sprite.EffectEnum currentEffect = this.getSpriteSheet().getCurrentEffect();
-            com.openrealm.game.graphics.ShaderManager.applyEffect(batch, currentEffect);
+            ShaderManager.applyEffect(batch, currentEffect);
             if (this.left) {
                 batch.draw(frame, wx + this.size, wy, -this.size, this.size);
             } else {
                 batch.draw(frame, wx, wy, this.size, this.size);
             }
-            com.openrealm.game.graphics.ShaderManager.clearEffect(batch);
+            ShaderManager.clearEffect(batch);
         }
     }
 }

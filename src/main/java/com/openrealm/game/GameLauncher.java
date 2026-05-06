@@ -11,6 +11,7 @@ import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.net.client.SocketClient;
 
 import lombok.extern.slf4j.Slf4j;
+import com.badlogic.gdx.Files;
 
 /**
  * Entry point for the OpenRealm native Java desktop client.
@@ -91,7 +92,7 @@ public class GameLauncher {
         // dock prefers larger, Linux varies). One 300×300 PNG is enough — the
         // backend downscales — and ships at the jar root after Maven shade.
         try {
-            config.setWindowIcon(com.badlogic.gdx.Files.FileType.Classpath, "icon_min.png");
+            config.setWindowIcon(Files.FileType.Classpath, "icon_min.png");
         } catch (Exception e) {
             log.warn("[CLIENT] Could not set window icon: {}", e.getMessage());
         }
