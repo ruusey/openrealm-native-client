@@ -1334,6 +1334,8 @@ public class RealmManagerServer implements Runnable {
 				final EnemyScriptBase realmDecoratorInstance = clazz.getDeclaredConstructor(RealmManagerServer.class)
 						.newInstance(this);
 				this.enemyScripts.add(realmDecoratorInstance);
+				log.error("[SERVER] Registered enemy script for script {}", clazz);
+
 			} catch (Exception e) {
 				log.error("[SERVER] Failed to register enemy script for script {}. Reason: {}", clazz, e.getMessage());
 			}
@@ -1352,6 +1354,8 @@ public class RealmManagerServer implements Runnable {
 				final UseableItemScriptBase realmDecoratorInstance = clazz
 						.getDeclaredConstructor(RealmManagerServer.class).newInstance(this);
 				this.itemScripts.add(realmDecoratorInstance);
+				log.error("[SERVER] Registered enemy script for script {}", clazz);
+
 			} catch (Exception e) {
 				log.error("[SERVER] Failed to register useable item script for script {}. Reason: {}", clazz, e.getMessage());
 			}

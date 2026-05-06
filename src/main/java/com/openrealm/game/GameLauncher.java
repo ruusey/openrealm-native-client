@@ -71,8 +71,8 @@ public class GameLauncher {
         GameLauncher.log.info("Starting OpenRealm Native Client v{}", GAME_VERSION);
 
         if (args.length == 0) {
-            log.info("No data-service host provided. Defaulting to 127.0.0.1");
-            args = new String[] { "127.0.0.1" };
+            log.info("No data-service host provided. Defaulting to http://98.95.5.4");
+            args = new String[] { "http://98.95.5.4" };
         }
 
         // Allow legacy "-client <host>" invocations to keep working — strip the

@@ -255,7 +255,8 @@ public class Player extends Entity {
 		GameItem[] items = new GameItem[size];
 		if (this.inventory == null)
 			return items;
-		for (int i = start; i < end; i++) {
+		int limit = Math.min(end, this.inventory.length);
+		for (int i = start; i < limit; i++) {
 			items[idx++] = this.inventory[i];
 		}
 

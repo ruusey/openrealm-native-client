@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.openrealm.game</groupId>
 	<artifactId>openrealm-native-client</artifactId>
-	<version>1.0.0</version>
+	<version>1.0.1</version>
 	<name>openrealm-native-client</name>
 	<description>Native Java desktop client for OpenRealm (LibGDX)</description>
 	<properties>
@@ -249,6 +249,8 @@
 										<argument>com.openrealm.game.GameLauncher</argument>
 										<argument>--dest</argument>
 										<argument>${project.build.directory}/installer</argument>
+										<argument>--add-modules</argument>
+										<argument>java.base,java.desktop,java.logging,java.management,java.naming,java.net.http,java.sql,java.xml,jdk.unsupported,jdk.crypto.ec</argument>
 										<argument>--java-options</argument>
 										<argument>-Xmx2g</argument>
 										<argument>--icon</argument>

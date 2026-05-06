@@ -1,11 +1,12 @@
 package com.openrealm.game.ui;
 
-import java.text.MessageFormat;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
@@ -33,7 +34,17 @@ public class PlayerChat {
      *  log doesn't take up half the screen. Toggle with the BACKTICK key
      *  (or the click target rendered above the chat panel). */
     private static final int COLLAPSED_VISIBLE = 3;
-    private Map<String, TextPacket> playerChat;
+    /** Reusable layout for measuring prefix/body widths. Allocating a fresh
+     *  GlyphLayout per draw was the previous footgun: the old code measured
+     *  prefix width as `length * 7f`, which is far too tight for this font,
+     *  so the body text was positioned underneath the closing bracket of
+     *  "[SYSTEM]: ". A single reused layout avoids per-frame churn. */
+    private final GlyphLayout layout = new GlyphLayout();
+    /** Append-only chat log. Switched from LinkedHashMap<String,TextPacket>
+     *  keyed on the formatted message: identical repeat messages (common
+     *  for SYSTEM notifications) were silently overwriting each other,
+     *  collapsing N messages into a single visible row. */
+    private List<TextPacket> playerChat;
     private String currentMessage;
     private boolean chatOpen;
     private boolean releasedEnter;
@@ -50,14 +61,7 @@ public class PlayerChat {
         this.releasedEnter = false;
         this.pressedEnter = false;
         this.state = state;
-        this.playerChat = new LinkedHashMap<String, TextPacket>() {
-            private static final long serialVersionUID = 4568387673008726309L;
-
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, TextPacket> eldest) {
-                return this.size() > PlayerChat.CHAT_SIZE;
-            }
-        };
+        this.playerChat = new ArrayList<TextPacket>(CHAT_SIZE);
     }
 
     /** Wipe the chat log. Called on realm transitions to mirror the web
@@ -68,9 +72,12 @@ public class PlayerChat {
     }
 
     public void addChatMessage(final TextPacket packet) {
-        String message = "[{0}]: {1}";
-        message = MessageFormat.format(message, packet.getFrom(), packet.getMessage());
-        this.playerChat.put(message, packet);
+        if (packet == null) return;
+        this.playerChat.add(packet);
+        // Trim to bounded history (oldest first).
+        while (this.playerChat.size() > CHAT_SIZE) {
+            this.playerChat.remove(0);
+        }
     }
 
     public void input(MouseHandler mouse, KeyHandler key, SocketClient client) {
@@ -108,14 +115,7 @@ public class PlayerChat {
                             TextPacket debugMsg = TextPacket.create("SYSTEM", "SYSTEM", "Debug mode: " + status);
                             this.addChatMessage(debugMsg);
                         } else if (messageToSend.equalsIgnoreCase("/clear")) {
-                            this.playerChat = new LinkedHashMap<String, TextPacket>() {
-                                private static final long serialVersionUID = 4568387673008726309L;
-
-                                @Override
-                                protected boolean removeEldestEntry(Map.Entry<String, TextPacket> eldest) {
-                                    return this.size() > PlayerChat.CHAT_SIZE;
-                                }
-                            };
+                            this.playerChat.clear();
                         } else {
                             ServerCommandMessage serverCommand = ServerCommandMessage.parseFromInput(messageToSend);
                             CommandPacket packet = CommandPacket.create(this.state.getPlayer(), CommandType.SERVER_COMMAND,
@@ -228,9 +228,10 @@ public class PlayerChat {
             // message draws one LINE_H higher.
             int seen = 0;
             int slot = visibleRows;          // bottom row = slot 1
-            for (Map.Entry<String, TextPacket> entry : this.playerChat.entrySet()) {
+            final Iterator<TextPacket> it = this.playerChat.iterator();
+            while (it.hasNext()) {
+                final TextPacket pkt = it.next();
                 if (seen++ < skip) continue;
-                final TextPacket pkt = entry.getValue();
                 final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
                 final String body     = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
 
@@ -242,26 +243,26 @@ public class PlayerChat {
                 final Color nameColor = roleColorByName(fromName);
                 font.setColor(nameColor);
                 final String prefix = "[" + fromName + "]: ";
-                font.draw(batch, prefix, PANEL_X + TEXT_PAD_X, y);
-
-                // Approx prefix width — Oryx-simplex at scale 1 averages ~7 px
-                // per glyph; the body just needs to start slightly after the
-                // colored name and not run off the panel.
-                float prefixWidth = prefix.length() * 7f;
+                this.layout.setText(font, prefix);
+                final float prefixWidth = this.layout.width;
+                font.draw(batch, this.layout, PANEL_X + TEXT_PAD_X, y);
 
                 // Body in #e0d8c8 (web .msg-player), or #c8a86e (.msg-system)
-                // when sender is "SYSTEM".
+                // when sender is "SYSTEM". Truncate to the available width
+                // by measuring with the same GlyphLayout — char-count
+                // heuristics produced the prefix/body collisions visible
+                // in earlier screenshots.
                 if ("SYSTEM".equalsIgnoreCase(fromName)) {
                     font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
                 } else {
                     font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
                 }
-                final int maxBodyChars = Math.max(0,
-                        (int) ((PANEL_W - prefixWidth - 2 * TEXT_PAD_X) / 7f));
-                String shownBody = body.length() > maxBodyChars
-                        ? body.substring(0, Math.max(0, maxBodyChars - 1)) + "..."
-                        : body;
-                font.draw(batch, shownBody, PANEL_X + TEXT_PAD_X + prefixWidth, y);
+                final float bodyMaxWidth = PANEL_W - prefixWidth - 2 * TEXT_PAD_X;
+                this.layout.setText(font, body, 0, body.length(), font.getColor(),
+                        Math.max(0f, bodyMaxWidth),
+                        com.badlogic.gdx.utils.Align.left, false, "...");
+                font.draw(batch, this.layout,
+                        PANEL_X + TEXT_PAD_X + prefixWidth, y);
             }
         }
 

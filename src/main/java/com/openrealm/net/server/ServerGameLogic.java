@@ -24,6 +24,7 @@ import com.openrealm.game.entity.Bullet;
 import com.openrealm.game.entity.Enemy;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.Portal;
+import com.openrealm.game.entity.item.Chest;
 import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.DungeonGenerationParams;
@@ -576,6 +577,9 @@ public class ServerGameLogic {
 					if (nearLoot != null && nearLoot.getContentsChanged()) {
 						try {
 							final NetLootContainer netContainer = IOService.mapModel(nearLoot, NetLootContainer.class);
+							// ModelMapper has no source for `isChest` — patch it in so
+							// chest container updates render as chests on the client.
+							netContainer.setChest(nearLoot instanceof Chest);
 							final LoadPacket containerUpdate = new LoadPacket(
 								new NetPlayer[0], new NetEnemy[0], new NetBullet[0],
 								new NetLootContainer[] { netContainer },

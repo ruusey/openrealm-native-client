@@ -6,6 +6,7 @@ import com.openrealm.game.entity.Enemy;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.client.packet.CreateEffectPacket;
+import com.openrealm.net.client.packet.PlayerStatePacket;
 import com.openrealm.net.realm.Realm;
 import com.openrealm.net.realm.RealmManagerServer;
 
@@ -42,12 +43,14 @@ public class Enemy67Script extends EnemyScriptBase {
             float dy = player.getPos().y - center.y;
             if (dx * dx + dy * dy > radiusSq) continue;
 
+            boolean changed = false;
             int maxHp = player.getComputedStats().getHp();
             int missingHp = maxHp - player.getHealth();
             if (missingHp > 0) {
                 int toHeal = Math.min(HEAL_AMOUNT, missingHp);
                 player.setHealth(player.getHealth() + toHeal);
                 this.getMgr().broadcastTextEffect(EntityType.PLAYER, player, TextEffect.HEAL, "+" + toHeal);
+                changed = true;
             }
             // Restore mana
             int maxMp = player.getComputedStats().getMp();
@@ -56,6 +59,21 @@ public class Enemy67Script extends EnemyScriptBase {
                 int toRestore = Math.min(HEAL_AMOUNT, missingMp);
                 player.setMana(player.getMana() + toRestore);
                 this.getMgr().broadcastTextEffect(EntityType.PLAYER, player, TextEffect.HEAL, "+" + toRestore + " MP");
+                changed = true;
+            }
+            // Push HP/MP immediately. The main tick loop's PlayerStatePacket
+            // diff is throttled to 8Hz and gated by equalsState — the floating
+            // "+80" text would land first while the bar lagged or was skipped
+            // entirely on a same-tick health change. Send straight to the
+            // owner so their UI reflects the heal without waiting for the
+            // next throttled diff.
+            if (changed) {
+                try {
+                    this.getMgr().enqueueServerPacket(player, PlayerStatePacket.from(player));
+                } catch (Exception e) {
+                    // Best-effort; the throttled diff in the main loop will
+                    // eventually catch up if this fails.
+                }
             }
         }
     }

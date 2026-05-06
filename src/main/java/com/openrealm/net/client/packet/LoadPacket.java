@@ -10,6 +10,7 @@ import com.openrealm.game.entity.Bullet;
 import com.openrealm.game.entity.Enemy;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.Portal;
+import com.openrealm.game.entity.item.Chest;
 import com.openrealm.game.entity.item.LootContainer;
 import com.openrealm.net.Packet;
 import com.openrealm.net.Streamable;
@@ -81,6 +82,17 @@ public class LoadPacket extends Packet {
             // low-volume (typically 0-5 per realm) so reflection cost is
             // negligible.
             final NetLootContainer[] mappedLoot = IOService.mapModel(loot, NetLootContainer[].class);
+            // ModelMapper has no source field for `isChest` — LootContainer
+            // has no isChest property; Chest is a subclass — so it silently
+            // leaves the flag false for actual chests. Without this patch the
+            // client's NetLootContainer.asLootContainer() never wraps as a
+            // Chest, vault chests render as empty (no sprite), and the
+            // webclient never selects the chest sprite at all.
+            for (int i = 0; i < loot.length; i++) {
+                if (mappedLoot[i] != null) {
+                    mappedLoot[i].setChest(loot[i] instanceof Chest);
+                }
+            }
             final NetPortal[] mappedPortals = new NetPortal[portals.length];
             for (int i = 0; i < portals.length; i++) {
                 mappedPortals[i] = NetPortal.fromPortal(portals[i]);
