@@ -146,6 +146,14 @@ public class RealmManagerClient implements Runnable {
         this.registerPacketCallback(PlayerDeathPacket.class, ClientGameLogic::handlePlayerDeathClient);
         this.registerPacketCallback(PlayerStatePacket.class, ClientGameLogic::handlePlayerStateClient);
         this.registerPacketCallback(CompactMovePacket.class, ClientGameLogic::handleCompactMoveClient);
+        // Server echoes HeartbeatPacket with the original client timestamp
+        // so we can compute the true RTT and feed the dev-stats overlay.
+        this.registerPacketCallback(HeartbeatPacket.class, (cli, pkt) -> {
+            try {
+                final HeartbeatPacket hb = (HeartbeatPacket) pkt;
+                com.openrealm.game.ui.PerfMetrics.get().recordHeartbeatRtt(hb.getTimestamp());
+            } catch (Exception ignored) { /* metrics never crash gameplay */ }
+        });
 //        this.registerPacketCallback(RequestTradePacket.class, ClientGameLogic::handleTradeRequestClient);
 //        this.registerPacketCallback(AcceptTradeRequestPacket.class, ClientGameLogic::handleAcceptTrade);
 
@@ -197,6 +205,9 @@ public class RealmManagerClient implements Runnable {
                     long playerId = this.currentPlayerId;
 
                     HeartbeatPacket pack = HeartbeatPacket.from(playerId, currentTime);
+                    // Record before send so PerfMetrics can match the
+                    // returned echo to the original send timestamp.
+                    com.openrealm.game.ui.PerfMetrics.get().recordHeartbeatSend(currentTime);
                     this.client.sendRemote(pack);
                     Thread.sleep(1000);
                 } catch (Exception e) {

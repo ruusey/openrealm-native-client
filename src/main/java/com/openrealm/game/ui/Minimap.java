@@ -20,9 +20,31 @@ import lombok.extern.slf4j.Slf4j;
 @Data
 @Slf4j
 public class Minimap {
-    private static final int MINIMAP_PX = 200;
-    private static final int MARGIN = 10;
+    /** Default size + margin used when no explicit position is supplied.
+     *  The actual render now anchors to the top of the right-side HUD
+     *  column to match the web client's layout (#minimap-container at the
+     *  top of #hud, full HUD width, square aspect-ratio). PlayerUI sets
+     *  drawX/drawY/sizePx before calling render(). */
+    private static final int DEFAULT_SIZE_PX = 200;
+    private static final int DEFAULT_MARGIN = 10;
     private static final int DISCOVER_RADIUS = 12;
+
+    /** Position + size for the minimap render, in screen pixels (Y-down).
+     *  Set by PlayerUI on each render so the minimap tracks the HUD
+     *  column's actual width / window resize. Defaults match the legacy
+     *  top-left corner placement used before the HUD repositioning. */
+    private int drawX = DEFAULT_MARGIN;
+    private int drawY = DEFAULT_MARGIN;
+    private int sizePx = DEFAULT_SIZE_PX;
+
+    /** Anchor the minimap to a screen-space rectangle. Called from
+     *  PlayerUI.render so the panel reflows on window resize without
+     *  Minimap needing to know about HUD layout constants. */
+    public void setLayout(int x, int y, int size) {
+        this.drawX = x;
+        this.drawY = y;
+        this.sizePx = Math.max(32, size);
+    }
 
     private static final Color FLOOR_COLOR_0 = new Color(0.45f, 0.38f, 0.30f, 1f);
     private static final Color FLOOR_COLOR_1 = new Color(0.50f, 0.42f, 0.33f, 1f);
@@ -117,16 +139,16 @@ public class Minimap {
         int viewHeight = viewEndY - viewStartY;
         if (viewWidth <= 0 || viewHeight <= 0) return;
 
-        float pixelsPerTileX = MINIMAP_PX / (float) viewWidth;
-        float pixelsPerTileY = MINIMAP_PX / (float) viewHeight;
+        float pixelsPerTileX = this.sizePx / (float) viewWidth;
+        float pixelsPerTileY = this.sizePx / (float) viewHeight;
 
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
-        float mapCenterX = MARGIN + MINIMAP_PX / 2f;
-        float mapCenterY = MARGIN + MINIMAP_PX / 2f;
-        float mapRadius = MINIMAP_PX / 2f;
+        float mapCenterX = this.drawX + this.sizePx / 2f;
+        float mapCenterY = this.drawY + this.sizePx / 2f;
+        float mapRadius = this.sizePx / 2f;
 
         // Draw circular dark background
         shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -141,8 +163,8 @@ public class Minimap {
             for (int x = viewStartX; x < viewEndX; x++) {
                 if (!this.discovered[y][x]) continue;
 
-                float screenX = MARGIN + (x - viewStartX) * pixelsPerTileX;
-                float screenY = MARGIN + (y - viewStartY) * pixelsPerTileY;
+                float screenX = this.drawX + (x - viewStartX) * pixelsPerTileX;
+                float screenY = this.drawY + (y - viewStartY) * pixelsPerTileY;
                 float tileCenterX = screenX + pixelsPerTileX / 2f;
                 float tileCenterY = screenY + pixelsPerTileY / 2f;
                 float dx = tileCenterX - mapCenterX;
@@ -168,8 +190,8 @@ public class Minimap {
         }
 
         // Draw player dot
-        float playerScreenX = MARGIN + (centerTileX - viewStartX) * pixelsPerTileX;
-        float playerScreenY = MARGIN + (centerTileY - viewStartY) * pixelsPerTileY;
+        float playerScreenX = this.drawX + (centerTileX - viewStartX) * pixelsPerTileX;
+        float playerScreenY = this.drawY + (centerTileY - viewStartY) * pixelsPerTileY;
         shapes.setColor(PLAYER_COLOR);
         shapes.circle(playerScreenX, playerScreenY, Math.max(3f, pixelsPerTileX));
 

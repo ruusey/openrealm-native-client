@@ -769,6 +769,20 @@ public class PlayerUI {
         this.playerChat.render(batch, shapes, font);
 
         if (this.minimap.isInitialized()) {
+            // Anchor the minimap to the top of the right-side HUD column so it
+            // sits above the HP / MP / XP bars, mirroring the web client's
+            // #minimap-container at the top of #hud. Square aspect ratio with
+            // small inset margins. Recomputed each frame so window resize
+            // reflows the layout.
+            final int hudPanelW = OpenRealmGame.width / 5;
+            final int hudPanelX = OpenRealmGame.width - hudPanelW;
+            final int inset = 8;
+            // Cap minimap height so it doesn't push HP/MP/XP bars off-screen
+            // on short windows. Keep square — use the smaller of the available
+            // width and a quarter of the screen height.
+            final int size = Math.max(64, Math.min(hudPanelW - 2 * inset,
+                    OpenRealmGame.height / 4));
+            this.minimap.setLayout(hudPanelX + inset, inset, size);
             this.minimap.update();
             this.minimap.render(batch, shapes);
         }
@@ -783,6 +797,14 @@ public class PlayerUI {
         this.fameStoreWindow.render(batch, shapes, font);
         this.optionsWindow.update();
         this.optionsWindow.render(batch, shapes, font);
+
+        // Dev-stats overlay (FPS / MEM / PING / JITTER) — mirrors web client
+        // _perfEl. Anchored to the top-LEFT corner since the minimap moved
+        // into the right HUD column; left corner is now free real-estate
+        // and putting stats over the HUD would fight with the minimap.
+        // Cheap — four font.draw calls per frame.
+        PerfMetrics.get().onFrame();
+        PerfMetrics.get().render(batch, font, 80f, 8f);
     }
 
     private void renderTradeUI(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, int startX, int panelWidth) {
