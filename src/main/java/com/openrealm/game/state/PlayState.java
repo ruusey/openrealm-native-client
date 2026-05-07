@@ -1557,6 +1557,13 @@ public class PlayState extends GameState {
         final float cx = vfx.getPosX() - wx;
         final float cy = vfx.getPosY() - wy;
         final float maxRadius = vfx.getRadius();
+
+        // Water fountain has its own procedural renderer (parabolic-arc
+        // droplets + splash ripples), not the standard ring/particle setup.
+        if (type == CreateEffectPacket.EFFECT_WATER_FOUNTAIN) {
+            renderWaterFountain(shapes, vfx, cx, cy, maxRadius);
+            return;
+        }
         // Ring expands fast then holds
         final float currentRadius = maxRadius * Math.min(t * 3.0f, 1.0f);
         // Stay fully visible for 70% of duration, then fade
@@ -1836,6 +1843,139 @@ public class PlayState extends GameState {
         }
 
         shapes.end();
+    }
+
+    /**
+     * Procedural water fountain — ring of streams continuously launching
+     * droplets up and out from (cx, cy), each following the same parabolic
+     * arc the assassin's poison throw uses, landing inside `radius` and
+     * splashing on impact. Uses the effect's own elapsed-ms clock so the
+     * animation stays smooth across heal-tick packet boundaries.
+     */
+    private void renderWaterFountain(ShapeRenderer shapes, ActiveVisualEffect vfx,
+                                     float cx, float cy, float radius) {
+        if (radius <= 0) return;
+
+        // Continuous timeline (seconds). Looping the fountain off elapsed —
+        // not the normalized t — keeps adjacent packets phase-continuous so
+        // overlapping heal-tick packets read as one stream rather than
+        // resetting on each tick.
+        final float elapsedSec = vfx.getElapsed() / 1000f;
+        final float dropPeriod = 0.85f;     // seconds per droplet (launch → land)
+        final int streams = 14;             // number of staggered launchers around the ring
+
+        // Overall fade so the visual eases out at the end of the packet's
+        // lifetime instead of popping. Because consecutive heal ticks send
+        // overlapping packets, the visible stream stays continuous.
+        final float t = vfx.getProgress();
+        final float globalAlpha = t < 0.85f ? 1.0f : Math.max(0f, 1.0f - (t - 0.85f) * 6.7f);
+
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+
+        // Soft pool reflection at the base (gives the fountain a "wet" anchor
+        // even if the mapper hasn't placed water tiles yet).
+        shapes.setColor(0.20f, 0.45f, 0.75f, 0.18f * globalAlpha);
+        drawCircle(shapes, cx, cy, radius, 32);
+        shapes.setColor(0.35f, 0.65f, 0.95f, 0.10f * globalAlpha);
+        drawCircle(shapes, cx, cy, radius * 0.82f, 28);
+
+        for (int s = 0; s < streams; s++) {
+            // Per-stream deterministic randomness so each launcher has its
+            // own angle / landing distance / phase but the look stays stable.
+            float r1 = pseudoRand(s * 73 + 11);
+            float r2 = pseudoRand(s * 131 + 29);
+            float r3 = pseudoRand(s * 197 + 53);
+
+            // Each stream slowly orbits so the fountain doesn't read as
+            // 14 fixed jets — gives a subtle organic motion.
+            float baseAngle = (float) (s * Math.PI * 2 / streams)
+                    + elapsedSec * 0.35f
+                    + r1 * (float) Math.PI * 2;
+            // Landing distance: 55–100% of radius so droplets fill the pool
+            // without all bunching at the rim.
+            float landDist = radius * (0.55f + 0.45f * r2);
+
+            float landX = cx + (float) Math.cos(baseAngle) * landDist;
+            float landY = cy + (float) Math.sin(baseAngle) * landDist;
+
+            // Phase in [0,1) — stream s lags by s/streams of the period plus
+            // its own random jitter so launches don't all line up.
+            float phase = ((elapsedSec / dropPeriod) + (s + r3) / streams) % 1.0f;
+            if (phase < 0) phase += 1.0f;
+
+            if (phase < 0.78f) {
+                // Droplet in flight: parabola from (cx,cy) to (landX,landY)
+                // with peak height ≈ 60% of the ground distance, matching the
+                // poison throw's lob feel.
+                float f = phase / 0.78f;
+                float arcHeight = landDist * 0.65f + radius * 0.10f;
+                float dx = landX - cx;
+                float dy = landY - cy;
+                float px = cx + dx * f;
+                float py = cy + dy * f - 4.0f * arcHeight * f * (1.0f - f);
+
+                // Short trailing tail (3 segments behind the head)
+                int tailSegs = 3;
+                for (int k = 1; k <= tailSegs; k++) {
+                    float fk = Math.max(0f, f - 0.06f * k);
+                    float tx = cx + dx * fk;
+                    float ty = cy + dy * fk - 4.0f * arcHeight * fk * (1.0f - fk);
+                    float tailA = globalAlpha * 0.32f * (1.0f - (float) k / tailSegs);
+                    shapes.setColor(0.55f, 0.78f, 1.0f, tailA);
+                    shapes.rect(tx - 1.5f, ty - 1.5f, 3f, 3f);
+                }
+
+                // Droplet head — outer halo + bright core.
+                shapes.setColor(0.40f, 0.70f, 1.0f, globalAlpha * 0.55f);
+                drawCircle(shapes, px, py, 3.2f, 10);
+                shapes.setColor(0.85f, 0.95f, 1.0f, globalAlpha * 0.95f);
+                drawCircle(shapes, px, py, 1.6f, 8);
+            } else {
+                // Splash ripple at the landing point. Phase 0.78–1.0 covers
+                // ~22% of the period (~190 ms), enough to read as an impact
+                // without lingering past the next launch.
+                float sf = (phase - 0.78f) / 0.22f;            // 0..1 splash progress
+                float splashR = 2.0f + 7.5f * sf;
+                float splashA = globalAlpha * (1.0f - sf) * 0.85f;
+                // Soft outer halo (filled, low alpha) — staying in Filled
+                // mode for the whole fountain pass keeps batches simple and
+                // avoids per-droplet begin/end churn.
+                shapes.setColor(0.40f, 0.70f, 1.0f, splashA * 0.40f);
+                drawCircle(shapes, landX, landY, splashR, 14);
+                // Bright center splat fading fast
+                shapes.setColor(0.85f, 0.95f, 1.0f, splashA);
+                drawCircle(shapes, landX, landY, Math.max(0.5f, 2.2f * (1.0f - sf)), 8);
+                // Two small side flecks kicked outward by the impact
+                float flAng = baseAngle + (r1 - 0.5f) * 1.2f;
+                float flDist = splashR * 0.9f;
+                float fx = landX + (float) Math.cos(flAng) * flDist;
+                float fy = landY + (float) Math.sin(flAng) * flDist;
+                shapes.setColor(0.70f, 0.88f, 1.0f, splashA * 0.7f);
+                shapes.rect(fx - 1f, fy - 1f, 2f, 2f);
+            }
+        }
+
+        // Bright core at the statue base — the "spout" the fountain emerges
+        // from. Subtly pulses so the source itself looks alive.
+        float pulse = 0.85f + 0.15f * (float) Math.sin(elapsedSec * Math.PI * 4);
+        shapes.setColor(0.85f, 0.95f, 1.0f, globalAlpha * 0.55f * pulse);
+        drawCircle(shapes, cx, cy, 4.0f * pulse, 12);
+        shapes.setColor(1.0f, 1.0f, 1.0f, globalAlpha * 0.85f * pulse);
+        drawCircle(shapes, cx, cy, 1.8f, 8);
+
+        shapes.end();
+    }
+
+    /** Cheap deterministic [0,1) hash — no allocations, suitable per-frame. */
+    private static float pseudoRand(int seed) {
+        int x = seed;
+        x = (x ^ 61) ^ (x >>> 16);
+        x = x + (x << 3);
+        x = x ^ (x >>> 4);
+        x = x * 0x27d4eb2d;
+        x = x ^ (x >>> 15);
+        // Map to [0,1)
+        return ((x & 0x7fffffff) % 1000003) / 1000003f;
     }
 
     /** Draw a filled circle using triangles (ShapeRenderer.Filled mode must be active) */
