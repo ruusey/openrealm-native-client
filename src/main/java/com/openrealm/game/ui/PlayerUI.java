@@ -313,6 +313,26 @@ public class PlayerUI {
                 this.activeTooltip = null;
                 if (this.canSwap()) {
                     this.setActionTime();
+                    // HP/MP potions route into the potion counter slots on the
+                    // server (Player.HP_POTION_ITEM_ID / MP_POTION_ITEM_ID) and
+                    // never occupy a regular inventory slot — so the
+                    // "first-null inventory slot" precheck below would
+                    // incorrectly block pickup whenever the inventory was
+                    // full. Send the move directly with a sentinel target.
+                    final GameItem groundItem = item;
+                    if (groundItem != null
+                            && (groundItem.getItemId() == com.openrealm.game.entity.Player.HP_POTION_ITEM_ID
+                             || groundItem.getItemId() == com.openrealm.game.entity.Player.MP_POTION_ITEM_ID)) {
+                        try {
+                            // targetSlot == 0 is harmless here; the server's
+                            // ground-loot branch reads only fromIdx and the
+                            // pot itemId before routing to addHp/MpPotion.
+                            this.playState.getRealmManager().moveItem((byte) 4, actualIdx + 20, false, false);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                        return;
+                    }
                     GameItem[] currentInv = this.playState.getPlayer().getSlots(4, 12);
                     int idx = this.firstNullIdx(currentInv);
                     Slots currentEquip = this.inventory[idx + 4];

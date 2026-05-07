@@ -247,22 +247,22 @@ public class LootContainer {
     }
 
     /** Render footprint in world pixels. Tier rules:
-     *    BROWN / CYAN / BLUE → 16 px (regular drop bags read as pickups)
-     *    everything else     → 32 px (purple/white drops, boosted, graves,
-     *                                 and chests are visually distinct
-     *                                 set-piece-or-rare loot)
+     *    BROWN / PURPLE / CYAN / BLUE / WHITE / BOOSTED → 16 px
+     *        (all regular drop bags read as same-size pickups; rarity is
+     *        conveyed by bag color, not size)
+     *    GRAVE / CHEST                                  → 32 px
+     *        (set-piece world objects, visually distinct from drop bags)
      *  Chest also overrides this for clarity, but the tier check below
      *  handles it identically — keeping the override means a Chest
      *  built without a CHEST tier (defensive bug) still renders large. */
     protected int getDrawSize() {
         if (this.tier == null) return 16;
         switch (this.tier) {
-            case BROWN:
-            case CYAN:
-            case BLUE:
-                return 16;
-            default:
+            case GRAVE:
+            case CHEST:
                 return 32;
+            default:
+                return 16;
         }
     }
 

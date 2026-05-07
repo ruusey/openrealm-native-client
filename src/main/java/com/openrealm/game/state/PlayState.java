@@ -498,6 +498,23 @@ public class PlayState extends GameState {
         final short atkBonus = (short) player.getStats().getAtt();
         final Realm realm = this.realmManager.getRealm();
 
+        // MultiShot / extra-projectile gems: count PROJECTILE_COUNT (effectType=2)
+        // enchantments on the equipped weapon. Server applies a centered fan in
+        // ServerGameLogic; mirror that here so the predicted shot lands at the
+        // SAME angle as the server-side bullet — otherwise findMatchingPredictedBullet
+        // pairs the cursor-aligned predicted bullet with one of the off-center
+        // server bullets, leaving the player visibly out of the spread center.
+        int extraProjectiles = 0;
+        if (weapon.getEnchantments() != null) {
+            for (com.openrealm.game.entity.item.Enchantment e : weapon.getEnchantments()) {
+                if (e.getEffectType() == 2) {
+                    extraProjectiles += e.getMagnitude();
+                }
+            }
+        }
+        final int totalBullets = 1 + extraProjectiles;
+        final float SPREAD = 0.12f;
+
         for (final com.openrealm.game.model.Projectile proj : group.getProjectiles()) {
             float projAngleOffset = 0f;
             try { projAngleOffset = Float.parseFloat(proj.getAngle()); } catch (Exception ignored) {}
@@ -505,24 +522,27 @@ public class PlayState extends GameState {
             final short rolledDamage = (short) (proj.getDamage() + atkBonus);
             final short offset = (short) (player.getSize() / 2);
             final Vector2f spawnPos = source.clone(-offset, -offset);
-            final Bullet b = new Bullet(Realm.RANDOM.nextLong(), proj.getProjectileId(), spawnPos,
-                    shootAngle, proj.getSize(), proj.getMagnitude(), proj.getRange(),
-                    rolledDamage, false);
-            b.setSrcEntityId(player.getId());
-            b.setAmplitude(proj.getAmplitude());
-            b.setFrequency(proj.getFrequency());
-            // Carry the projectile's behavior flags so dedup + hit
-            // prediction (PLAYER_PROJECTILE / PARAMETRIC / ORBITAL etc.)
-            // see the same trajectory as the server-side bullet.
-            if (proj.getFlags() != null) {
-                b.setFlags(new ArrayList<>(proj.getFlags()));
+            for (int i = 0; i < totalBullets; i++) {
+                final float deltaA = (i - (totalBullets - 1) / 2f) * SPREAD;
+                final Bullet b = new Bullet(Realm.RANDOM.nextLong(), proj.getProjectileId(), spawnPos,
+                        shootAngle + deltaA, proj.getSize(), proj.getMagnitude(), proj.getRange(),
+                        rolledDamage, false);
+                b.setSrcEntityId(player.getId());
+                b.setAmplitude(proj.getAmplitude());
+                b.setFrequency(proj.getFrequency());
+                // Carry the projectile's behavior flags so dedup + hit
+                // prediction (PLAYER_PROJECTILE / PARAMETRIC / ORBITAL etc.)
+                // see the same trajectory as the server-side bullet.
+                if (proj.getFlags() != null) {
+                    b.setFlags(new ArrayList<>(proj.getFlags()));
+                }
+                if (proj.getEffects() != null) {
+                    b.setEffects(proj.getEffects());
+                }
+                if (sheet != null) b.setSpriteSheet(sheet);
+                b.setPredicted(true);
+                realm.addBullet(b);
             }
-            if (proj.getEffects() != null) {
-                b.setEffects(proj.getEffects());
-            }
-            if (sheet != null) b.setSpriteSheet(sheet);
-            b.setPredicted(true);
-            realm.addBullet(b);
         }
     }
 
@@ -1285,6 +1305,36 @@ public class PlayState extends GameState {
             shapes.setColor(0.25f, 0.50f, 0.88f, 0.92f);
             shapes.rect(wx, mpY, barW * mpPct, barH);
         }
+
+        // Status effect icons stacked above each player's HP/MP bars +
+        // nameplate. Colored chips mirror webclient _drawStatusIcons
+        // (renderer.js ~3066): bottommost chip just above the name,
+        // additional effects stack upward. Color choices match the
+        // webclient palette so a player can identify the effect at a
+        // glance from either client.
+        for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
+            final Short[] effs = rp.getEffectIds();
+            if (effs == null) continue;
+            final int s = rp.getSize() > 0 ? rp.getSize() : 32;
+            final float wx = rp.getPos().getWorldVar().x;
+            final float wy = rp.getPos().getWorldVar().y;
+            // ~16 px below the HP/MP/name stack: HP at wy-10, MP at
+            // wy-6, name centered around wy-15. Iconize from wy-22 down
+            // (smaller y = visually higher in this projection).
+            float iconY = wy - 22;
+            final float iconW = s * 0.9f;
+            final float iconH = 4f;
+            final float iconGap = 1f;
+            final float iconX = wx + (s - iconW) * 0.5f;
+            for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
+                if (!hasEffectId(effs, def.effectId)) continue;
+                shapes.setColor(0f, 0f, 0f, 0.85f);
+                shapes.rect(iconX - 1, iconY - 1, iconW + 2, iconH + 2);
+                shapes.setColor(def.r, def.g, def.b, 0.95f);
+                shapes.rect(iconX, iconY, iconW, iconH);
+                iconY -= (iconH + iconGap);
+            }
+        }
         shapes.end();
 
         // Pass 5: Visual ability effects (rings, arcs, particles)
@@ -1570,6 +1620,48 @@ public class PlayState extends GameState {
             case "demo":     return ROLE_DEMO;
             default:         return ROLE_DEFAULT;
         }
+    }
+
+    /**
+     * Status icon palette mirrors webclient renderer.js STATUS_ICON_DEFS so
+     * the same effect renders the same color on both clients (player can
+     * identify "green DoT pip = poison" from any client they're using).
+     */
+    private static final class StatusEffectIconDef {
+        final short effectId;
+        final float r, g, b;
+        StatusEffectIconDef(short effectId, int rgb) {
+            this.effectId = effectId;
+            this.r = ((rgb >> 16) & 0xFF) / 255f;
+            this.g = ((rgb >>  8) & 0xFF) / 255f;
+            this.b = ( rgb        & 0xFF) / 255f;
+        }
+    }
+
+    private static final StatusEffectIconDef[] STATUS_ICON_DEFS = new StatusEffectIconDef[] {
+        new StatusEffectIconDef(StatusEffectType.HEALING.effectId,      0xFF4444),
+        new StatusEffectIconDef(StatusEffectType.SPEEDY.effectId,       0x44FF44),
+        new StatusEffectIconDef(StatusEffectType.BERSERK.effectId,      0xFF6644),
+        new StatusEffectIconDef(StatusEffectType.DAMAGING.effectId,     0xFFAA44),
+        new StatusEffectIconDef(StatusEffectType.ARMORED.effectId,      0x6688CC),
+        new StatusEffectIconDef(StatusEffectType.INVINCIBLE.effectId,   0x44AAFF),
+        new StatusEffectIconDef(StatusEffectType.INVISIBLE.effectId,    0xCCBB88),
+        new StatusEffectIconDef(StatusEffectType.SLOWED.effectId,       0x6688FF),
+        new StatusEffectIconDef(StatusEffectType.PARALYZED.effectId,    0x888888),
+        new StatusEffectIconDef(StatusEffectType.STUNNED.effectId,      0x88CCFF),
+        new StatusEffectIconDef(StatusEffectType.STASIS.effectId,       0x444448),
+        new StatusEffectIconDef(StatusEffectType.DAZED.effectId,        0x9988AA),
+        new StatusEffectIconDef(StatusEffectType.POISONED.effectId,     0x40CC40),
+        new StatusEffectIconDef(StatusEffectType.CURSED.effectId,       0xAA2255),
+        new StatusEffectIconDef(StatusEffectType.ARMOR_BROKEN.effectId, 0x7060CC),
+    };
+
+    private static boolean hasEffectId(Short[] effs, short eid) {
+        if (effs == null) return false;
+        for (Short s : effs) {
+            if (s != null && s == eid) return true;
+        }
+        return false;
     }
 
     private void renderVisualEffects(ShapeRenderer shapes) {

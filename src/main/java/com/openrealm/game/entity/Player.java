@@ -617,8 +617,24 @@ public class Player extends Entity {
 		final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
 		final int spH = anim.getEffectiveSpriteHeight() > 0 ? anim.getEffectiveSpriteHeight() : spW;
 		if (frame == null || frame.getTexture() == null) return null;
-		final int col = frame.getRegionX() / spW;
-		final int row = frame.getRegionY() / spH;
+		// SpriteSheet calls TextureRegion.flip(false, true) on every cell so
+		// the image renders right-side-up against our Y-down ortho camera.
+		// As a side effect getRegionY() returns the BOTTOM edge of the
+		// original cell (= (i+1)*spH) instead of the top. Reading it
+		// directly off-by-ones every row → CLASS_MASK_FRAMES lookup
+		// missed and dyeing silently fell back to the un-recolored sprite.
+		// Compensate by subtracting regionHeight on flipped regions
+		// (same idea for X if anyone ever flips horizontally — unflipped
+		// regions are unaffected because the subtract collapses to 0
+		// when the flag is false).
+		final int spX = frame.isFlipX()
+				? frame.getRegionX() - frame.getRegionWidth()
+				: frame.getRegionX();
+		final int spY = frame.isFlipY()
+				? frame.getRegionY() - frame.getRegionHeight()
+				: frame.getRegionY();
+		final int col = spX / spW;
+		final int row = spY / spH;
 		final TextureRegion dyed = SpriteRecolorCache.getDyedRegion(
 				spriteKey, this.classId, row, col, spW, this.dyeId);
 		if (dyed == null) {

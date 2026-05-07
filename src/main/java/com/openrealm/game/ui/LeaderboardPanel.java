@@ -60,6 +60,34 @@ public class LeaderboardPanel {
     private static final long REFRESH_MS = 30_000L;
     private boolean failed = false;
 
+    /** Index of the topmost visible row. Mouse wheel adjusts this; render
+     *  clamps it against the visible row count so the user can't scroll
+     *  past the end of the list. Row-snapped (not pixel) so a wheel notch
+     *  always advances exactly one row. */
+    private int scrollIdx = 0;
+    /** Bounds of the panel's clickable area as drawn in the last render
+     *  pass. Mouse-wheel handlers consult this so scrolling only fires
+     *  when the cursor is actually over the leaderboard, not when it's
+     *  hovering over an unrelated UI element on top of it. */
+    private int lastX = 0, lastY = 0, lastW = 0, lastH = 0;
+    /** Cached visible-row capacity from the last render so the scroll
+     *  clamp can prevent advancing past the last row. */
+    private int lastRowsAvail = 1;
+
+    /**
+     * Adjusts the scroll position by a mouse-wheel notch (positive = down).
+     * Caller should gate this on cursor-over-panel using {@link #containsPoint}.
+     */
+    public void scrollBy(int notches) {
+        this.scrollIdx = Math.max(0,
+                Math.min(this.scrollIdx + notches, Math.max(0, this.rows.size() - this.lastRowsAvail)));
+    }
+
+    public boolean containsPoint(int mx, int my) {
+        return mx >= this.lastX && mx <= this.lastX + this.lastW
+                && my >= this.lastY && my <= this.lastY + this.lastH;
+    }
+
     public void refreshIfStale() {
         long now = System.currentTimeMillis();
         if (now - this.lastFetchAt < REFRESH_MS && !this.rows.isEmpty()) return;
@@ -107,6 +135,7 @@ public class LeaderboardPanel {
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, int x, int y, int w, int h) {
         this.refreshIfStale();
+        this.lastX = x; this.lastY = y; this.lastW = w; this.lastH = h;
 
         // Panel background + border
         batch.end();
@@ -152,28 +181,42 @@ public class LeaderboardPanel {
         // Plenty of right-column space on a 1080p home screen — earlier
         // 56-px row packed both lines too tight and the equipment icons
         // overdrew the trailing characters of long player names.
-        int rowH = 92;
+        // Bumped from 92 → 104 so the Fame line has breathing room beneath
+        // the equipment-icon band — at the previous height the descenders
+        // of "Fame N,NNN" overlapped the top of the next row's
+        // alternating-stripe background, reading as cut off.
+        int rowH = 104;
         int rowsAvail = Math.max(1, (h - headerH - 8) / rowH);
-        int n = Math.min(this.rows.size(), rowsAvail);
+        // Row-snapped scroll: clamp scrollIdx so we never scroll past the
+        // last row (always show a full window). Stored back to lastRowsAvail
+        // so scrollBy() can clamp on subsequent mouse-wheel input.
+        this.lastRowsAvail = rowsAvail;
+        if (this.scrollIdx > Math.max(0, this.rows.size() - rowsAvail)) {
+            this.scrollIdx = Math.max(0, this.rows.size() - rowsAvail);
+        }
+        if (this.scrollIdx < 0) this.scrollIdx = 0;
+        int startIdx = this.scrollIdx;
+        int endIdx = Math.min(this.rows.size(), startIdx + rowsAvail);
         int firstRowTop = y + headerH + 6;
 
         // Layout bands inside each row, all relative to rowTop:
         //   nameBaseline  =  +28   (top text band)
         //   eqY (top)     =  +42   (icon row)
         //   eqIconSize    =   30
-        //   fameBaseline  =  +84   (bottom text band, vertically centered with icons)
+        //   fameBaseline  =  +86   (bottom text band, vertically centered with icons)
         final int nameBaselineOff = 28;
         final int eqYOff          = 42;
         final int eqIconSize      = 30;
         final int eqGap           = 6;
         final int fameBaselineOff = eqYOff + eqIconSize + 14;   // +86
 
-        for (int i = 0; i < n; i++) {
+        for (int visIdx = 0, i = startIdx; i < endIdx; i++, visIdx++) {
             Row r = this.rows.get(i);
-            int rowTop = firstRowTop + i * rowH;
+            int rowTop = firstRowTop + visIdx * rowH;
 
-            // Subtle alternating background
-            if ((i & 1) == 1) {
+            // Subtle alternating background — keyed off VISUAL index so the
+            // stripe pattern stays consistent as the user scrolls.
+            if ((visIdx & 1) == 1) {
                 batch.end();
                 shapes.begin(ShapeRenderer.ShapeType.Filled);
                 shapes.setColor(0.16f, 0.13f, 0.16f, 0.55f);
@@ -245,11 +288,20 @@ public class LeaderboardPanel {
             font.draw(batch, fameStr, rightEdge - fl.width, fameBaseline);
         }
 
-        // Truncated indicator if more rows than fit
-        if (this.rows.size() > n) {
+        // Scroll hint: shows position + how many rows are off-screen below.
+        int hidden = this.rows.size() - endIdx;
+        int hiddenAbove = startIdx;
+        if (hidden > 0 || hiddenAbove > 0) {
             font.setColor(0.55f, 0.50f, 0.40f, 1f);
-            font.draw(batch, "+ " + (this.rows.size() - n) + " more...",
-                    x + 12, y + h - 8);
+            String hint;
+            if (hiddenAbove > 0 && hidden > 0) {
+                hint = "↑ " + hiddenAbove + "  |  ↓ " + hidden + "   (scroll)";
+            } else if (hidden > 0) {
+                hint = "↓ " + hidden + " more   (scroll)";
+            } else {
+                hint = "↑ " + hiddenAbove + " above   (scroll)";
+            }
+            font.draw(batch, hint, x + 12, y + h - 8);
         }
 
         font.setColor(Color.WHITE);

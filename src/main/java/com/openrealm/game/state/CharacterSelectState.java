@@ -272,12 +272,16 @@ public class CharacterSelectState extends GameState {
             this.changePwOpen = false;
         }
 
-        // Mouse wheel scroll for the character list. Only applied when the
-        // pointer is over the list region so wheel-scrolling elsewhere on the
-        // screen (e.g. over the leaderboard) doesn't move the char list.
+        // Mouse wheel scroll. The wheel buffer is shared and consume-once,
+        // so we route to whichever panel the cursor is over: leaderboard
+        // first (right column), then character list (left). Anywhere else
+        // we still consume to drain the buffer (avoids carryover firing
+        // on the next state transition).
         Layout LL = this.layout();
         float wheel = KeyHandler.consumeScroll();
-        if (wheel != 0f
+        if (wheel != 0f && this.leaderboard.containsPoint(mx, my)) {
+            this.leaderboard.scrollBy(wheel > 0 ? 1 : -1);
+        } else if (wheel != 0f
                 && mx >= LL.listX && mx <= LL.listX + LL.listW
                 && my >= LL.listY && my <= LL.listY + LL.listH) {
             int rowCount = ((this.tab == Tab.CHARACTERS) ? this.aliveChars().size() : this.deadChars().size());
@@ -603,14 +607,40 @@ public class CharacterSelectState extends GameState {
         }
         batch.begin();
 
-        // Class icon
+        // Class icon — apply the character's stored dye so the row preview
+        // matches what the player will look like in-game (web-parity).
         CharacterClass cc = CharacterClass.valueOf(c.getCharacterClass());
         if (cc != null) {
             try {
                 SpriteSheet classImg = GameSpriteManager.loadClassSprites(cc);
                 TextureRegion frame = classImg.getCurrentFrame();
                 if (frame != null) {
-                    batch.draw(frame, x + 8, y + 8, h - 16, h - 16);
+                    final Integer dyeIdBoxed = c.getStats() != null ? c.getStats().getDyeId() : null;
+                    final int dyeId = dyeIdBoxed != null ? dyeIdBoxed : 0;
+                    TextureRegion drawFrame = frame;
+                    if (dyeId > 0) {
+                        final com.openrealm.game.model.AnimationModel anim =
+                                GameDataManager.ANIMATIONS != null
+                                        ? GameDataManager.ANIMATIONS.get(cc.classId) : null;
+                        if (anim != null) {
+                            final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
+                            final int spH = anim.getEffectiveSpriteHeight() > 0
+                                    ? anim.getEffectiveSpriteHeight() : spW;
+                            final int spX = frame.isFlipX()
+                                    ? frame.getRegionX() - frame.getRegionWidth()
+                                    : frame.getRegionX();
+                            final int spY = frame.isFlipY()
+                                    ? frame.getRegionY() - frame.getRegionHeight()
+                                    : frame.getRegionY();
+                            final int row = spY / spH;
+                            final int col = spX / spW;
+                            TextureRegion dyed = com.openrealm.game.graphics.SpriteRecolorCache
+                                    .getDyedRegion(anim.getSpriteKey(), cc.classId,
+                                            row, col, spW, dyeId);
+                            if (dyed != null) drawFrame = dyed;
+                        }
+                    }
+                    batch.draw(drawFrame, x + 8, y + 8, h - 16, h - 16);
                 }
             } catch (Exception ignored) {
                 // Class sprite missing — skip so the rest of the row still renders.

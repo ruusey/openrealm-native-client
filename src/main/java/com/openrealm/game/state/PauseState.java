@@ -55,6 +55,17 @@ public class PauseState extends GameState {
     /** True once the worker thread has reported back, regardless of outcome. */
     private volatile boolean returnWorkerDone = false;
 
+    /** Pixel scroll offset for the character list on the left of the pause
+     *  screen. Without this, accounts with many alive characters got their
+     *  later rows clipped off the bottom of the screen with no way to
+     *  reach them — the click handler still recognized them but the user
+     *  could not see who they were selecting. */
+    private float charScrollOffset = 0f;
+    private static final float SCROLL_STEP = 60f;
+    private static final int CHAR_LIST_HEADER = 0;
+    private static final int CHAR_ROW_HEIGHT = 100;
+    private static final int CHAR_LIST_W = 500;
+
     public PauseState(GameStateManager gsm, PlayerAccountDto account) {
         super(gsm);
         this.account = account;
@@ -126,8 +137,8 @@ public class PauseState extends GameState {
         // no inversion. Earlier code flipped Y to "world" coords, which
         // broke every hit test in this state and made the Return button
         // unclickable.
-        final int rowHeight = 100;
-        final int rowWidth = 500;
+        final int rowHeight = CHAR_ROW_HEIGHT;
+        final int rowWidth = CHAR_LIST_W;
         // "Return to Character Select" button — drawn top-right in render(),
         // below the leaderboard. Coordinates must match render() exactly.
         final int btnW = 280;
@@ -136,6 +147,33 @@ public class PauseState extends GameState {
         final int btnY = 16;
         final int mx = mouse.getX();
         final int my = mouse.getY();
+
+        // Scroll wheel routing: leaderboard panel first (right-column),
+        // then the character list when the cursor is over the left strip.
+        // Drains the buffer either way so a wheel notch doesn't leak into
+        // the next state.
+        float wheel = KeyHandler.consumeScroll();
+        if (wheel != 0f && this.leaderboard.containsPoint(mx, my)) {
+            this.leaderboard.scrollBy(wheel > 0 ? 1 : -1);
+        } else if (wheel != 0f && mx >= 0 && mx <= rowWidth) {
+            int totalH = alive.size() * rowHeight;
+            float maxScroll = Math.max(0f, totalH - OpenRealmGame.height);
+            this.charScrollOffset = Math.max(0f,
+                    Math.min(maxScroll, this.charScrollOffset + wheel * SCROLL_STEP));
+        }
+        // PageUp/PageDown for keyboard accessibility.
+        if (Gdx.input.isKeyJustPressed(Input.Keys.PAGE_DOWN)) {
+            this.charScrollOffset += OpenRealmGame.height * 0.5f;
+        }
+        if (Gdx.input.isKeyJustPressed(Input.Keys.PAGE_UP)) {
+            this.charScrollOffset -= OpenRealmGame.height * 0.5f;
+        }
+        // Clamp every frame so Page keys don't escape valid bounds.
+        {
+            int totalH = alive.size() * rowHeight;
+            float maxScroll = Math.max(0f, totalH - OpenRealmGame.height);
+            this.charScrollOffset = Math.max(0f, Math.min(maxScroll, this.charScrollOffset));
+        }
 
         if (mouse.isPressed(1)) {
             if (mx >= btnX && mx <= btnX + btnW && my >= btnY && my <= btnY + btnH) {
@@ -146,11 +184,10 @@ public class PauseState extends GameState {
                 return;
             }
             // Character row click: rows stack from y=0 downward in Y-down,
-            // row i occupies [i*rowHeight, (i+1)*rowHeight). Constrain to
-            // the row's horizontal width too — without this, any click on
-            // the screen at a matching Y row triggered a character swap.
+            // row i occupies [i*rowHeight, (i+1)*rowHeight) BEFORE scroll.
+            // Add the scroll offset to the click Y to map screen → list space.
             if (mx >= 0 && mx <= rowWidth) {
-                int idx = my / rowHeight;
+                int idx = (my + (int) this.charScrollOffset) / rowHeight;
                 if (idx >= 0 && idx < alive.size() && !this.characterSwitchRequested) {
                     CharacterDto cls = alive.get(idx);
                     CharacterClass characterClass = CharacterClass.valueOf(cls.getCharacterClass());
@@ -229,7 +266,8 @@ public class PauseState extends GameState {
         }
 
         int i = 0;
-        int rowHeight = 100;
+        int rowHeight = CHAR_ROW_HEIGHT;
+        final int scrollPx = (int) this.charScrollOffset;
         if (this.account != null) {
             for (CharacterDto cls : this.aliveChars()) {
                 final CharacterClass characterClass = CharacterClass.valueOf(cls.getCharacterClass());
@@ -244,23 +282,58 @@ public class PauseState extends GameState {
                 characterStr = MessageFormat.format(characterStr, this.account.getAccountName(), lvl, characterClass,
                         cls.numStatsMaxed());
 
+                final int rowY = i * rowHeight - scrollPx;
+                // Skip rows fully above or below the visible viewport — no
+                // point allocating draws for off-screen entries on accounts
+                // with many characters.
+                if (rowY + rowHeight < 0 || rowY > OpenRealmGame.height) {
+                    i++;
+                    continue;
+                }
                 // Draw character row background
                 batch.end();
                 shapes.begin(ShapeRenderer.ShapeType.Filled);
                 shapes.setColor(Color.GRAY);
-                shapes.rect(0, i * rowHeight, 500, rowHeight);
+                shapes.rect(0, rowY, CHAR_LIST_W, rowHeight);
                 shapes.end();
                 batch.begin();
 
-                // Draw class sprite
+                // Draw class sprite — apply the character's saved dye so
+                // the pause-menu thumbnail matches the in-game appearance
+                // (web-parity).
                 final SpriteSheet classImg = GameSpriteManager.loadClassSprites(characterClass);
                 TextureRegion frame = classImg.getCurrentFrame();
                 if (frame != null) {
-                    batch.draw(frame, 0, i * rowHeight, 64, 64);
+                    TextureRegion drawFrame = frame;
+                    final Integer dyeIdBoxed = cls.getStats() != null ? cls.getStats().getDyeId() : null;
+                    final int dyeId = dyeIdBoxed != null ? dyeIdBoxed : 0;
+                    if (dyeId > 0) {
+                        final com.openrealm.game.model.AnimationModel anim =
+                                GameDataManager.ANIMATIONS != null
+                                        ? GameDataManager.ANIMATIONS.get(characterClass.classId) : null;
+                        if (anim != null) {
+                            final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
+                            final int spH = anim.getEffectiveSpriteHeight() > 0
+                                    ? anim.getEffectiveSpriteHeight() : spW;
+                            final int spX = frame.isFlipX()
+                                    ? frame.getRegionX() - frame.getRegionWidth()
+                                    : frame.getRegionX();
+                            final int spY = frame.isFlipY()
+                                    ? frame.getRegionY() - frame.getRegionHeight()
+                                    : frame.getRegionY();
+                            final int row = spY / spH;
+                            final int col = spX / spW;
+                            TextureRegion dyed = com.openrealm.game.graphics.SpriteRecolorCache
+                                    .getDyedRegion(anim.getSpriteKey(), characterClass.classId,
+                                            row, col, spW, dyeId);
+                            if (dyed != null) drawFrame = dyed;
+                        }
+                    }
+                    batch.draw(drawFrame, 0, rowY, 64, 64);
                 }
 
                 font.setColor(Color.WHITE);
-                font.draw(batch, characterStr, 100, 32 + (rowHeight * i));
+                font.draw(batch, characterStr, 100, rowY + 32);
                 i++;
             }
         }
@@ -288,10 +361,15 @@ public class PauseState extends GameState {
         font.draw(batch, label, btnX + (btnW / 2f) - (label.length() * 4f), btnY + btnH * 0.65f);
 
         // Leaderboard — drawn under the button so it doesn't overlap.
-        int lbW = 280;
-        int lbH = 250;
-        int lbX = OpenRealmGame.width - lbW - 16;
+        // Width bumped from 280 → 360 so account-name + class + level
+        // doesn't ellipsize aggressively at common name lengths, and
+        // height now scales with the screen so additional rows are
+        // visible without scrolling on large displays. Mouse wheel
+        // scrolls when more rows exist than fit.
+        int lbW = 360;
         int lbY = btnY + btnH + 12;
+        int lbH = Math.max(250, OpenRealmGame.height - lbY - 56);
+        int lbX = OpenRealmGame.width - lbW - 16;
         this.leaderboard.render(batch, shapes, font, lbX, lbY, lbW, lbH);
 
         // "Press V for Vault" hint — drawn just below the leaderboard so
