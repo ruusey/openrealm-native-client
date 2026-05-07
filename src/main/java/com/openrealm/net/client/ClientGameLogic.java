@@ -400,9 +400,9 @@ public class ClientGameLogic {
 	// locally-predicted bullet. ~5° matches the webclient (game.js ~770).
 	private static final float PREDICTED_ANGLE_TOLERANCE = 0.09f;
 
-	private static boolean matchesPredictedBullet(RealmManagerClient cli, Bullet server) {
+	private static Bullet findMatchingPredictedBullet(RealmManagerClient cli, Bullet server) {
 		final long localId = cli.getCurrentPlayerId();
-		if (localId == 0L) return false;
+		if (localId == 0L) return null;
 		for (final Bullet pb : cli.getRealm().getBullets().values()) {
 			if (!pb.isPredicted()) continue;
 			if (pb.getSrcEntityId() != localId) continue;
@@ -410,10 +410,10 @@ public class ClientGameLogic {
 			final float diff = Math.abs(pb.getAngle() - server.getAngle());
 			if (diff < PREDICTED_ANGLE_TOLERANCE
 					|| diff > (float) (Math.PI * 2) - PREDICTED_ANGLE_TOLERANCE) {
-				return true;
+				return pb;
 			}
 		}
-		return false;
+		return null;
 	}
 
 	public static void handleLoadClient(RealmManagerClient cli, Packet packet) {
@@ -551,9 +551,26 @@ public class ClientGameLogic {
 				// echo as two side-by-side bullets, and worse, the
 				// server-confirmed copy without an existing match would
 				// render at a stale (one-RTT-old) position.
-				if (b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE)
-						&& matchesPredictedBullet(cli, b)) {
-					continue;
+				if (b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE)) {
+					final Bullet match = findMatchingPredictedBullet(cli, b);
+					if (match != null) {
+						// Adopt the server's authoritative ID so the eventual
+						// UnloadPacket (keyed by server ID) can actually find
+						// and remove this bullet. Without this, predicted
+						// bullets are stored under a client-random ID and
+						// outlive every cleanup signal — they fly forever
+						// past walls until the wall-clock cap kicks in (and
+						// only if something culls expired bullets at all).
+						final long oldId = match.getId();
+						final long newId = b.getId();
+						if (oldId != newId) {
+							cli.getRealm().getBullets().remove(oldId);
+							match.setId(newId);
+							cli.getRealm().getBullets().put(newId, match);
+						}
+						match.setPredicted(false);
+						continue;
+					}
 				}
 				cli.getRealm().addBulletIfNotExists(b);
 			}

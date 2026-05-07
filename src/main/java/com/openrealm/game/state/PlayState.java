@@ -232,11 +232,41 @@ public class PlayState extends GameState {
                     ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
                     : 1f / 60f;
             final float bulletScale = bulletDt * 64f;
+            // Bullets that need to be evicted from the realm map this tick.
+            // We evict for: range exhaustion, the 10s wall-clock safety cap,
+            // and terrain collision (walls / non-void tiles, mirrors the
+            // server's processTerrainHit). Without local culling, predicted
+            // bullets — whose client-random IDs don't match the server's
+            // UnloadPacket — accumulate forever; non-predicted bullets also
+            // visibly fly through walls until the server's UnloadPacket
+            // round-trip lands.
+            List<Long> bulletsToCull = null;
+            final com.openrealm.game.tile.TileManager tm =
+                    this.realmManager.getRealm().getTileManager();
             for (int i = 0; i < gameObject.length; i++) {
                 if (gameObject[i] instanceof Enemy) {
                     ((Enemy) gameObject[i]).update(this.getRealmManager(), time);
                 } else if (gameObject[i] instanceof Bullet) {
-                    ((Bullet) gameObject[i]).update(bulletScale);
+                    final Bullet bul = (Bullet) gameObject[i];
+                    bul.update(bulletScale);
+                    boolean expired = bul.remove(0L);
+                    // Terrain collision: skip for pass-through projectiles.
+                    // Use bullet center; isCollisionTile returns true for OOB
+                    // which is fine — bullets off the map should die anyway.
+                    if (!expired
+                            && !bul.hasFlag(ProjectileFlag.PASS_THROUGH_TERRAIN)
+                            && bul.getPos() != null
+                            && tm != null) {
+                        final float half = bul.getSize() * 0.5f;
+                        final Vector2f center = bul.getPos().clone(half, half);
+                        if (tm.isCollisionTile(center)) {
+                            expired = true;
+                        }
+                    }
+                    if (expired) {
+                        if (bulletsToCull == null) bulletsToCull = new ArrayList<>(8);
+                        bulletsToCull.add(bul.getId());
+                    }
                 } else if (gameObject[i] instanceof Player && gameObject[i].getId() != player.getId()) {
                     final Player playerOther = (Player) gameObject[i];
                     playerOther.update(time);
@@ -253,6 +283,13 @@ public class PlayState extends GameState {
                     final float refX = player.getPos().x + localHalf;
                     final float refY = player.getPos().y + localHalf;
                     playerOther.extrapolate(refX, refY, true);
+                }
+            }
+
+            if (bulletsToCull != null) {
+                final Map<Long, Bullet> bulletMap = clientRealm.getBullets();
+                for (final Long bid : bulletsToCull) {
+                    bulletMap.remove(bid);
                 }
             }
 
