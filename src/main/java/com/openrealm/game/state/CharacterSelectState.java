@@ -496,17 +496,37 @@ public class CharacterSelectState extends GameState {
         }
 
         // Right column: account info, server, leaderboard, vault, logout, change password
-        // Game-server config block.
-        // Label at serverY - 36 leaves a clear 8 px gap above the field.
+        // Game-server config block — wrapped in a bordered panel that visually
+        // groups the server label, host field, and preset cycler so the section
+        // doesn't read as three loose controls floating in the gutter.
+        int presetY = L.serverY + L.btnH + 8;
+        int gsPad = 10;
+        int gsBoxX = L.serverX - gsPad;
+        int gsBoxY = L.serverY - 30;                     // top of the label
+        int gsBoxW = L.rightBtnW + gsPad * 2;
+        int gsBoxH = (presetY + 36) - gsBoxY + gsPad;
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.10f, 0.09f, 0.12f, 0.85f);
+        shapes.rect(gsBoxX, gsBoxY, gsBoxW, gsBoxH);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0.45f, 0.36f, 0.22f, 1f);
+        shapes.rect(gsBoxX, gsBoxY, gsBoxW, gsBoxH);
+        shapes.end();
+        batch.begin();
+
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "Game Server", L.serverX, L.serverY - 36);
+        font.draw(batch, "GAME SERVER", L.serverX, L.serverY - 8);
         this.serverHostField.setBounds(L.serverX, L.serverY, L.rightBtnW, L.btnH);
         this.serverHostField.render(batch, shapes, font);
-        // Preset cycler 8 px below the field box.
-        int presetY = L.serverY + L.btnH + 8;
+        // Preset cycler 8 px below the field box. Drop the IP from the label —
+        // the field above already shows the resolved host, and including the
+        // full IP made the button text overflow its border. Append " >" as a
+        // cycle affordance.
         String[] preset = SERVER_PRESETS[this.presetIdx];
         this.drawButton(batch, shapes, font, L.serverX, presetY, L.rightBtnW, 36,
-                "Preset: " + preset[0] + " (" + preset[1] + ")", false, false);
+                "Preset: " + preset[0] + "  >", false, false);
 
         // Vault block: label, then "+ Add Chest" button below.
         int vaultChests = (this.account.getPlayerVault() == null) ? 0 : this.account.getPlayerVault().size();
@@ -826,11 +846,16 @@ public class CharacterSelectState extends GameState {
         L.logoutX = rx;
         L.logoutY = ry;
 
-        // Leaderboard pinned to the bottom-right corner.
+        // Leaderboard fills the right column from just below the Logout
+        // button down to the bottom margin. Previously it was a fixed 280 px
+        // pinned to the corner, which left a big empty gap and crammed the
+        // rows. Computing the height from logoutY makes it expand as far as
+        // the column allows so each entry has real room to render the class
+        // sprite + equipment row.
         L.lbW = rightW - 20;
-        L.lbH = 280;
         L.lbX = rx;
-        L.lbY = height - L.lbH - 24;
+        L.lbY = L.logoutY + L.btnH + 16;
+        L.lbH = Math.max(160, height - L.lbY - 24);
         return L;
     }
 
