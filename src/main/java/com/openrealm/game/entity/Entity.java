@@ -398,20 +398,29 @@ public abstract class Entity extends GameObject {
         if (this.getSpriteSheet() == null) return;
         final TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
-        // 1 sprite-pixel of padding == size / regionWidth world units per side.
+        // Match the body draw rect (see renderBody for anchor convention) so
+        // the outline stays aligned with wide / tall attack frames; expand by
+        // 1 source-pixel of padding for the outline shader's neighbor sample.
+        final int refW = this.getSpriteSheet().getSpriteImageWidth();
+        final int refH = this.getSpriteSheet().getSpriteImageHeight();
         final int rw = frame.getRegionWidth();
         final int rh = frame.getRegionHeight();
-        if (rw <= 0 || rh <= 0) return;
-        final float padX = (float) this.size / rw;
-        final float padY = (float) this.size / rh;
+        if (rw <= 0 || rh <= 0 || refW <= 0 || refH <= 0) return;
+        final float unitX = (float) this.size / refW;
+        final float unitY = (float) this.size / refH;
+        final float drawW = rw * unitX;
+        final float drawH = rh * unitY;
+        final float padX = unitX;       // 1 source-pixel
+        final float padY = unitY;
         final float wx = this.pos.getWorldVar().x;
         final float wy = this.pos.getWorldVar().y;
+        final float drawY = wy + this.size - drawH;
         if (this.left) {
-            batch.draw(frame, wx + this.size + padX, wy - padY,
-                    -(this.size + 2 * padX), this.size + 2 * padY);
+            batch.draw(frame, wx + this.size + padX, drawY - padY,
+                    -(drawW + 2 * padX), drawH + 2 * padY);
         } else {
-            batch.draw(frame, wx - padX, wy - padY,
-                    this.size + 2 * padX, this.size + 2 * padY);
+            batch.draw(frame, wx - padX, drawY - padY,
+                    drawW + 2 * padX, drawH + 2 * padY);
         }
     }
 
@@ -432,10 +441,34 @@ public abstract class Entity extends GameObject {
         if (frame == null) return;
         float wx = this.pos.getWorldVar().x;
         float wy = this.pos.getWorldVar().y;
+        // Scale the draw rect by the FRAME's region size relative to the
+        // sheet's reference cell, so a "wide attack" frame extends past the
+        // body's right edge instead of being squished into a square. Anchor
+        // convention: body occupies the bottom-left of the frame, so wider
+        // frames extend RIGHT (mirrored when facing left) and taller frames
+        // extend UP. Matches the RotMG-style sheet authoring assumption.
+        final int refW = this.getSpriteSheet().getSpriteImageWidth();
+        final int refH = this.getSpriteSheet().getSpriteImageHeight();
+        final int rw = frame.getRegionWidth();
+        final int rh = frame.getRegionHeight();
+        if (refW <= 0 || refH <= 0 || rw <= 0 || rh <= 0) {
+            // Defensive: if the sheet is mid-load, fall back to the legacy
+            // square draw rather than zero-sizing.
+            if (this.left) batch.draw(frame, wx + this.size, wy, -this.size, this.size);
+            else           batch.draw(frame, wx, wy, this.size, this.size);
+            return;
+        }
+        final float unitX = (float) this.size / refW;
+        final float unitY = (float) this.size / refH;
+        final float drawW = rw * unitX;
+        final float drawH = rh * unitY;
+        // Body bottom stays at wy + size regardless of frame height.
+        final float drawY = wy + this.size - drawH;
         if (this.left) {
-            batch.draw(frame, wx + this.size, wy, -this.size, this.size);
+            // Mirror: right edge of body stays at wx + size.
+            batch.draw(frame, wx + this.size, drawY, -drawW, drawH);
         } else {
-            batch.draw(frame, wx, wy, this.size, this.size);
+            batch.draw(frame, wx, drawY, drawW, drawH);
         }
     }
 

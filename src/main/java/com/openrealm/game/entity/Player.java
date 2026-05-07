@@ -504,14 +504,25 @@ public class Player extends Entity {
 		final float py = this.getEffectiveRenderY();
 		final float wx = (px - Vector2f.worldX) - offset;
 		final float wy = (py - Vector2f.worldY) - offset;
-		final float padX = (float) rs / rw;
-		final float padY = (float) rs / rh;
+		// Match body draw rect (see renderBody) so the outline aligns with
+		// wide/tall attack frames. 1 source-pixel padding around the rect
+		// gives the outline shader its neighbor sample.
+		final int refW = this.getSpriteSheet().getSpriteImageWidth();
+		final int refH = this.getSpriteSheet().getSpriteImageHeight();
+		if (refW <= 0 || refH <= 0) return;
+		final float unitX = (float) rs / refW;
+		final float unitY = (float) rs / refH;
+		final float drawW = rw * unitX;
+		final float drawH = rh * unitY;
+		final float padX = unitX;
+		final float padY = unitY;
+		final float drawY = wy + rs - drawH;
 		if (this.left) {
-			batch.draw(frame, wx + rs + padX, wy - padY,
-					-(rs + 2 * padX), rs + 2 * padY);
+			batch.draw(frame, wx + rs + padX, drawY - padY,
+					-(drawW + 2 * padX), drawH + 2 * padY);
 		} else {
-			batch.draw(frame, wx - padX, wy - padY,
-					rs + 2 * padX, rs + 2 * padY);
+			batch.draw(frame, wx - padX, drawY - padY,
+					drawW + 2 * padX, drawH + 2 * padY);
 		}
 	}
 
@@ -565,10 +576,28 @@ public class Player extends Entity {
 			final TextureRegion dyed = resolveDyedRegion(frame);
 			if (dyed != null) drawFrame = dyed;
 		}
+		// Scale draw rect by frame region vs reference cell so a wide
+		// attack frame extends past the body's right edge instead of being
+		// squished. Body anchored at bottom-left of the frame; wider frames
+		// extend right (mirrored when facing left), taller frames extend up.
+		final int refW = this.getSpriteSheet().getSpriteImageWidth();
+		final int refH = this.getSpriteSheet().getSpriteImageHeight();
+		final int rw = frame.getRegionWidth();
+		final int rh = frame.getRegionHeight();
+		if (refW <= 0 || refH <= 0 || rw <= 0 || rh <= 0) {
+			if (this.left) batch.draw(drawFrame, wx + rs, wy, -rs, rs);
+			else            batch.draw(drawFrame, wx, wy, rs, rs);
+			return;
+		}
+		final float unitX = (float) rs / refW;
+		final float unitY = (float) rs / refH;
+		final float drawW = rw * unitX;
+		final float drawH = rh * unitY;
+		final float drawY = wy + rs - drawH;
 		if (this.left) {
-			batch.draw(drawFrame, wx + rs, wy, -rs, rs);
+			batch.draw(drawFrame, wx + rs, drawY, -drawW, drawH);
 		} else {
-			batch.draw(drawFrame, wx, wy, rs, rs);
+			batch.draw(drawFrame, wx, drawY, drawW, drawH);
 		}
 	}
 

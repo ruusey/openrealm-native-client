@@ -420,13 +420,36 @@ public class GameSpriteManager {
         final SpriteSheet classSprites = new SpriteSheet(classTexture, spW,
                 spH, initCol, initRow);
 
-        // Build each animation set from the JSON data
+        // Build each animation set from the JSON data. Each frame's effective
+        // (width, height) follows a fallback chain:
+        //   frame.spriteWidth  → set.spriteWidth  → anim.spriteSize
+        //   frame.spriteHeight → set.spriteHeight → anim.spriteHeight (or spriteSize)
+        // When the resolved size matches the sheet's default cell we use the
+        // precomputed grid region; otherwise we slice on-the-fly with
+        // getSubSpritePx so a wider attack frame can span multiple cells
+        // without the sheet needing a uniform grid.
         for (Map.Entry<String, AnimationSetModel> entry : animModel.getAnimations().entrySet()) {
             String animName = entry.getKey();
             AnimationSetModel animSet = entry.getValue();
+            int setW = animSet.getSpriteWidth() > 0 ? animSet.getSpriteWidth() : 0;
+            int setH = animSet.getSpriteHeight() > 0 ? animSet.getSpriteHeight() : 0;
             List<Sprite> frames = new ArrayList<>();
             for (AnimationFrameModel frame : animSet.getFrames()) {
-                frames.add(classSprites.getSubSprite(frame.getCol(), frame.getRow()));
+                int fw = frame.getSpriteWidth() > 0 ? frame.getSpriteWidth()
+                        : (setW > 0 ? setW : spW);
+                int fh = frame.getSpriteHeight() > 0 ? frame.getSpriteHeight()
+                        : (setH > 0 ? setH : spH);
+                if (fw == spW && fh == spH) {
+                    // Default cell — use the cached grid region.
+                    frames.add(classSprites.getSubSprite(frame.getCol(), frame.getRow()));
+                } else {
+                    // Wide / tall override — slice directly from the texture.
+                    // (col, row) still map to the top-left grid cell of the
+                    // frame; the override then extends right/down from there.
+                    int pxX = frame.getCol() * spW;
+                    int pxY = frame.getRow() * spH;
+                    frames.add(classSprites.getSubSpritePx(pxX, pxY, fw, fh));
+                }
             }
             classSprites.addAnimSet(animName, frames, new ArrayList<>(animSet.getDurations()));
         }

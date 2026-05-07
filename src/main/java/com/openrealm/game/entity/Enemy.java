@@ -956,10 +956,28 @@ public class Enemy extends Entity {
             // the same here.
             Sprite.EffectEnum currentEffect = this.getSpriteSheet().getCurrentEffect();
             ShaderManager.applyEffect(batch, currentEffect);
-            if (this.left) {
-                batch.draw(frame, wx + this.size, wy, -this.size, this.size);
+            // Scale draw rect by the frame's region size relative to the
+            // sheet's reference cell so wide/tall attack frames extend past
+            // the body instead of being squished — see Entity.renderBody for
+            // the anchor convention.
+            final int refW = this.getSpriteSheet().getSpriteImageWidth();
+            final int refH = this.getSpriteSheet().getSpriteImageHeight();
+            final int rw = frame.getRegionWidth();
+            final int rh = frame.getRegionHeight();
+            if (refW > 0 && refH > 0 && rw > 0 && rh > 0) {
+                final float unitX = (float) this.size / refW;
+                final float unitY = (float) this.size / refH;
+                final float drawW = rw * unitX;
+                final float drawH = rh * unitY;
+                final float drawY = wy + this.size - drawH;
+                if (this.left) {
+                    batch.draw(frame, wx + this.size, drawY, -drawW, drawH);
+                } else {
+                    batch.draw(frame, wx, drawY, drawW, drawH);
+                }
             } else {
-                batch.draw(frame, wx, wy, this.size, this.size);
+                if (this.left) batch.draw(frame, wx + this.size, wy, -this.size, this.size);
+                else            batch.draw(frame, wx, wy, this.size, this.size);
             }
             ShaderManager.clearEffect(batch);
         }

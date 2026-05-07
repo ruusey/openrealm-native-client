@@ -152,6 +152,23 @@ public class SpriteSheet {
         return new Sprite(this.spriteSheetRegions[y][x]);
     }
 
+    /**
+     * Pixel-precise sub-sprite for frames whose width/height differ from
+     * the sheet's default cell. Bypasses the precomputed grid so an
+     * attack frame can span N cells (or fractional cells) without
+     * forcing the whole sheet to be re-tiled. Coordinates and dimensions
+     * are in source-texture pixels. Returned region is Y-flipped to match
+     * the rest of the sheet's regions.
+     */
+    public Sprite getSubSpritePx(int pxX, int pxY, int width, int height) {
+        if (this.spriteSheetTexture == null || width <= 0 || height <= 0) {
+            return new Sprite();
+        }
+        TextureRegion region = new TextureRegion(this.spriteSheetTexture, pxX, pxY, width, height);
+        region.flip(false, true);
+        return new Sprite(region);
+    }
+
     public void resetAnimation() {
         if ((this.animationFrames != null) && (this.animationFrames.size() > 0)) {
             this.animationFrame = 0;
