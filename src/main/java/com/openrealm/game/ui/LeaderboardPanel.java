@@ -169,40 +169,34 @@ public class LeaderboardPanel {
 
             // Rank label (line 1 baseline)
             int line1Baseline = rowTop + 18;
+            int line2Baseline = rowTop + 44;
             font.setColor(0.85f, 0.78f, 0.55f, 1f);
             font.draw(batch, "#" + r.rank, x + 8, line1Baseline);
 
-            // Class icon
+            // Class icon — vertically centered across both lines.
             int iconX = x + 50;
-            int iconY = rowTop + 4;
             int iconSize = 32;
+            int iconY = rowTop + (rowH - iconSize) / 2;
             TextureRegion classFrame = classIcon(r.classIdx);
             if (classFrame != null) {
                 batch.draw(classFrame, iconX, iconY, iconSize, iconSize);
             }
 
-            // Name + class + level (line 1)
-            int textX = iconX + iconSize + 8;
-            float fameRightEdge = x + w - 8;
-            String fameStr = "Fame " + formatLong(r.fame);
-            GlyphLayout fl = new GlyphLayout(font, fameStr);
-            float maxHeaderW = fameRightEdge - textX - fl.width - 12;
+            // Line 1: account name + class + level (gets the full row width).
+            int textX = iconX + iconSize + 10;
+            float rightEdge = x + w - 8;
             String header = r.accountName
                     + (r.className == null || r.className.isEmpty() ? "" : " - " + r.className)
                     + " Lv " + r.level;
-            header = ellipsize(font, header, maxHeaderW);
+            header = ellipsize(font, header, rightEdge - textX);
             font.setColor(Color.WHITE);
             font.draw(batch, header, textX, line1Baseline);
 
-            // Fame, right-aligned
-            font.setColor(0.95f, 0.78f, 0.30f, 1f);
-            font.draw(batch, fameStr, fameRightEdge - fl.width, line1Baseline);
-
-            // Equipment row (line 2): 4 small item sprites
+            // Line 2: equipment icons on the left, fame right-aligned.
             int eqIconSize = 20;
             int eqGap = 4;
             int eqX = textX;
-            int eqY = rowTop + 28;
+            int eqY = line2Baseline - eqIconSize + 2;       // align top with text
             for (int s = 0; s < 4; s++) {
                 int slotX = eqX + s * (eqIconSize + eqGap);
                 batch.end();
@@ -224,6 +218,12 @@ public class LeaderboardPanel {
                     }
                 }
             }
+
+            // Fame, right-aligned on line 2.
+            String fameStr = "Fame " + formatLong(r.fame);
+            GlyphLayout fl = new GlyphLayout(font, fameStr);
+            font.setColor(0.95f, 0.78f, 0.30f, 1f);
+            font.draw(batch, fameStr, rightEdge - fl.width, line2Baseline);
         }
 
         // Truncated indicator if more rows than fit

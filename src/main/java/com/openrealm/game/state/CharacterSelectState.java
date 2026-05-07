@@ -501,8 +501,11 @@ public class CharacterSelectState extends GameState {
         // doesn't read as three loose controls floating in the gutter.
         int presetY = L.serverY + L.btnH + 8;
         int gsPad = 10;
+        // Reserve full glyph height (≈30 at our 1.8x font) above the field so
+        // the "GAME SERVER" header isn't sliced by the panel border.
+        int gsLabelH = 32;
         int gsBoxX = L.serverX - gsPad;
-        int gsBoxY = L.serverY - 30;                     // top of the label
+        int gsBoxY = L.serverY - gsLabelH - gsPad;
         int gsBoxW = L.rightBtnW + gsPad * 2;
         int gsBoxH = (presetY + 36) - gsBoxY + gsPad;
         batch.end();
@@ -517,7 +520,9 @@ public class CharacterSelectState extends GameState {
         batch.begin();
 
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "GAME SERVER", L.serverX, L.serverY - 8);
+        // Baseline 12 px above the field — leaves the full glyph height
+        // safely inside the panel border.
+        font.draw(batch, "GAME SERVER", L.serverX, L.serverY - 12);
         this.serverHostField.setBounds(L.serverX, L.serverY, L.rightBtnW, L.btnH);
         this.serverHostField.render(batch, shapes, font);
         // Preset cycler 8 px below the field box. Drop the IP from the label —
@@ -762,7 +767,11 @@ public class CharacterSelectState extends GameState {
         // panel + leaderboard. Constants tuned so labels above controls
         // don't overlap and bottom action buttons clear all chrome.
         int leftPad = 32;
-        int rightW = 340;
+        // Wider right column so the leaderboard rows can fit account name +
+        // class + level on one line without colliding with the equipment row
+        // beneath. 340 was too tight at 1.8x font; names truncated to a
+        // single character.
+        int rightW = 420;
         int leftW = width - rightW - leftPad - 24; // 24 = gap between cols
         L.tabsY = 64;
         L.tabH = 40;
