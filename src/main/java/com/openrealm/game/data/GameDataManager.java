@@ -20,6 +20,7 @@ import com.openrealm.game.model.DyeAssetModel;
 import com.openrealm.game.model.DungeonGraphNode;
 import com.openrealm.game.model.EnemyModel;
 import com.openrealm.game.model.ExperienceModel;
+import com.openrealm.game.model.LootContainerModel;
 import com.openrealm.game.model.LootGroupModel;
 import com.openrealm.game.model.LootTableModel;
 import com.openrealm.game.model.MapModel;
@@ -50,6 +51,7 @@ public class GameDataManager {
 	public static Map<Integer, CharacterClassModel>           CHARACTER_CLASSES = null;
 	public static Map<Integer, LootTableModel>                LOOT_TABLES = null;
 	public static Map<Integer, LootGroupModel>                LOOT_GROUPS = null;
+	public static Map<Byte, LootContainerModel>               LOOT_CONTAINERS = null;
 	public static ExperienceModel                             EXPERIENCE_LVLS = null;
 	public static Map<String, DungeonGraphNode>               DUNGEON_GRAPH = null;
 	public static Map<Integer, AnimationModel>                ANIMATIONS = null;
@@ -386,19 +388,59 @@ public class GameDataManager {
 		GameDataManager.log.info("Loading Game Items... DONE");
 	}
 
-	// Loot bag sprites from rotmg-misc.png row 9
-	// Col mapping: 0=brown, 1=purple, 2=cyan, 3=blue, 4=white
+	private static void loadLootContainers(final boolean remote) throws Exception {
+		GameDataManager.log.info("Loading Loot Containers...");
+		GameDataManager.LOOT_CONTAINERS = new HashMap<>();
+		String text = null;
+		if (remote) {
+			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/loot-containers.json", null);
+		} else {
+			InputStream inputStream = GameDataManager.class.getClassLoader()
+					.getResourceAsStream("data/loot-containers.json");
+			if (inputStream != null) {
+				text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+			}
+		}
+		if (text == null) {
+			GameDataManager.log.warn("loot-containers.json missing; loot bags will fall back to hardcoded sprite slices");
+			return;
+		}
+		LootContainerModel[] models = GameDataManager.JSON_MAPPER.readValue(text, LootContainerModel[].class);
+		for (LootContainerModel m : models) {
+			GameDataManager.LOOT_CONTAINERS.put((byte) m.getTierId(), m);
+		}
+		GameDataManager.log.info("Loading Loot Containers... DONE ({} entries)",
+				GameDataManager.LOOT_CONTAINERS.size());
+	}
+
+	private static Sprite loadLootContainerSprite(byte tier, int fallbackCol, int fallbackRow, String fallbackSheet) {
+		final LootContainerModel model = GameDataManager.LOOT_CONTAINERS != null
+				? GameDataManager.LOOT_CONTAINERS.get(tier) : null;
+		if (model != null && model.getSpriteKey() != null) {
+			if (model.getSpriteSize() == 0) {
+				model.setSpriteSize(GlobalConstants.BASE_SPRITE_SIZE);
+			}
+			return GameSpriteManager.loadSprite(model);
+		}
+		return GameSpriteManager.loadSprite(fallbackCol, fallbackRow, fallbackSheet,
+				GlobalConstants.BASE_SPRITE_SIZE);
+	}
+
+	// Loot bag sprites — data-driven from loot-containers.json. Falls back to
+	// the rotmg-misc.png row 9 / rotmg-projectiles defaults if the data file
+	// is missing or doesn't define the requested tier.
 	public static Sprite getLootSprite(int tier) {
-		int col = (tier >= 0 && tier < 5) ? tier : 0;
-		return GameSpriteManager.loadSprite(col, 9, "rotmg-misc.png", GlobalConstants.BASE_SPRITE_SIZE);
+		final byte t = (byte) tier;
+		final int fallbackCol = (tier >= 0 && tier < 5) ? tier : 0;
+		return loadLootContainerSprite(t, fallbackCol, 9, "rotmg-misc.png");
 	}
 
 	public static Sprite getGraveSprite() {
-		return GameSpriteManager.loadSprite(3, 1, "rotmg-projectiles.png", GlobalConstants.BASE_SPRITE_SIZE);
+		return loadLootContainerSprite((byte) 5, 3, 1, "rotmg-projectiles.png");
 	}
 
 	public static Sprite getChestSprite() {
-		return GameSpriteManager.loadSprite(2, 0, "rotmg-projectiles.png", GlobalConstants.BASE_SPRITE_SIZE);
+		return loadLootContainerSprite((byte) -1, 2, 0, "rotmg-projectiles.png");
 	}
 
 	public static Map<Integer, GameItem> getStartingEquipment(final CharacterClass characterClass) {
@@ -478,6 +520,7 @@ public class GameDataManager {
 			() -> { try { GameDataManager.loadCharacterClasses(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load character classes: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadLootTables(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load loot tables: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadLootGroups(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load loot groups: {}", e.getMessage()); } },
+			() -> { try { GameDataManager.loadLootContainers(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load loot containers: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadAnimations(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load animations: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadSetPieces(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load set pieces: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadRealmEvents(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load realm events: {}", e.getMessage()); } },
