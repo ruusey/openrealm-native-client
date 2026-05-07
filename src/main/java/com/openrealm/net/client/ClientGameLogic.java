@@ -432,9 +432,25 @@ public class ClientGameLogic {
 					// resolved server-side.
 					try {
 						final Player localExisting = cli.getRealm().getPlayer(p.getId());
-						if (localExisting != null && p.getChatRole() != null
-								&& !p.getChatRole().isEmpty()) {
-							localExisting.setChatRole(p.getChatRole());
+						if (localExisting != null) {
+							if (p.getChatRole() != null && !p.getChatRole().isEmpty()) {
+								localExisting.setChatRole(p.getChatRole());
+							}
+							// Refresh server-authoritative size so /size and
+							// any future server-driven resize takes effect on
+							// the local renderer (same handling as webclient
+							// game.js handleLoad). Bounds is rebuilt off the
+							// new size so collision matches the visual.
+							if (p.getSize() > 0 && localExisting.getSize() != p.getSize()) {
+								localExisting.setSize(p.getSize());
+								if (localExisting.getBounds() != null) {
+									localExisting.getBounds().setWidth(p.getSize());
+									localExisting.getBounds().setHeight(p.getSize());
+								}
+							}
+							if (p.getDyeId() != localExisting.getDyeId()) {
+								localExisting.setDyeId(p.getDyeId());
+							}
 						}
 					} catch (Exception ignored) { /* best-effort */ }
 					continue;
@@ -454,6 +470,32 @@ public class ClientGameLogic {
 				}
 				final boolean wasNew = cli.getRealm().getPlayer(p.getId()) == null;
 				cli.getRealm().addPlayerIfNotExists(p);
+				// Refresh authoritative remote-player fields in place when
+				// the entry already exists. addPlayerIfNotExists is a no-op
+				// for known IDs, so without this the server-broadcast size /
+				// dye / chatRole updates would never reach already-tracked
+				// players on the native client (mirrors webclient game.js
+				// handleLoad lines 657-662).
+				if (!wasNew) {
+					try {
+						final Player remoteExisting = cli.getRealm().getPlayer(p.getId());
+						if (remoteExisting != null) {
+							if (p.getSize() > 0 && remoteExisting.getSize() != p.getSize()) {
+								remoteExisting.setSize(p.getSize());
+								if (remoteExisting.getBounds() != null) {
+									remoteExisting.getBounds().setWidth(p.getSize());
+									remoteExisting.getBounds().setHeight(p.getSize());
+								}
+							}
+							if (p.getDyeId() != remoteExisting.getDyeId()) {
+								remoteExisting.setDyeId(p.getDyeId());
+							}
+							if (p.getChatRole() != null && !p.getChatRole().isEmpty()) {
+								remoteExisting.setChatRole(p.getChatRole());
+							}
+						}
+					} catch (Exception ignored) { /* best-effort */ }
+				}
 				// Register short ID mapping for compact movement packets
 				if (player.getShortId() != 0) {
 					cli.getShortIdToLongId().put(player.getShortId(), player.getId());

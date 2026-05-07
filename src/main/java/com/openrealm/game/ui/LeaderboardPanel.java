@@ -145,13 +145,28 @@ public class LeaderboardPanel {
             return;
         }
 
-        // Each row: 56 px tall, drawn top-to-bottom (rank #1 first).
-        //   [rank][32x32 class icon] AccountName - ClassName Lv N        Fame N
-        //                            [weapon][ability][armor][ring]
-        int rowH = 56;
+        // Each row: 92 px tall — three vertical bands so the 1.8x font's
+        // descender on line 1 doesn't collide with the equipment row below.
+        //   [rank][40x40 class icon]  AccountName - ClassName Lv N
+        //                             [item][item][item][item]              Fame N
+        // Plenty of right-column space on a 1080p home screen — earlier
+        // 56-px row packed both lines too tight and the equipment icons
+        // overdrew the trailing characters of long player names.
+        int rowH = 92;
         int rowsAvail = Math.max(1, (h - headerH - 8) / rowH);
         int n = Math.min(this.rows.size(), rowsAvail);
         int firstRowTop = y + headerH + 6;
+
+        // Layout bands inside each row, all relative to rowTop:
+        //   nameBaseline  =  +28   (top text band)
+        //   eqY (top)     =  +42   (icon row)
+        //   eqIconSize    =   30
+        //   fameBaseline  =  +84   (bottom text band, vertically centered with icons)
+        final int nameBaselineOff = 28;
+        final int eqYOff          = 42;
+        final int eqIconSize      = 30;
+        final int eqGap           = 6;
+        final int fameBaselineOff = eqYOff + eqIconSize + 14;   // +86
 
         for (int i = 0; i < n; i++) {
             Row r = this.rows.get(i);
@@ -167,36 +182,37 @@ public class LeaderboardPanel {
                 batch.begin();
             }
 
-            // Rank label (line 1 baseline)
-            int line1Baseline = rowTop + 18;
-            int line2Baseline = rowTop + 44;
+            // Rank label, name baseline.
+            int nameBaseline = rowTop + nameBaselineOff;
+            int fameBaseline = rowTop + fameBaselineOff;
             font.setColor(0.85f, 0.78f, 0.55f, 1f);
-            font.draw(batch, "#" + r.rank, x + 8, line1Baseline);
+            font.draw(batch, "#" + r.rank, x + 8, nameBaseline);
 
-            // Class icon — vertically centered across both lines.
-            int iconX = x + 50;
-            int iconSize = 32;
+            // Class icon — bigger now and vertically centered across the row.
+            int iconX = x + 56;
+            int iconSize = 40;
             int iconY = rowTop + (rowH - iconSize) / 2;
             TextureRegion classFrame = classIcon(r.classIdx);
             if (classFrame != null) {
                 batch.draw(classFrame, iconX, iconY, iconSize, iconSize);
             }
 
-            // Line 1: account name + class + level (gets the full row width).
-            int textX = iconX + iconSize + 10;
+            // Top text band: account name + class + level. Gets the full row
+            // width minus the rank/icon gutter.
+            int textX = iconX + iconSize + 14;
             float rightEdge = x + w - 8;
             String header = r.accountName
                     + (r.className == null || r.className.isEmpty() ? "" : " - " + r.className)
                     + " Lv " + r.level;
             header = ellipsize(font, header, rightEdge - textX);
             font.setColor(Color.WHITE);
-            font.draw(batch, header, textX, line1Baseline);
+            font.draw(batch, header, textX, nameBaseline);
 
-            // Line 2: equipment icons on the left, fame right-aligned.
-            int eqIconSize = 20;
-            int eqGap = 4;
+            // Middle band: equipment icons (left of textX), no overlap with
+            // the name above thanks to the 14 px gap between nameBaseline
+            // descenders and the icon top.
             int eqX = textX;
-            int eqY = line2Baseline - eqIconSize + 2;       // align top with text
+            int eqY = rowTop + eqYOff;
             for (int s = 0; s < 4; s++) {
                 int slotX = eqX + s * (eqIconSize + eqGap);
                 batch.end();
@@ -214,16 +230,19 @@ public class LeaderboardPanel {
                 if (itemId >= 0 && GameSpriteManager.ITEM_SPRITES != null) {
                     TextureRegion sprite = GameSpriteManager.ITEM_SPRITES.get(itemId);
                     if (sprite != null) {
-                        batch.draw(sprite, slotX, eqY, eqIconSize, eqIconSize);
+                        // Inset the icon 3 px so it visually breathes inside
+                        // the slot border (mirrors webclient #item-slot).
+                        batch.draw(sprite, slotX + 3, eqY + 3,
+                                eqIconSize - 6, eqIconSize - 6);
                     }
                 }
             }
 
-            // Fame, right-aligned on line 2.
+            // Fame, right-aligned, vertically centered with the equipment icons.
             String fameStr = "Fame " + formatLong(r.fame);
             GlyphLayout fl = new GlyphLayout(font, fameStr);
             font.setColor(0.95f, 0.78f, 0.30f, 1f);
-            font.draw(batch, fameStr, rightEdge - fl.width, line2Baseline);
+            font.draw(batch, fameStr, rightEdge - fl.width, fameBaseline);
         }
 
         // Truncated indicator if more rows than fit

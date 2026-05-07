@@ -43,8 +43,20 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 public class GameLauncher {
-    public static final String GAME_VERSION = "1.0.1";
+    /** Resolved at class load from the JAR manifest's Implementation-Version,
+     *  which the maven-shade-plugin populates from pom.xml's <version>.
+     *  Falls back to a dev marker when running from an exploded build (IDE,
+     *  unit tests) where no manifest is present. */
+    public static final String GAME_VERSION = resolveGameVersion();
     public static final Boolean DEBUG_MODE = true;
+
+    private static String resolveGameVersion() {
+        try {
+            final String fromPkg = GameLauncher.class.getPackage().getImplementationVersion();
+            if (fromPkg != null && !fromPkg.isBlank()) return fromPkg;
+        } catch (Throwable ignored) {}
+        return "dev";
+    }
 
     public static void main(String[] args) {
         // Catch ANY startup error and dump it to ~/.openrealm/crash.log

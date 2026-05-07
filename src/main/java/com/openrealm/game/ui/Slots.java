@@ -23,6 +23,15 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Slots {
+    /** Slot background dimension — must match {@link com.openrealm.game.ui.PlayerUI}'s
+     *  SLOT_SIZE so item sprites land inside the rectangles drawn by PlayerUI. */
+    public static final int SLOT_PX = 56;
+    /** Inner padding so the item icon visually breathes inside the slot frame
+     *  (mirrors the webclient's #item-slot CSS, which has ~6px padding). */
+    public static final int ICON_PADDING = 6;
+    /** Effective icon dimension drawn inside each slot. */
+    public static final int ICON_PX = SLOT_PX - 2 * ICON_PADDING;
+
     private GameItem item;
     private Button button;
     private boolean selected;
@@ -61,7 +70,7 @@ public class Slots {
         } else {
             shapes.setColor(Color.GRAY);
         }
-        shapes.rect(pos.x, pos.y, 64, 64);
+        shapes.rect(pos.x, pos.y, SLOT_PX, SLOT_PX);
     }
 
     /**
@@ -85,16 +94,21 @@ public class Slots {
         if (this.button != null) {
             this.button.render(batch);
         }
-        batch.draw(itemRegion, pos.x, pos.y, 64, 64);
+        // Inset the icon by ICON_PADDING on every side so it visually sits
+        // inside the slot rectangle drawn by PlayerUI (was 64x64 → overflowed
+        // a 56x56 slot by 14% on each side; matches webclient #item-slot).
+        batch.draw(itemRegion,
+                pos.x + ICON_PADDING, pos.y + ICON_PADDING,
+                ICON_PX, ICON_PX);
     }
 
     /**
      * Draw the "xN" overlay on stackable items with count > 1. Mirrors the
      * web client's {@code .item-stack} badge in main.js' updateInventoryUI
      * (~line 3311). Call AFTER renderItem so the text sits on top of the
-     * sprite. The slot is 64x64 and the overlay anchors to the bottom-right
-     * corner so it doesn't obscure the item face. Skipped silently when the
-     * item is not stackable or only has a single unit.
+     * sprite. Anchored to the bottom-right of the SLOT_PX rectangle.
+     * Skipped silently when the item is not stackable or only has a single
+     * unit.
      */
     public void renderStackCount(SpriteBatch batch, BitmapFont font, Vector2f pos) {
         if (this.getItem() == null) return;
@@ -102,7 +116,7 @@ public class Slots {
         final int count = this.getItem().getStackCount();
         if (count <= 1) return;
         font.setColor(Color.WHITE);
-        font.draw(batch, "x" + count, pos.x + 36, pos.y + 60);
+        font.draw(batch, "x" + count, pos.x + SLOT_PX - 18, pos.y + SLOT_PX - 4);
     }
 
     /** @deprecated Use renderBackground() + renderItem() for batched rendering */
@@ -121,7 +135,7 @@ public class Slots {
         } else {
             shapes.setColor(Color.GRAY);
         }
-        shapes.rect(pos.x, pos.y, 64, 64);
+        shapes.rect(pos.x, pos.y, SLOT_PX, SLOT_PX);
         shapes.end();
         batch.begin();
 
@@ -131,6 +145,8 @@ public class Slots {
         if (this.button != null) {
             this.button.render(batch);
         }
-        batch.draw(itemRegion, pos.x, pos.y, 64, 64);
+        batch.draw(itemRegion,
+                pos.x + ICON_PADDING, pos.y + ICON_PADDING,
+                ICON_PX, ICON_PX);
     }
 }
