@@ -493,7 +493,12 @@ public class Player extends Entity {
 		final int rw = frame.getRegionWidth();
 		final int rh = frame.getRegionHeight();
 		if (rw <= 0 || rh <= 0) return;
-		final int rs = GlobalConstants.PLAYER_RENDER_SIZE;
+		// Scale visual render size proportionally with collision size so the
+		// /size command actually resizes the character. Default ratio
+		// (PLAYER_RENDER_SIZE / PLAYER_SIZE = 32/28) is preserved when size
+		// is at its baseline of 28.
+		final float sizeScale = (float) this.size / GlobalConstants.PLAYER_SIZE;
+		final int rs = Math.round(GlobalConstants.PLAYER_RENDER_SIZE * sizeScale);
 		final float offset = (rs - this.size) / 2f;
 		final float px = this.getEffectiveRenderX();
 		final float py = this.getEffectiveRenderY();
@@ -528,7 +533,12 @@ public class Player extends Entity {
 			}
 			return;
 		}
-		final int rs = GlobalConstants.PLAYER_RENDER_SIZE;
+		// Scale visual render size proportionally with collision size so the
+		// /size command actually resizes the character. Default ratio
+		// (PLAYER_RENDER_SIZE / PLAYER_SIZE = 32/28) is preserved when size
+		// is at its baseline of 28.
+		final float sizeScale = (float) this.size / GlobalConstants.PLAYER_SIZE;
+		final int rs = Math.round(GlobalConstants.PLAYER_RENDER_SIZE * sizeScale);
 		final float offset = (rs - this.size) / 2f;
 		final float px = this.getEffectiveRenderX();
 		final float py = this.getEffectiveRenderY();
