@@ -24,6 +24,7 @@ import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
 import com.openrealm.account.dto.PingResponseDto;
 import com.openrealm.account.service.OpenRealmClientDataService;
 import com.openrealm.game.data.GameDataManager;
+import com.openrealm.game.update.UpdateChecker;
 import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.net.client.SocketClient;
 
@@ -146,6 +147,14 @@ public class GameLauncher {
 
     private static void launch(String[] args) {
         GameLauncher.log.info("Starting OpenRealm Native Client v{}", GAME_VERSION);
+
+        // Auto-update prompt before any LibGDX init. If the user accepts,
+        // checkAndMaybeUpdate() runs the installer and calls System.exit(0)
+        // and never returns. Skipped automatically for "dev" / non-Windows
+        // / scripted launches (>3 args).
+        if (args.length <= 3 && System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            UpdateChecker.checkAndMaybeUpdate(GAME_VERSION);
+        }
 
         if (args.length == 0) {
             log.info("No data-service host provided. Defaulting to http://98.95.5.4");

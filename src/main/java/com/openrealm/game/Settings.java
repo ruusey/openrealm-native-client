@@ -50,6 +50,10 @@ public class Settings {
     /** -1 = unlimited, otherwise a cap on rendered enemy bullets. */
     private int maxBulletsOnScreen = -1;
 
+    /** Version the user clicked "Skip this version" on in the update prompt.
+     *  Null/empty means show the prompt for any newer release. */
+    private String skipUpdateVersion = null;
+
     /** Audio sliders, 0.0–1.0. No audio engine is wired yet, but the values persist. */
     private float masterVolume = 0.7f;
     private float sfxVolume = 0.8f;
