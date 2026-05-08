@@ -1874,8 +1874,12 @@ public class PlayerUI {
             batch.setColor(Color.WHITE);
             try {
                 final Player p = this.playState.getPlayer();
-                TextureRegion frame = (p.getSpriteSheet() != null)
-                        ? p.getSpriteSheet().getCurrentFrame() : null;
+                // Use the class's STATIC idle_front frame from animations data
+                // — NOT the live spritesheet's current frame, which would
+                // mirror the player's in-world walk/attack animation in
+                // the HUD. Falls back to getCurrentFrame() if anim data
+                // hasn't loaded yet.
+                final TextureRegion frame = this.getHudIdleFrame(p);
                 if (frame != null && frame.getRegionWidth() > 0) {
                     batch.draw(frame, spriteX, spriteY, spriteCell, spriteCell);
                 }
@@ -1936,15 +1940,18 @@ public class PlayerUI {
         }
 
         // ---- Pass 4: HP / MP / XP bars in the LEFT preview panel ----
-        // Bars stack to the right of the player sprite; widths span the
-        // remaining preview-panel inner width.
+        // Bars stack to the right of the player sprite. Name occupies the
+        // top ~18 px of that column, then bars start at previewY+36 with
+        // a clear gap so the name's descender doesn't kiss the HP bar.
         final int barX = (int)(spriteX + spriteCell + 10);
         final int barW = (int)(previewX + smallW - barX - previewPad);
-        final int barH = 16;
-        final int barTop = (int)(spriteY + 16);
+        final int barH = 14;
+        final int barTop = (int)(previewY + 36);
+        // 14-px bars + 2-px gap = 16-px stride keeps 3 bars + name in the
+        // 148-px panel comfortably (16 + 18 + 16*3 = 82 px total content).
         if (this.hp != null) { this.hp.getPos().x = barX; this.hp.getPos().y = barTop;       this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
-        if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barTop + 18;  this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
-        if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barTop + 36;  this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
+        if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barTop + 16;  this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
+        if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barTop + 32;  this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -1969,7 +1976,14 @@ public class PlayerUI {
             int lvl = 1;
             try { lvl = GameDataManager.EXPERIENCE_LVLS.getLevel(this.playState.getPlayer().getExperience()); }
             catch (Exception ignore) { /* xp data not yet loaded */ }
-            font.draw(batch, nameLine + "  Lv " + lvl, barX, spriteY + 12);
+            // Anchor name to the TOP of the preview panel (well above
+            // barTop=previewY+36) so the text's descender doesn't overlap
+            // the HP bar. Smaller scale so a long name + level fits in the
+            // ~140-px column to the right of the sprite.
+            final float origNameScale = font.getData().scaleX;
+            font.getData().setScale(0.85f);
+            font.draw(batch, nameLine + "  Lv " + lvl, barX, previewY + 18);
+            font.getData().setScale(origNameScale);
             font.setColor(Color.WHITE);
         }
         // Stats grid lives in the band between the LEFT and RIGHT equip-ring
@@ -2085,11 +2099,11 @@ public class PlayerUI {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         final Stats stats = this.playState.getPlayer().getComputedStats();
         if (stats == null) return;
-        // Smaller font so 4 rows × 2 columns of "ATT 60" / "DEF 56" fit
-        // inside the cramped band between the equip-ring columns. 0.7
-        // matches the cell width budget at displayScale=2.
+        // 0.75 scale + 11 px line height: legible (the font goes blurry
+        // below ~0.7) and tight enough that 4 rows × 2 columns fit inside
+        // the ~112×56 px band between the equip-ring columns at scale=2.
         final float origScale = font.getData().scaleX;
-        font.getData().setScale(0.7f);
+        font.getData().setScale(0.75f);
         final int yOffset = 11;
         final int colGap  = panelWidth / 2;
         final int textX   = startX;
@@ -2114,6 +2128,48 @@ public class PlayerUI {
         font.draw(batch, "WIS " + stats.getWis(), textX + colGap, startY + yOffset * 3);
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
+    }
+
+    /** Static idle-front frame for the HUD preview canvas. Pulls the row/col
+     *  for {@code idle_front} (or {@code idle_side} as fallback) from the
+     *  class's animation data and builds a one-off TextureRegion off the
+     *  class sheet — independent of the in-world Player.spriteSheet, so
+     *  walking / attacking doesn't animate the HUD avatar. */
+    private final java.util.Map<String, com.badlogic.gdx.graphics.g2d.TextureRegion> _hudIdleCache
+            = new java.util.HashMap<>();
+    private com.badlogic.gdx.graphics.g2d.TextureRegion getHudIdleFrame(Player p) {
+        if (p == null) return null;
+        final int classId = p.getClassId();
+        final com.openrealm.game.model.AnimationModel anim =
+                (com.openrealm.game.data.GameDataManager.ANIMATIONS != null)
+                ? com.openrealm.game.data.GameDataManager.ANIMATIONS.get(classId) : null;
+        if (anim == null || anim.getAnimations() == null) {
+            // Fallback to the live current frame so SOMETHING shows up
+            // until anim data lands.
+            return (p.getSpriteSheet() != null) ? p.getSpriteSheet().getCurrentFrame() : null;
+        }
+        com.openrealm.game.model.AnimationSetModel set = anim.getAnimations().get("idle_front");
+        if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) {
+            set = anim.getAnimations().get("idle_side");
+        }
+        if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) return null;
+        final com.openrealm.game.model.AnimationFrameModel f = set.getFrames().get(0);
+        final String key = classId + ":" + f.getRow() + ":" + f.getCol();
+        com.badlogic.gdx.graphics.g2d.TextureRegion cached = _hudIdleCache.get(key);
+        if (cached != null) return cached;
+        final com.badlogic.gdx.graphics.Texture tex = (com.openrealm.game.data.GameSpriteManager.TEXTURE_CACHE != null)
+                ? com.openrealm.game.data.GameSpriteManager.TEXTURE_CACHE.get(anim.getSpriteKey()) : null;
+        if (tex == null) return null;
+        final int spW = anim.getSpriteSize();
+        final int spH = anim.getEffectiveSpriteHeight();
+        final com.badlogic.gdx.graphics.g2d.TextureRegion region =
+                new com.badlogic.gdx.graphics.g2d.TextureRegion(
+                        tex, f.getCol() * spW, f.getRow() * spH, spW, spH);
+        // Match GameSpriteManager's flip convention so the avatar isn't
+        // upside-down on the y-down camera.
+        region.flip(false, true);
+        _hudIdleCache.put(key, region);
+        return region;
     }
 
     /** Inventory accessor that handles both slot-list and direct backing
