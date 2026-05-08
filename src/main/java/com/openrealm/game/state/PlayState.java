@@ -1039,6 +1039,55 @@ public class PlayState extends GameState {
         return bestLoot;
     }
 
+    /**
+     * Scan the player's neighborhood for the closest tile that exposes a
+     * non-empty interactionType (forge / fame_store / etc) and return its
+     * type, or null if none is in range. Mirrors the F-key tile scan above
+     * but as a read-only lookup so the HUD can render an interaction hint.
+     */
+    public String getNearbyInteractionType() {
+        try {
+            if (this.realmManager == null) return null;
+            final Player player = this.getPlayer();
+            if (player == null) return null;
+            final TileMap baseLayer = this.realmManager.getRealm().getTileManager().getBaseLayer();
+            final TileMap collisionLayer = this.realmManager.getRealm().getTileManager().getCollisionLayer();
+            final int ts = baseLayer.getTileSize();
+            final int px = (int) (player.getPos().x / ts);
+            final int py = (int) (player.getPos().y / ts);
+            String bestType = null;
+            float bestD2 = Float.MAX_VALUE;
+            for (int dy = -2; dy <= 2; dy++) {
+                for (int dx = -2; dx <= 2; dx++) {
+                    final int tx = px + dx, ty = py + dy;
+                    if (tx < 0 || ty < 0 || tx >= baseLayer.getWidth() || ty >= baseLayer.getHeight()) continue;
+                    final Tile[] candidates = new Tile[]{
+                            collisionLayer.getBlocks()[ty][tx],
+                            baseLayer.getBlocks()[ty][tx]
+                    };
+                    for (Tile t : candidates) {
+                        if (t == null) continue;
+                        final TileModel def = GameDataManager.TILES.get((int) t.getTileId());
+                        if (def == null || def.getInteractionType() == null
+                                || def.getInteractionType().isEmpty()) continue;
+                        final float cx = (tx + 0.5f) * ts;
+                        final float cy = (ty + 0.5f) * ts;
+                        final float ddx = cx - player.getPos().x;
+                        final float ddy = cy - player.getPos().y;
+                        final float d2 = ddx * ddx + ddy * ddy;
+                        if (d2 < bestD2 && d2 <= (3 * ts) * (3 * ts)) {
+                            bestD2 = d2;
+                            bestType = def.getInteractionType();
+                        }
+                    }
+                }
+            }
+            return bestType;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     public Portal getClosestPortal(final Vector2f pos, final float limit) {
         float best = Float.MAX_VALUE;
         Portal bestPortal = null;

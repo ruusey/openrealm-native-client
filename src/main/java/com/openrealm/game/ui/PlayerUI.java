@@ -174,9 +174,9 @@ public class PlayerUI {
     private int slotX(int col) {
         final int panelW = OpenRealmGame.width / 5;
         final int startX = OpenRealmGame.width - panelW;
-        final int usable = panelW - 2 * PANEL_INSET;
-        final int cellW = usable / 4;
-        return startX + PANEL_INSET + col * cellW + (cellW - SLOT_SIZE) / 2;
+        final int rowW = 4 * SLOT_SIZE + 3 * SLOT_GAP;
+        final int rowStart = startX + (panelW - rowW) / 2;
+        return rowStart + col * (SLOT_SIZE + SLOT_GAP);
     }
 
     private int groundLootRowY(int row) {
@@ -772,18 +772,25 @@ public class PlayerUI {
             shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
         }
 
-        // Ground loot slot backgrounds (anchored to bottom of screen)
-        if (!this.isTrading) {
+        // Ground loot slot backgrounds — persistent 4x2 grid that always
+        // shows the same slot layout while a loot container is open, so
+        // the panel reads as a uniform grid (matching equipment / bag
+        // rows) instead of a sparse cluster of grey blobs.
+        if (!this.isTrading && !this.isGroundLootEmpty()) {
             for (int i = 0; i < this.groundLoot.length; i++) {
                 Slots curr = this.groundLoot[i];
-                if (curr != null) {
-                    Vector2f pos = groundLootPositions[i];
-                    int row = i > 3 ? 1 : 0;
-                    int col = i > 3 ? i - 4 : i;
-                    if (curr.getDragPos() != null) { pos.x = curr.getDragPos().x; pos.y = curr.getDragPos().y; }
-                    else { pos.x = this.slotX(col); pos.y = this.groundLootRowY(row); }
-                    curr.renderBackground(shapes, pos);
+                int row = i > 3 ? 1 : 0;
+                int col = i > 3 ? i - 4 : i;
+                Vector2f pos = groundLootPositions[i];
+                if (curr != null && curr.getDragPos() != null) {
+                    pos.x = curr.getDragPos().x;
+                    pos.y = curr.getDragPos().y;
+                } else {
+                    pos.x = this.slotX(col);
+                    pos.y = this.groundLootRowY(row);
                 }
+                shapes.setColor(curr != null && curr.isSelected() ? cSlotSelected : cSlotBg);
+                shapes.rect(pos.x, pos.y, SLOT_SIZE, SLOT_SIZE);
             }
         }
 
@@ -823,18 +830,13 @@ public class PlayerUI {
         // ====== SPRITE PASS: all item sprites + text in one SpriteBatch ======
         batch.begin();
 
-        // EQUIPMENT label (small caps, muted)
-        font.setColor(cMuted);
-        font.draw(batch, "EQUIPMENT", startX + PANEL_INSET, this.layoutEquipY - 6);
-        font.setColor(Color.WHITE);
-
         // BAG tab labels — centered horizontally AND vertically. Vertical
         // formula matches TextField's centering: text baseline at
         // `tabY + (tabH + gl.height)/2`, which puts the glyph visually centered
         // in the tab rect rather than sitting on its bottom edge.
         GlyphLayout gl = new GlyphLayout();
         gl.setText(font, "BAG 1");
-        float bagY = tabY + (tabH + gl.height) / 2f;
+        float bagY = tabY + (tabH + gl.height) / 2f - 10f;
         font.setColor(this.activeBag == 0 ? cAccent : cMuted);
         float bag1X = tab1X + (tabW - gl.width) / 2f;
         font.draw(batch, "BAG 1", bag1X, bagY);
@@ -925,7 +927,8 @@ public class PlayerUI {
         this.renderPlayerTooltip(batch, shapes, font);
         this.renderPlayerContextMenu(batch, shapes, font);
         this.renderStats(batch, font);
-        this.renderPortalPrompt(batch, font);
+        this.renderPortalPrompt(batch, shapes, font);
+        this.renderInteractPrompt(batch, shapes, font);
         this.playerChat.render(batch, shapes, font);
 
         if (this.minimap.isInitialized()) {
@@ -1557,8 +1560,18 @@ public class PlayerUI {
             // Dropped outside any slot: drop item
             this.playState.getRealmManager().moveItem(-1, fromIndex, true, false);
         } else if (fromIsGround && !targetIsGround) {
-            // Ground -> inventory/equip: pickup
-            this.playState.getRealmManager().moveItem(targetIndex, fromIndex, false, false);
+            // Ground -> inventory/equip: pickup. HP/MP potions route to the
+            // potion counters on the server; pinning targetSlot to a fixed
+            // inventory index avoids the equip-validation path on slots 0-3.
+            final Slots srcSlot = this.groundLoot[fromIndex - 20];
+            final GameItem srcItem = srcSlot != null ? srcSlot.getItem() : null;
+            if (srcItem != null
+                    && (srcItem.getItemId() == com.openrealm.game.entity.Player.HP_POTION_ITEM_ID
+                     || srcItem.getItemId() == com.openrealm.game.entity.Player.MP_POTION_ITEM_ID)) {
+                this.playState.getRealmManager().moveItem(4, fromIndex, false, false);
+            } else {
+                this.playState.getRealmManager().moveItem(targetIndex, fromIndex, false, false);
+            }
         } else if (!fromIsGround && targetIsGround) {
             // Inventory/equip -> ground area: drop
             this.playState.getRealmManager().moveItem(-1, fromIndex, true, false);
@@ -1569,19 +1582,18 @@ public class PlayerUI {
     }
 
     /**
-     * Bottom-center "[Space] Use [Portal Name]" prompt — appears whenever
-     * the local player is within ~32 px (1 tile) of a portal. Mirrors the
-     * web client's nearby-portal interaction prompt. Press Space (or F2)
-     * to enter the portal.
+     * Bottom-right interaction prompt — pinned to the lower-left corner of
+     * the right HUD column inside a black box so the text is legible against
+     * any tile background. Format: "PRESS SPACE TO ENTER {NAME}".
      */
-    private void renderPortalPrompt(SpriteBatch batch, BitmapFont font) {
+    private void renderPortalPrompt(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         try {
             final Vector2f pPos = this.playState.getPlayer().getPos();
             if (pPos == null) return;
             final Portal nearest = this.playState.getClosestPortal(pPos, 32f);
             if (nearest == null) return;
-            String name = "Portal";
+            String name = "PORTAL";
             try {
                 final PortalModel pm = GameDataManager.PORTALS != null
                         ? GameDataManager.PORTALS.get((int) nearest.getPortalId()) : null;
@@ -1591,15 +1603,59 @@ public class PlayerUI {
                     name = pm.getLabel();
                 }
             } catch (Exception ignored) { /* fall back to generic label */ }
-            final String prompt = "[Space] Use " + name;
-            // Centered horizontally, ~80 px above the bottom of the screen.
-            final int promptY = OpenRealmGame.height - 96;
-            final int approxWidth = prompt.length() * 7;
-            final int promptX = Math.max(0, OpenRealmGame.width / 2 - approxWidth / 2);
-            font.setColor(0.95f, 0.85f, 0.45f, 1f);
-            font.draw(batch, prompt, promptX, promptY);
-            font.setColor(Color.WHITE);
+            this.renderHintBox(batch, shapes, font, "PRESS SPACE TO ENTER " + name.toUpperCase(), 0);
         } catch (Exception ignored) { /* never block render on a UI hint */ }
+    }
+
+    /**
+     * Forge / fame-store interaction prompt — same visual style as the
+     * portal prompt but stacked above it. Surfaced because the F-key
+     * interaction is invisible without a UI hint.
+     */
+    private void renderInteractPrompt(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        if (this.playState == null || this.playState.getPlayer() == null) return;
+        try {
+            final String type = this.playState.getNearbyInteractionType();
+            if (type == null) return;
+            final String label;
+            if ("forge".equalsIgnoreCase(type)) label = "PRESS F TO USE FORGE";
+            else if ("fame_store".equalsIgnoreCase(type)) label = "PRESS F TO OPEN FAME SHOP";
+            else label = "PRESS F TO INTERACT";
+            this.renderHintBox(batch, shapes, font, label, 1);
+        } catch (Exception ignored) { /* never block render on a UI hint */ }
+    }
+
+    /**
+     * Shared hint-box renderer for bottom-right interaction prompts. Stack
+     * index lifts the box upward so multiple hints can show at once.
+     */
+    private void renderHintBox(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, String text, int stackIndex) {
+        final GlyphLayout gl = new GlyphLayout(font, text);
+        final int padX = 14, padY = 8;
+        final int boxW = (int) gl.width + padX * 2;
+        final int boxH = (int) gl.height + padY * 2;
+        final int panelW = OpenRealmGame.width / 5;
+        // Pin to the bottom of the screen, just left of the right HUD column.
+        final int boxX = OpenRealmGame.width - panelW - boxW - 16;
+        final int boxY = OpenRealmGame.height - 24 - boxH - stackIndex * (boxH + 6);
+
+        batch.end();
+        com.badlogic.gdx.Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 0.85f);
+        shapes.rect(boxX, boxY, boxW, boxH);
+        shapes.setColor(0.95f, 0.85f, 0.45f, 1f);
+        shapes.rect(boxX, boxY, boxW, 2);
+        shapes.rect(boxX, boxY + boxH - 2, boxW, 2);
+        shapes.rect(boxX, boxY, 2, boxH);
+        shapes.rect(boxX + boxW - 2, boxY, 2, boxH);
+        shapes.end();
+        com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+        batch.begin();
+
+        font.setColor(0.95f, 0.85f, 0.45f, 1f);
+        font.draw(batch, text, boxX + padX, boxY + padY + gl.height);
+        font.setColor(Color.WHITE);
     }
 
     private void renderStats(SpriteBatch batch, BitmapFont font) {
