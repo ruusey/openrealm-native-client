@@ -208,10 +208,11 @@ public class PlayerChat {
                 ? (OpenRealmGame.height - (this.overrideY + this.overrideH))
                 : 10;
         final int INPUT_H      = 28;
-        // Messages box height: when overriding, fill the panel minus the
-        // input row + a little inset; otherwise the legacy 220 default.
+        // Messages box height: when overriding, fill the panel from top
+        // to just above the input box (no extra gap so the messages box
+        // truly fills the container chrome). Otherwise legacy 220 default.
         final int MSG_H        = override
-                ? Math.max(60, this.overrideH - INPUT_H - 4)
+                ? Math.max(60, this.overrideH - INPUT_H)
                 : 220;
         final int TOGGLE_W     = 22;
         final int TOGGLE_H     = 18;

@@ -2022,11 +2022,13 @@ public class PlayerUI {
         }
 
         // ---- Pass 8: chat into the bottom-left large panel ----
+        // Pass the FULL chrome rect (no inset) so chat content fills the
+        // container edge-to-edge — the panel.container.large sprite has
+        // its own visible border, no need for an extra padding ring.
         if (this.playerChat != null) {
-            final int chatInset = 8;
             this.playerChat.setLayout(
-                (int)(chatX + chatInset), (int)(chatY + chatInset),
-                (int)(largeW - chatInset * 2), (int)(largeH - chatInset * 2));
+                (int) chatX, (int) chatY,
+                (int) largeW, (int) largeH);
         }
 
         // ---- Pass 9: nearby players panel coords (rendered later in
