@@ -1955,7 +1955,7 @@ public class PlayerUI {
         final int barW = (int)(previewX + smallW - barX - previewPad);
         final int barH = 22;            // thicker so HP/MP/Fame text has padding
         final int barStride = barH + 4; // 4-px gap between bars
-        final int barTop = (int)(previewY + 28);
+        final int barTop = (int)(previewY + 38);  // pushed down so name+level have a clear gap above the HP bar
         if (this.hp != null) { this.hp.getPos().x = barX; this.hp.getPos().y = barTop;                 this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
         if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barTop + barStride;     this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
         if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barTop + barStride * 2; this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
@@ -1989,7 +1989,9 @@ public class PlayerUI {
             // ~140-px column to the right of the sprite.
             final float origNameScale = font.getData().scaleX;
             font.getData().setScale(0.85f);
-            font.draw(batch, nameLine + "  Lv " + lvl, barX, previewY + 18);
+            // Name baseline at previewY+14 so the descender clears the
+            // HP bar (top at previewY+38) by ~10 px instead of touching it.
+            font.draw(batch, nameLine + "  Lv " + lvl, barX, previewY + 14);
             font.getData().setScale(origNameScale);
             font.setColor(Color.WHITE);
         }
