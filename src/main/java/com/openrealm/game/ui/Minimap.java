@@ -375,7 +375,18 @@ public class Minimap {
         if (this.mapTexture == null) return;
 
         final float[] src = this.computeSrcRect();
-        final float srcX = src[0], srcY = src[1], viewW = src[2], viewH = src[3];
+        // Map texture sub-rect requires integer src pixels; the dot math
+        // MUST use those same rounded values, otherwise the player dot
+        // drifts up to 1 tile away from where the map actually shows
+        // (visible at high zoom as the dot lagging behind the player).
+        final int srcXi = Math.round(src[0]);
+        final int srcYi = Math.round(src[1]);
+        final int viewWi = Math.max(1, Math.round(src[2]));
+        final int viewHi = Math.max(1, Math.round(src[3]));
+        final float srcX = srcXi;
+        final float srcY = srcYi;
+        final float viewW = viewWi;
+        final float viewH = viewHi;
 
         // Square dark background + border, mirroring #minimap-container
         batch.end();
@@ -388,11 +399,12 @@ public class Minimap {
         batch.begin();
 
         // Draw the cached map portion (whole-realm view, scaled to the panel).
-        // SpriteBatch.draw with srcX/srcY/srcWidth/srcHeight pulls a sub-rect.
+        // libGDX SpriteBatch.draw with sub-rect uses TOP-LEFT origin for
+        // src in TEXTURE coords. Our map pixmap was built top-down (y=0 at
+        // top of map), so sub-rect math is direct.
         batch.draw(this.mapTexture,
                 this.drawX, this.drawY, this.sizePx, this.sizePx,
-                Math.round(srcX), Math.round(srcY),
-                Math.max(1, Math.round(viewW)), Math.max(1, Math.round(viewH)),
+                srcXi, srcYi, viewWi, viewHi,
                 false, false);
 
         // Player dots overlay
