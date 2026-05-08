@@ -2113,11 +2113,12 @@ public class PlayerUI {
         // Six non-HP/MP stats stacked in a SINGLE column, each rendered as
         // "LBL VAL  +BONUS" inline. White label+value, green bonus when
         // positive, red when negative. Mirrors webclient.
-        // 16-px line height (was 12) so consecutive rows have a visible
-        // gap and don't read as a single garbled blob.
+        // Smaller font (0.6) + 13-px line height — the 0.85 scale was
+        // bleeding past the equip-slot columns and looked overly large
+        // for the cramped band between them.
         final float origScale = font.getData().scaleX;
-        font.getData().setScale(0.85f);
-        final int yOffset = 16;
+        font.getData().setScale(0.6f);
+        final int yOffset = 13;
         final int textX   = startX;
         final int startY  = statsY + 12;
 
@@ -2169,14 +2170,21 @@ public class PlayerUI {
                                             float previewRightX, float previewTopY) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         final Player p = this.playState.getPlayer();
-        // Account fame: Player.cachedAccountFame is only populated on the
-        // initial join packet — it falls to 0 after a realm transition.
-        // FameStoreWindow.accountFame is updated whenever the store opens,
-        // which is more reliable, so prefer that when non-zero.
-        long accountFame = p.getCachedAccountFame();
+        // Account fame source-of-truth = PlayState.account, populated from
+        // GET /data/account/{uuid}. Mirrors the webclient (account.accountFame
+        // from main.js's REST account payload). Fall back to other caches
+        // if the REST account hasn't loaded yet.
+        long accountFame = 0L;
+        if (this.playState.getAccount() != null
+                && this.playState.getAccount().getAccountFame() != null) {
+            accountFame = this.playState.getAccount().getAccountFame();
+        }
         if (accountFame == 0L && this.fameStoreWindow != null
                 && this.fameStoreWindow.getAccountFame() > 0L) {
             accountFame = this.fameStoreWindow.getAccountFame();
+        }
+        if (accountFame == 0L) {
+            accountFame = p.getCachedAccountFame();
         }
         float difficulty = 1.0f;
         try {
@@ -2221,26 +2229,24 @@ public class PlayerUI {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Pill text — geometrically centered both horizontally + vertically.
+        // Pill text — use libGDX Align.center to guarantee horizontal
+        // centering regardless of how GlyphLayout measures the string,
+        // and a baseline computed from font.getCapHeight() for vertical
+        // centering.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(1.0f);
-        final GlyphLayout gl = new GlyphLayout();
+        final float baselineDiff = diffY + (pillH + font.getCapHeight()) / 2f;
+        final float baselineFame = fameY + (pillH + font.getCapHeight()) / 2f;
 
-        // Difficulty: white text, "☠ 1.0" on red.
         font.setColor(1f, 1f, 1f, 1f);
         final String diffStr = "DIFF " + String.format("%.1f", difficulty);
-        gl.setText(font, diffStr);
-        font.draw(batch, diffStr,
-                pillX + (pillW - gl.width) / 2f,
-                diffY + pillH / 2f + gl.height / 2f);
+        font.draw(batch, diffStr, pillX, baselineDiff, pillW,
+                com.badlogic.gdx.utils.Align.center, false);
 
-        // Fame: gold text, "99,022 FAME" on dark.
         font.setColor(255/255f, 216/255f, 107/255f, 1f);
         final String fameStr = String.format("%,d FAME", accountFame);
-        gl.setText(font, fameStr);
-        font.draw(batch, fameStr,
-                pillX + (pillW - gl.width) / 2f,
-                fameY + pillH / 2f + gl.height / 2f);
+        font.draw(batch, fameStr, pillX, baselineFame, pillW,
+                com.badlogic.gdx.utils.Align.center, false);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
