@@ -1119,9 +1119,9 @@ public class PlayerUI {
         }
 
         int headerY = this.layoutNearbyY;
-        int iconSize = 20;
-        int entryHeight = 26;
-        int colWidth = (panelWidth - 12) / 2;
+        int iconSize = 26;
+        int entryHeight = 30;
+        int colWidth = (panelWidth - 8) / 2;
         int startY = headerY + 16;
 
         List<Player> playerList = new ArrayList<>(nearby);
@@ -1132,7 +1132,7 @@ public class PlayerUI {
             int col = i % 2;
             int row = i / 2;
 
-            int x = startX + 4 + (col * (colWidth + 4));
+            int x = startX + (col * colWidth);
             int y = startY + (row * entryHeight);
 
             Button btn = new Button(new Vector2f(x, y), iconSize);
@@ -1168,46 +1168,49 @@ public class PlayerUI {
     private void renderNearbyPlayers(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, int startX, int panelWidth) {
         this.refreshNearbyPlayerButtons(startX, panelWidth);
 
+        int headerY = this.layoutNearbyY;
+        font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent (matches name + level)
+        font.draw(batch, "Nearby players", startX, headerY);
+        font.setColor(Color.WHITE);
+
         if (this.nearbyPlayerList.isEmpty()) return;
 
-        int headerY = this.layoutNearbyY;
-        font.setColor(Color.WHITE);
-        font.draw(batch, "Nearby Players", startX + 4, headerY);
-
-        int iconSize = 20;
-        int entryHeight = 26;
-        int colWidth = (panelWidth - 12) / 2;
+        int iconSize = 26;
+        int entryHeight = 30;
+        int colWidth = (panelWidth - 8) / 2;
         int startY = headerY + 16;
-        int maxNameChars = 10;
 
         for (int i = 0; i < this.nearbyPlayerList.size() && i < 16; i++) {
             Player p = this.nearbyPlayerList.get(i);
             int col = i % 2;
             int row = i / 2;
 
-            int x = startX + 4 + (col * (colWidth + 4));
+            int x = startX + (col * colWidth);
             int y = startY + (row * entryHeight);
 
-            // Draw class icon
+            // Class icon — sized to the row so the avatar reads cleanly
+            // alongside the name. Sprite is centered vertically against
+            // the text baseline.
             TextureRegion icon = this.getClassIcon(p.getClassId());
             if (icon != null) {
-                batch.draw(icon, x, y, iconSize, iconSize);
+                batch.draw(icon, x, y + (entryHeight - iconSize) / 2f, iconSize, iconSize);
             }
 
-            // Draw clipped player name
-            String displayName = p.getName();
-            if (displayName.length() > maxNameChars) {
-                displayName = displayName.substring(0, maxNameChars) + "..";
-            }
-
-            // Highlight hovered player
-            if (this.hoveredPlayer == p) {
-                font.setColor(Color.YELLOW);
-            } else {
-                font.setColor(Color.WHITE);
-            }
-            font.draw(batch, displayName, x + iconSize + 4, y + 14);
+            // Hovered row: keep the row color the same as the role color
+            // (so the user still sees the role) but brighten with a yellow
+            // tint via blend. Simplest: just override to YELLOW when hovered,
+            // which matches the prior behavior the user expects.
+            final Color nameColor = (this.hoveredPlayer == p)
+                    ? Color.YELLOW
+                    : roleColorFor(p.getChatRole());
+            font.setColor(nameColor);
+            // Full name, no clip — the panel is wide enough now and the
+            // tooltip-on-hover already shows the canonical name anyway.
+            font.draw(batch, p.getName(),
+                    x + iconSize + 6,
+                    y + (entryHeight + 10) / 2);
         }
+        font.setColor(Color.WHITE);
     }
 
     /** Cached chat-role nameplate colors used by the hover tooltip, mirrors
@@ -1784,22 +1787,34 @@ public class PlayerUI {
         if (cMain == null || cSmall == null || cLarge == null) return;
 
         // ---- Compute panel screen positions ----
-        final float minimapW = cMinimap != null ? cMinimap.getW() * s : 0;
-        final float minimapH = cMinimap != null ? cMinimap.getH() * s : 0;
-        final float minimapX = margin;
-        final float minimapY = margin;
-
+        // New layout:
+        //   LEFT  : [preview+bars] - [nearby players] - [chat] (top-down)
+        //   RIGHT : [minimap]      - [main inventory] - [loot ext] (top-down)
+        // The player sprite preview lives in the LEFT preview panel; the
+        // stats list lives inside main.player (the viewport rect that
+        // previously held the sprite). Minimap moved from top-left to
+        // top-right above the inventory.
         final float smallW = cSmall.getW() * s;
         final float smallH = cSmall.getH() * s;
-        final float statsTopX = W - margin - smallW;
-        final float statsTopY = margin;
-        final float statsBotX = statsTopX;
-        final float statsBotY = statsTopY + smallH + 8;
 
         final float mainW = cMain.getW() * s;
         final float mainH = cMain.getH() * s;
         final float mainX = W - margin - mainW;
-        final float mainY = statsBotY + smallH + 8;
+
+        // RIGHT column: minimap pinned to the top-right; main inventory below.
+        final float minimapW = cMinimap != null ? cMinimap.getW() * s : 0;
+        final float minimapH = cMinimap != null ? cMinimap.getH() * s : 0;
+        final float minimapX = W - margin - minimapW;
+        final float minimapY = margin;
+        final float mainY = minimapY + minimapH + 8;
+
+        // LEFT column: preview chrome at top, nearby panel below. Each uses
+        // panel.container.small for chrome — same width as the right-column
+        // mini-panels so the layout reads as paired columns.
+        final float previewX = margin;
+        final float previewY = margin;
+        final float nearbyX  = margin;
+        final float nearbyY  = previewY + smallH + 8;
 
         final boolean lootVisible = !this.isGroundLootEmpty();
         final float invExtW = cInvExt != null ? cInvExt.getW() * s : 0;
@@ -1819,14 +1834,12 @@ public class PlayerUI {
         final float mpPotX = hotbarX + hotbarW + 8;
         final float mpPotY = hpPotY;
 
-        // Chat uses the LARGE container for more room, with a SMALL nearby-
-        // players panel directly above it. Both anchored to bottom-left.
+        // Chat uses the LARGE container, anchored bottom-left underneath the
+        // nearby panel.
         final float largeW = cLarge.getW() * s;
         final float largeH = cLarge.getH() * s;
         final float chatX = margin;
         final float chatY = H - margin - largeH;
-        final float nearbyX = margin;
-        final float nearbyY = chatY - 8 - smallH;
 
         // ---- Pass 1: panel chrome (atlas blits) ----
         final TextureRegion rMinimap = UiAtlas.region("panel.container.large");
@@ -1838,9 +1851,8 @@ public class PlayerUI {
 
         if (rMinimap != null) batch.draw(rMinimap, minimapX, minimapY, minimapW, minimapH);
         if (rSmall   != null) {
-            batch.draw(rSmall, statsTopX, statsTopY, smallW, smallH); // statsTop
-            batch.draw(rSmall, statsBotX, statsBotY, smallW, smallH); // statsBot
-            batch.draw(rSmall, nearbyX,   nearbyY,   smallW, smallH); // nearby players
+            batch.draw(rSmall, previewX, previewY, smallW, smallH); // preview + bars
+            batch.draw(rSmall, nearbyX,  nearbyY,  smallW, smallH); // nearby players
         }
         // Chat uses the LARGE container chrome.
         if (rMinimap != null) batch.draw(rMinimap, chatX, chatY, largeW, largeH);
@@ -1852,43 +1864,64 @@ public class PlayerUI {
             batch.draw(rPotion, mpPotX, mpPotY, potionW, potionH);
         }
 
-        // ---- Pass 2: player class sprite ----
-        final UiComponent playerView = UiAtlas.componentOf("panel.hud.main.player");
-        if (playerView != null && this.playState != null && this.playState.getPlayer() != null) {
-            final float vx = mainX + (playerView.getX() - cMain.getX()) * s;
-            final float vy = mainY + (playerView.getY() - cMain.getY()) * s;
-            final float vw = playerView.getW() * s;
-            final float vh = playerView.getH() * s;
+        // ---- Pass 2: player class sprite (LEFT preview panel) ----
+        // Sprite hugs the left edge of the preview chrome; name + bars stack
+        // to its right. Layout mirrors the example image: small character
+        // portrait, label+bars column to the right.
+        final int previewPad = 10;
+        final int spriteCell = (int) Math.min(smallH - previewPad * 2, 64);
+        final float spriteX = previewX + previewPad;
+        final float spriteY = previewY + (smallH - spriteCell) / 2f;
+        if (this.playState != null && this.playState.getPlayer() != null) {
+            final Color prev = batch.getColor();
+            batch.setColor(Color.WHITE);
             try {
-                final TextureRegion frame = this.playState.getPlayer().getSpriteSheet().getCurrentFrame();
-                if (frame != null) {
-                    // 70% of the viewport so the sprite has breathing room.
-                    final float spriteSize = Math.min(vw, vh) * 0.7f;
-                    batch.draw(frame, vx + (vw - spriteSize) / 2f, vy + (vh - spriteSize) / 2f,
-                            spriteSize, spriteSize);
+                final Player p = this.playState.getPlayer();
+                TextureRegion frame = (p.getSpriteSheet() != null)
+                        ? p.getSpriteSheet().getCurrentFrame() : null;
+                if (frame != null && frame.getRegionWidth() > 0) {
+                    batch.draw(frame, spriteX, spriteY, spriteCell, spriteCell);
                 }
             } catch (Exception ignore) { /* sprite sheet not ready yet */ }
+            batch.setColor(prev);
         }
+
+        // The atlas annotation has the player viewport sitting in the upper
+        // half of panel.hud.main and the 4x4 grid in the lower half — but
+        // the actual sprite chrome on the sheet draws them the other way:
+        // recessed player square at the BOTTOM, slot grid at the TOP.
+        // We compute a SHEET_SHIFT that swaps the two y-bands so the
+        // rendered children land on the matching art. Equip ring slots
+        // travel with the player viewport (they frame the stats panel
+        // that now occupies it).
+        final UiComponent playerView = UiAtlas.componentOf("panel.hud.main.player");
+        final UiComponent gridComp   = UiAtlas.componentOf("panel.hud.main.grid");
+        final int playerSheetShift = (playerView != null && gridComp != null)
+                ? (gridComp.getY() - playerView.getY())  // positive: player + equip ring move DOWN
+                : 0;
+        final int gridSheetShift = -playerSheetShift;    // grid moves UP the same amount
 
         // ---- Pass 3: inventory + equipment slots — items rendered AND
         //              backing Buttons repositioned so click/drag hits land here.
         // Equipment ring (panel.hud.main.equip.0..3) — inventory[0..3].
+        // Shifted along with the player viewport so they keep framing it.
         for (int i = 0; i < 4; i++) {
             final UiComponent eq = UiAtlas.componentOf("panel.hud.main.equip." + i);
             if (eq == null) continue;
             final float ex = mainX + (eq.getX() - cMain.getX()) * s;
-            final float ey = mainY + (eq.getY() - cMain.getY()) * s;
+            final float ey = mainY + (eq.getY() - cMain.getY() + playerSheetShift) * s;
             this.repositionSlotButton(this.inventory, i, ex, ey);
             this.drawHudItemIcon(batch, this.getInventoryItem(i),
                     ex, ey, eq.getW() * s, eq.getH() * s);
         }
 
-        // 4×4 main inventory grid — inventory[4..19].
+        // 4×4 main inventory grid — inventory[4..19]. Shifted UP into the
+        // upper band where the chrome's slot grid is drawn.
         final int[][] cells = UiAtlas.gridCells("panel.hud.main.grid");
         for (int i = 0; i < cells.length; i++) {
             final int[] cell = cells[i];
             final float cx = mainX + (cell[0] - cMain.getX()) * s;
-            final float cy = mainY + (cell[1] - cMain.getY()) * s;
+            final float cy = mainY + (cell[1] - cMain.getY() + gridSheetShift) * s;
             this.repositionSlotButton(this.inventory, 4 + i, cx, cy);
             this.drawHudItemIcon(batch, this.getInventoryItem(4 + i),
                     cx, cy, cell[2] * s, cell[3] * s);
@@ -1920,16 +1953,16 @@ public class PlayerUI {
             }
         }
 
-        // ---- Pass 4: HP / MP / XP bars in statsTop ----
-        // Pin to FillBars so they render correctly; FillBars draws via a
-        // ShapeRenderer pass we run between batch.end() / batch.begin().
-        final int barX = (int)(statsTopX + 12);
-        final int barY = (int)(statsTopY + 50);
-        final int barW = (int)(smallW - 24);
-        final int barH = 22;
-        if (this.hp != null) { this.hp.getPos().x = barX; this.hp.getPos().y = barY;       this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
-        if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barY + 26;  this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
-        if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barY + 52;  this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
+        // ---- Pass 4: HP / MP / XP bars in the LEFT preview panel ----
+        // Bars stack to the right of the player sprite; widths span the
+        // remaining preview-panel inner width.
+        final int barX = (int)(spriteX + spriteCell + 10);
+        final int barW = (int)(previewX + smallW - barX - previewPad);
+        final int barH = 16;
+        final int barTop = (int)(spriteY + 16);
+        if (this.hp != null) { this.hp.getPos().x = barX; this.hp.getPos().y = barTop;       this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
+        if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barTop + 18;  this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
+        if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barTop + 36;  this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -1944,7 +1977,8 @@ public class PlayerUI {
         if (this.mp != null) this.mp.renderText(batch, font);
         if (this.xp != null) this.xp.renderText(batch, font);
 
-        // ---- Pass 5: name + level (top of statsTop), 8-stat grid (statsBot) ----
+        // ---- Pass 5: name + level (top of LEFT preview panel),
+        //              8-stat grid inside main.player viewport (RIGHT) ----
         if (this.playState != null && this.playState.getPlayer() != null) {
             font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent
             String nameLine = this.playState.getPlayer().getName() != null
@@ -1953,20 +1987,23 @@ public class PlayerUI {
             int lvl = 1;
             try { lvl = GameDataManager.EXPERIENCE_LVLS.getLevel(this.playState.getPlayer().getExperience()); }
             catch (Exception ignore) { /* xp data not yet loaded */ }
-            font.draw(batch, nameLine + "  Lv " + lvl,
-                    statsTopX + 12, statsTopY + 22);
+            font.draw(batch, nameLine + "  Lv " + lvl, barX, spriteY + 12);
             font.setColor(Color.WHITE);
         }
-        // Render the 8-stat grid into statsBot using the existing helper —
-        // we pass a fake panelStartX so its column math centers inside the panel.
-        this.renderStatsAt(batch, font, (int)(statsBotX + 8), (int)(smallW - 16),
-                (int)(statsBotY + 16));
+        // Stats list takes over the area where the player sprite previously
+        // sat (panel.hud.main.player). Equip ring still frames it.
+        if (playerView != null) {
+            final float vx = mainX + (playerView.getX() - cMain.getX()) * s;
+            final float vy = mainY + (playerView.getY() - cMain.getY() + playerSheetShift) * s;
+            final float vw = playerView.getW() * s;
+            this.renderStatsAt(batch, font, (int)(vx + 8), (int)(vw - 16), (int) vy);
+        }
 
         // ---- Pass 6: potion icons + counts inside the oval panels ----
         this.drawPotionWidget(batch, font, hpPotX, hpPotY, potionW, potionH, true);
         this.drawPotionWidget(batch, font, mpPotX, mpPotY, potionW, potionH, false);
 
-        // ---- Pass 7: minimap into panel.container.large (top-left) ----
+        // ---- Pass 7: minimap into panel.container.large (top-RIGHT) ----
         if (this.minimap != null) {
             final int mmInset = 12;
             final int mmSize = (int) Math.min(minimapW - mmInset * 2, minimapH - mmInset * 2);
@@ -1981,10 +2018,9 @@ public class PlayerUI {
                 (int)(largeW - chatInset * 2), (int)(largeH - chatInset * 2));
         }
 
-        // ---- Pass 9: nearby players label inside the nearby panel ----
-        // Existing renderNearbyPlayers takes a startX + panelWidth; we just
-        // pass the nearby panel's screen bounds. Caller on a different render
-        // line below will then call this; we expose the pos via fields.
+        // ---- Pass 9: nearby players panel coords (rendered later in
+        //              the main render path so its hover tooltip can layer
+        //              over earlier passes). ----
         this.spriteHudNearbyX = (int)(nearbyX + 8);
         this.spriteHudNearbyW = (int)(smallW - 16);
         this.spriteHudNearbyY = (int)(nearbyY + 8);
@@ -2012,22 +2048,45 @@ public class PlayerUI {
         slot.getButton().getPos().y = y;
     }
 
-    /** Render a potion oval's contents — small potion bottle icon + count
-     *  text. Mirrors the legacy webclient #hp-potion-slot / #mp-potion-slot
-     *  styling: red=HP, blue=MP, count drawn bottom-right. */
+    /** itemId of the bundled HP/MP potion entries in game-items.json.
+     *  Used by the bottom-bar potion oval renderer to look up the actual
+     *  potion sprite (so the side panels show a small bottle, not text). */
+    private static final int HP_POTION_ITEM_ID = 296;
+    private static final int MP_POTION_ITEM_ID = 297;
+
+    /** Render a potion oval's contents — small potion bottle sprite drawn
+     *  on the LEFT half of the oval, count text drawn on the RIGHT half.
+     *  Mirrors the webclient {@code #hp-potion-slot} / {@code #mp-potion-slot}. */
     private void drawPotionWidget(SpriteBatch batch, BitmapFont font,
                                    float x, float y, float w, float h, boolean hp) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
-        // Existing legacy renderer drew solid coloured rects; until we have
-        // dedicated potion icons in the atlas, just draw "HP N" / "MP N"
-        // centered in the oval so the count is visible.
         final Player p = this.playState.getPlayer();
         final int count = hp ? p.getHpPotions() : p.getMpPotions();
-        font.setColor(hp ? new Color(1f, 0.4f, 0.4f, 1f) : new Color(0.4f, 0.6f, 1f, 1f));
-        final String label = (hp ? "HP " : "MP ") + count;
-        final GlyphLayout gl = new GlyphLayout(font, label);
-        font.draw(batch, label, x + (w - gl.width) / 2f, y + (h + gl.height) / 2f);
+        final int itemId = hp ? HP_POTION_ITEM_ID : MP_POTION_ITEM_ID;
+
+        // Potion sprite — 8 px source × 2 (icon at HUD scale) = 16px display.
+        // Anchored to the left side of the oval with a small inset.
+        final float iconSize = Math.min(h - 4, 18f);
+        TextureRegion icon = GameSpriteManager.ITEM_SPRITES != null
+                ? GameSpriteManager.ITEM_SPRITES.get(itemId) : null;
+        if (icon == null) {
+            // Lazy-load if the item def hasn't been processed yet.
+            final GameItem item = GameDataManager.GAME_ITEMS != null
+                    ? GameDataManager.GAME_ITEMS.get(itemId) : null;
+            if (item != null) {
+                GameDataManager.loadSpriteModel(item);
+                icon = GameSpriteManager.ITEM_SPRITES.get(itemId);
+            }
+        }
+        if (icon != null) {
+            batch.draw(icon, x + 4, y + (h - iconSize) / 2f, iconSize, iconSize);
+        }
+
+        // Count text on the right half of the oval.
         font.setColor(Color.WHITE);
+        final String label = String.valueOf(count);
+        final GlyphLayout gl = new GlyphLayout(font, label);
+        font.draw(batch, label, x + w - gl.width - 6, y + (h + gl.height) / 2f);
     }
 
     /** Variant of {@link #renderStats(SpriteBatch, BitmapFont)} that takes

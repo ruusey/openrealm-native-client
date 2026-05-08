@@ -62,6 +62,23 @@ public class SpriteRecolorCache {
      */
     public static TextureRegion getDyedRegion(String spriteKey, int classId, int row, int col,
                                               int spriteSize, int dyeId) {
+        return getDyedRegion(spriteKey, classId, row, col,
+                spriteSize, spriteSize, spriteSize, spriteSize, dyeId);
+    }
+
+    /**
+     * Frame-aware overload: builds the dyed Pixmap at {@code frameW x frameH}
+     * (the actual current animation frame's size) instead of the cell size,
+     * so wider/taller attack frames don't get squished when the renderer
+     * draws this region across the full frame rect. Mirrors webclient
+     * renderer.js getDyedRegion which sizes its offscreen canvas to (w, h).
+     *
+     * The mask still only covers the body cell area; pixels outside the
+     * mask's bounds are copied through un-recolored, so a bow extension or
+     * tail extension shows up at original color rather than getting stretched.
+     */
+    public static TextureRegion getDyedRegion(String spriteKey, int classId, int row, int col,
+                                              int cellW, int cellH, int frameW, int frameH, int dyeId) {
         if (dyeId <= 0 || spriteKey == null) return null;
         if (GameDataManager.DYE_ASSETS == null || GameDataManager.CLASS_MASK_FRAMES == null) {
             warnOnce("dye-data-missing", "Dye recolor skipped: DYE_ASSETS={} CLASS_MASK_FRAMES={}",
@@ -82,17 +99,19 @@ public class SpriteRecolorCache {
             return null;
         }
 
-        final String cacheKey = classId + ":" + row + ":" + col + ":" + dyeId;
+        // Cache key includes frame dims so the same (row, col) sliced at
+        // different sizes (idle 8x8 vs attack 12x8) doesn't collide.
+        final String cacheKey = classId + ":" + row + ":" + col
+                + ":" + frameW + "x" + frameH + ":" + dyeId;
         final TextureRegion cached = DYE_CACHE.get(cacheKey);
         if (cached != null) return cached;
 
         final Pixmap source = sourcePixmap(spriteKey);
         if (source == null) return null;
 
-        final int w = spriteSize, h = spriteSize;
-        final Pixmap cell = new Pixmap(w, h, Pixmap.Format.RGBA8888);
+        final Pixmap cell = new Pixmap(frameW, frameH, Pixmap.Format.RGBA8888);
         cell.setBlending(Pixmap.Blending.None);
-        cell.drawPixmap(source, 0, 0, col * w, row * h, w, h);
+        cell.drawPixmap(source, 0, 0, col * cellW, row * cellH, frameW, frameH);
 
         applyMaskRecolor(cell, frame.getMask(), dye);
 

@@ -635,8 +635,15 @@ public class Player extends Entity {
 				: frame.getRegionY();
 		final int col = spX / spW;
 		final int row = spY / spH;
+		// Frame dims come from the current TextureRegion: idle frames match
+		// the cell, attack frames may be wider/taller. Passing them through
+		// keeps the dyed Pixmap the same size as the source slice so the
+		// renderer's drawW/drawH math doesn't stretch a cell-sized region
+		// across a frame-sized destination rect.
+		final int frameW = frame.getRegionWidth();
+		final int frameH = frame.getRegionHeight();
 		final TextureRegion dyed = SpriteRecolorCache.getDyedRegion(
-				spriteKey, this.classId, row, col, spW, this.dyeId);
+				spriteKey, this.classId, row, col, spW, spH, frameW, frameH, this.dyeId);
 		if (dyed == null) {
 			dyeWarnOnce("dye-miss-" + this.classId + "-" + row + "-" + col + "-" + this.dyeId,
 					"[DYE] Recolor returned null for classId={} sheet={} row={} col={} dyeId={}",
