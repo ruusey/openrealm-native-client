@@ -2004,10 +2004,9 @@ public class PlayerUI {
                     (int) (statsRight - statsX), (int) statsY);
         }
 
-        // ---- Pass 5b: difficulty + account fame badges to the RIGHT of
-        //               the preview panel (frees vertical space inside
-        //               the preview for taller HP/MP/XP bars). ----
-        this.renderBadgesNextToPreview(batch, font,
+        // ---- Pass 5b: difficulty + account fame badges (pill style,
+        //               webclient parity) to the RIGHT of the preview. ----
+        this.renderBadgesNextToPreview(batch, shapes, font,
                 previewX + smallW, previewY);
 
         // ---- Pass 6: potion icons + counts inside the oval panels ----
@@ -2115,9 +2114,11 @@ public class PlayerUI {
         // Six non-HP/MP stats stacked in a SINGLE column, each rendered as
         // "LBL VAL  +BONUS" inline. White label+value, green bonus when
         // positive, red when negative. Mirrors webclient.
+        // 16-px line height (was 12) so consecutive rows have a visible
+        // gap and don't read as a single garbled blob.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.85f);
-        final int yOffset = 12;
+        final int yOffset = 16;
         final int textX   = startX;
         final int startY  = statsY + 12;
 
@@ -2159,33 +2160,66 @@ public class PlayerUI {
         font.getData().setScale(origScale);
     }
 
-    /** Render account fame + earned-this-life fame to the RIGHT of the
-     *  preview panel — mirrors the webclient layout. Vertical stack so
-     *  the preview's bars can be taller without competing for space.
-     *  (Difficulty value isn't stored client-side here yet, so it's
-     *  omitted; revisit if/when RealmManager exposes it live.) */
-    private void renderBadgesNextToPreview(SpriteBatch batch, BitmapFont font,
+    /** Render difficulty + account fame badges to the RIGHT of the preview
+     *  panel, mirroring the webclient pill style:
+     *    GREEN PILL: "☠ 1.0"        difficulty multiplier
+     *    GOLD  PILL: "+ 99,022 FAME" account fame total
+     *  Each is a small rounded-corner-ish rect with text centered. */
+    private void renderBadgesNextToPreview(SpriteBatch batch, ShapeRenderer shapes,
+                                            BitmapFont font,
                                             float previewRightX, float previewTopY) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         final Player p = this.playState.getPlayer();
+        final long accountFame = p.getCachedAccountFame();
+        float difficulty = 1.0f;
+        try {
+            if (this.playState.getRealmManager() != null
+                    && this.playState.getRealmManager().getRealm() != null) {
+                difficulty = this.playState.getRealmManager().getRealm().getDifficulty();
+            }
+        } catch (Exception ignored) {}
+
+        // Layout: stacked pills at previewRight + 8 px gap.
+        final float pillX = previewRightX + 8;
+        final float pillW = 110;
+        final float pillH = 24;
+        final float diffY = previewTopY + 4;
+        final float fameY = diffY + pillH + 6;
+
+        // Switch to ShapeRenderer for the pill backgrounds.
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // Green pill — webclient #difficulty-icon background (~#2d4a30)
+        shapes.setColor(0.18f, 0.30f, 0.20f, 1f);
+        shapes.rect(pillX, diffY, pillW, pillH);
+        // Gold pill — webclient #account-fame-display tan-on-dark
+        shapes.setColor(0.10f, 0.07f, 0.04f, 1f);
+        shapes.rect(pillX, fameY, pillW, pillH);
+        shapes.end();
+        // 1-px gold border on the fame pill
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0.78f, 0.66f, 0.43f, 1f);
+        shapes.rect(pillX, fameY, pillW, pillH);
+        shapes.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        batch.begin();
+
+        // Pill text — centered vertically within each pill.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.9f);
+        font.setColor(0.65f, 1.00f, 0.50f, 1f); // bright green
+        final String diffStr = "☠ " + String.format("%.1f", difficulty);
+        final GlyphLayout gl = new GlyphLayout(font, diffStr);
+        font.draw(batch, diffStr, pillX + (pillW - gl.width) / 2f,
+                diffY + (pillH + gl.height) / 2f - 2);
 
-        final long fame = (GameDataManager.EXPERIENCE_LVLS != null)
-                ? GameDataManager.EXPERIENCE_LVLS.getBaseFame(p.getExperience()) : 0L;
-        final long accountFame = p.getCachedAccountFame();
-
-        // Account fame: gold star + count
-        font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        font.draw(batch, "+ " + accountFame + " FAME",
-                previewRightX + 8, previewTopY + 16);
-
-        // Earned-this-life fame (if past max level) shown beneath.
-        if (fame > 0) {
-            font.setColor(1.00f, 0.85f, 0.42f, 1f);
-            font.draw(batch, "+" + fame + " EARNED",
-                    previewRightX + 8, previewTopY + 36);
-        }
+        font.setColor(0.95f, 0.83f, 0.42f, 1f);
+        final String fameStr = "+ " + accountFame + " FAME";
+        gl.setText(font, fameStr);
+        font.draw(batch, fameStr, pillX + (pillW - gl.width) / 2f,
+                fameY + (pillH + gl.height) / 2f - 2);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
