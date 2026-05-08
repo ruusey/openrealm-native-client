@@ -14,6 +14,7 @@ import com.openrealm.game.OpenRealmGame;
 import com.openrealm.net.realm.RealmManagerClient;
 import com.openrealm.net.server.packet.BuyFameItemPacket;
 
+import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import java.lang.reflect.Method;
@@ -48,7 +49,7 @@ public class FameStoreWindow {
     private boolean mouseDownPrev = false;
 
     @Setter private RealmManagerClient realmManager;
-    @Setter private long accountFame = 0L;
+    @Getter @Setter private long accountFame = 0L;
     @Setter private List<Entry> entries = Collections.emptyList();
 
     private String statusMsg = "";
