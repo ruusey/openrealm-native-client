@@ -67,7 +67,15 @@ public class UiAtlas {
 		if (c == null) return null;
 		final Texture tex = sheet();
 		if (tex == null) return null;
-		return new TextureRegion(tex, c.getX(), c.getY(), c.getW(), c.getH());
+		final TextureRegion r = new TextureRegion(tex, c.getX(), c.getY(), c.getW(), c.getH());
+		// libGDX uses a y-DOWN ortho camera (setToOrtho(true, ...)), so a
+		// raw TextureRegion blits UPSIDE-DOWN. GameSpriteManager flips every
+		// region it builds (see loadSpriteRegions). We mirror that here so
+		// panel chrome renders right-side-up — without this flip, the
+		// equip ring + player viewport art lands at the BOTTOM of the
+		// rendered panel instead of the top.
+		r.flip(false, true);
+		return r;
 	}
 
 	/**

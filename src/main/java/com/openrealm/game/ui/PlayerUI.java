@@ -2086,10 +2086,11 @@ public class PlayerUI {
         final Stats stats = this.playState.getPlayer().getComputedStats();
         if (stats == null) return;
         // Smaller font so 4 rows × 2 columns of "ATT 60" / "DEF 56" fit
-        // inside the cramped band between the equip-ring columns.
+        // inside the cramped band between the equip-ring columns. 0.7
+        // matches the cell width budget at displayScale=2.
         final float origScale = font.getData().scaleX;
-        font.getData().setScale(0.85f);
-        final int yOffset = 12;
+        font.getData().setScale(0.7f);
+        final int yOffset = 11;
         final int colGap  = panelWidth / 2;
         final int textX   = startX;
         final int startY  = statsY + 12;
