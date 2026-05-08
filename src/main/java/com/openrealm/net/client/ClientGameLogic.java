@@ -657,9 +657,14 @@ public class ClientGameLogic {
 				}
 			}
 			for (final Long b : unloadPacket.getBullets()) {
+				// Client-side culling (range/lifetime/terrain in PlayState
+				// update) often removes bullets BEFORE the server's
+				// UnloadPacket round-trips back, so a null here is the
+				// normal case for player-fired projectiles, not an error.
+				// Demoted from ERROR to TRACE to keep the log readable.
 				final Bullet removed = cli.getRealm().getBullets().remove(b);
-				if (removed == null) {
-					ClientGameLogic.log.error("[CLIENT] Bullet {} does not exist", b);
+				if (removed == null && ClientGameLogic.log.isTraceEnabled()) {
+					ClientGameLogic.log.trace("[CLIENT] Bullet {} already culled locally", b);
 				}
 			}
 			for (final Long e : unloadPacket.getEnemies()) {
