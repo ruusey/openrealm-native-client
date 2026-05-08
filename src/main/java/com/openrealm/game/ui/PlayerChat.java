@@ -233,27 +233,29 @@ public class PlayerChat {
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // Messages box bg #1a1218aa  (only when expanded)
+        // When collapsed, render ONLY the toggle button so the rest of
+        // the chat panel disappears entirely (user can still click to
+        // re-expand). When expanded, draw all three boxes as before.
         if (!this.collapsed) {
             shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0xaa / 255f);
             shapes.rect(PANEL_X, msgBoxTop, PANEL_W, MSG_H);
+            shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
+            shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
         }
 
-        // Input box bg #1a1218 (always shown — web parity)
-        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
-        shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
-
-        // Toggle button bg #1a1218
+        // Toggle button always shown so the player can re-expand chat.
         shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
         shapes.rect(PANEL_X + PANEL_W - TOGGLE_W, toggleBoxTop, TOGGLE_W, TOGGLE_H);
 
         shapes.end();
 
-        // 1 px border #3a2a38 around all three pieces
+        // 1 px border #3a2a38 around the visible pieces.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
-        if (!this.collapsed) shapes.rect(PANEL_X, msgBoxTop, PANEL_W, MSG_H);
-        shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
+        if (!this.collapsed) {
+            shapes.rect(PANEL_X, msgBoxTop, PANEL_W, MSG_H);
+            shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
+        }
         shapes.rect(PANEL_X + PANEL_W - TOGGLE_W, toggleBoxTop, TOGGLE_W, TOGGLE_H);
         shapes.end();
 

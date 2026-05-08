@@ -1851,8 +1851,11 @@ public class PlayerUI {
             batch.draw(rSmall, previewX, previewY, smallW, smallH); // preview + bars
             batch.draw(rSmall, nearbyX,  nearbyY,  smallW, smallH); // nearby players
         }
-        // Chat uses the LARGE container chrome.
-        if (rMinimap != null) batch.draw(rMinimap, chatX, chatY, largeW, largeH);
+        // Chat uses the LARGE container chrome — but only when chat is
+        // expanded. Collapsed → the entire panel disappears (PlayerChat
+        // keeps just the toggle button visible so the player can reopen).
+        final boolean chatExpanded = (this.playerChat != null) && !this.playerChat.isCollapsed();
+        if (rMinimap != null && chatExpanded) batch.draw(rMinimap, chatX, chatY, largeW, largeH);
         if (rMain != null) batch.draw(rMain, mainX, mainY, mainW, mainH);
         if (lootVisible && rInvExt != null) batch.draw(rInvExt, invExtX, invExtY, invExtW, invExtH);
         if (rHotbar != null) batch.draw(rHotbar, hotbarX, hotbarY, hotbarW, hotbarH);
@@ -2001,6 +2004,12 @@ public class PlayerUI {
                     (int) (statsRight - statsX), (int) statsY);
         }
 
+        // ---- Pass 5b: difficulty + account fame badges to the RIGHT of
+        //               the preview panel (frees vertical space inside
+        //               the preview for taller HP/MP/XP bars). ----
+        this.renderBadgesNextToPreview(batch, font,
+                previewX + smallW, previewY);
+
         // ---- Pass 6: potion icons + counts inside the oval panels ----
         this.drawPotionWidget(batch, font, hpPotX, hpPotY, potionW, potionH, true);
         this.drawPotionWidget(batch, font, mpPotX, mpPotY, potionW, potionH, false);
@@ -2097,32 +2106,84 @@ public class PlayerUI {
     private void renderStatsAt(SpriteBatch batch, BitmapFont font,
                                 int startX, int panelWidth, int statsY) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
-        final Stats stats = this.playState.getPlayer().getComputedStats();
-        if (stats == null) return;
-        // Six non-HP/MP stats stacked in a SINGLE column. HP and MP are
-        // already shown as bars in the preview panel, so duplicating them
-        // here just wasted space and made the values overlap. 0.85 scale
-        // is comfortably readable; line height 11 fits 6 rows in ~66 px.
+        final Player p = this.playState.getPlayer();
+        final Stats computed = p.getComputedStats();
+        final Stats base     = p.getStats();
+        if (computed == null) return;
+        // Six non-HP/MP stats stacked in a SINGLE column, each rendered as
+        // "LBL VAL  +BONUS" inline. White label+value, green bonus when
+        // positive, red when negative. Mirrors webclient.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.85f);
-        final int yOffset = 11;
+        final int yOffset = 12;
         final int textX   = startX;
         final int startY  = statsY + 12;
-        final Player p = this.playState.getPlayer();
 
-        // isStatMaxed indices: 0=HP 1=MP 2=VIT 3=ATT 4=SPD 5=DEX 6=DEF 7=WIS
-        font.setColor(p.isStatMaxed(3) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "ATT " + stats.getAtt(), textX, startY);
-        font.setColor(p.isStatMaxed(6) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "DEF " + stats.getDef(), textX, startY + yOffset);
-        font.setColor(p.isStatMaxed(4) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "SPD " + stats.getSpd(), textX, startY + yOffset * 2);
-        font.setColor(p.isStatMaxed(5) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "DEX " + stats.getDex(), textX, startY + yOffset * 3);
-        font.setColor(p.isStatMaxed(2) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "VIT " + stats.getVit(), textX, startY + yOffset * 4);
-        font.setColor(p.isStatMaxed(7) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "WIS " + stats.getWis(), textX, startY + yOffset * 5);
+        // Stat order: ATT, DEF, SPD, DEX, VIT, WIS — webclient parity.
+        final int[]    statMaxedIdx = {  3,    6,    4,    5,    2,    7  };
+        final String[] statLabels   = { "ATT", "DEF", "SPD", "DEX", "VIT", "WIS" };
+        final int[] computedVals = { computed.getAtt(), computed.getDef(),
+                computed.getSpd(), computed.getDex(), computed.getVit(),
+                computed.getWis() };
+        final int[] baseVals = (base != null)
+                ? new int[] { base.getAtt(), base.getDef(), base.getSpd(),
+                              base.getDex(), base.getVit(), base.getWis() }
+                : computedVals; // fall back: no bonus shown if base missing
+
+        final GlyphLayout gl = new GlyphLayout();
+        for (int i = 0; i < statLabels.length; i++) {
+            final int y = startY + yOffset * i;
+            final int compV = computedVals[i];
+            final int baseV = baseVals[i];
+            final int bonus = compV - baseV;
+            // Label + value (white, or gold if maxed).
+            font.setColor(p.isStatMaxed(statMaxedIdx[i]) ? Color.YELLOW : Color.WHITE);
+            final String main = statLabels[i] + " " + compV;
+            font.draw(batch, main, textX, y);
+            // Bonus inline, color-coded.
+            if (bonus != 0) {
+                gl.setText(font, main);
+                final float bonusX = textX + gl.width + 4;
+                if (bonus > 0) {
+                    font.setColor(0.25f, 0.78f, 0.25f, 1f); // green
+                    font.draw(batch, "+" + bonus, bonusX, y);
+                } else {
+                    font.setColor(0.91f, 0.31f, 0.31f, 1f); // red
+                    font.draw(batch, String.valueOf(bonus), bonusX, y);
+                }
+            }
+        }
+        font.setColor(Color.WHITE);
+        font.getData().setScale(origScale);
+    }
+
+    /** Render account fame + earned-this-life fame to the RIGHT of the
+     *  preview panel — mirrors the webclient layout. Vertical stack so
+     *  the preview's bars can be taller without competing for space.
+     *  (Difficulty value isn't stored client-side here yet, so it's
+     *  omitted; revisit if/when RealmManager exposes it live.) */
+    private void renderBadgesNextToPreview(SpriteBatch batch, BitmapFont font,
+                                            float previewRightX, float previewTopY) {
+        if (this.playState == null || this.playState.getPlayer() == null) return;
+        final Player p = this.playState.getPlayer();
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(0.9f);
+
+        final long fame = (GameDataManager.EXPERIENCE_LVLS != null)
+                ? GameDataManager.EXPERIENCE_LVLS.getBaseFame(p.getExperience()) : 0L;
+        final long accountFame = p.getCachedAccountFame();
+
+        // Account fame: gold star + count
+        font.setColor(0.78f, 0.66f, 0.43f, 1f);
+        font.draw(batch, "+ " + accountFame + " FAME",
+                previewRightX + 8, previewTopY + 16);
+
+        // Earned-this-life fame (if past max level) shown beneath.
+        if (fame > 0) {
+            font.setColor(1.00f, 0.85f, 0.42f, 1f);
+            font.draw(batch, "+" + fame + " EARNED",
+                    previewRightX + 8, previewTopY + 36);
+        }
 
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
