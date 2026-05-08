@@ -198,17 +198,25 @@ public class Minimap {
             if (d.slows() && !d.hasCollision()) return COL_WATER;
             if (d.damaging()) return COL_LAVA;
         }
-        // fallback hash by tileId — keeps unknown tiles distinguishable
         final int id = t.getTileId();
         if (id <= 0) return COL_VOID;
-        // bias toward grass/sand greens-and-tans for variety
-        final int variant = id % 4;
-        switch (variant) {
-            case 0: return COL_GRASS;
-            case 1: return COL_SAND;
-            case 2: return COL_STONE;
-            default: return COL_DEFAULT;
-        }
+        // Semantic color from the tile NAME — mirrors webclient
+        // minimap.js _getTileColor. Was previously hashing by `id % 4`
+        // which painted unrelated tiles in the same color and gave the
+        // overall map a random / uncoordinated look.
+        final com.openrealm.game.model.TileModel def =
+                (com.openrealm.game.data.GameDataManager.TILES != null)
+                        ? com.openrealm.game.data.GameDataManager.TILES.get(id) : null;
+        if (def == null) return COL_DEFAULT;
+        final String name = def.getName() == null ? "" : def.getName().toLowerCase();
+        if (name.contains("sand") || name.contains("beach") || name.contains("desert")) return COL_SAND;
+        if (name.contains("grass") || name.contains("forest") || name.contains("green"))  return COL_GRASS;
+        if (name.contains("stone") || name.contains("grey") || name.contains("rock")
+                || name.contains("cobble"))                                                return COL_STONE;
+        if (name.contains("dark") || name.contains("void") || name.contains("obsidian")) return COL_DARK;
+        if (name.contains("water") || name.contains("ocean") || name.contains("sea"))     return COL_WATER;
+        if (name.contains("lava") || name.contains("fire") || name.contains("magma"))     return COL_LAVA;
+        return COL_DEFAULT;
     }
 
     public void toggle() { this.visible = !this.visible; }
