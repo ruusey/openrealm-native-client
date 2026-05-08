@@ -71,6 +71,22 @@ public class PlayerChat {
     private final List<TextPacket> wrapPickedScratch = new ArrayList<>(CHAT_SIZE);
     private final List<Integer> wrapRowCountsScratch = new ArrayList<>(CHAT_SIZE);
 
+    /** Optional override layout — when set (non-null), the chat panel
+     *  ignores its hardcoded 10-px-margin / 360-px-wide constants and
+     *  instead positions itself inside this rectangle. Used by the sprite
+     *  HUD to mount chat inside panel.container.large. Width should be at
+     *  least 200 px to avoid pathological wrap. */
+    private Integer overrideX = null;
+    private Integer overrideY = null;
+    private Integer overrideW = null;
+    private Integer overrideH = null;
+    public void setLayout(int x, int y, int w, int h) {
+        this.overrideX = x;
+        this.overrideY = y;
+        this.overrideW = w;
+        this.overrideH = h;
+    }
+
     public PlayerChat(PlayState state) {
         this.currentMessage = "";
         this.chatOpen = false;
@@ -181,15 +197,22 @@ public class PlayerChat {
         float originalScale = font.getData().scaleX;
         font.getData().setScale(1.0f);
 
-        final int PANEL_X      = 10;
-        // Expanded panel widens to 600 px (vs collapsed 360) so longer chat
-        // messages have room to wrap without being clipped. Web parity has
-        // a fluid width; native picks two breakpoints to keep the layout
-        // simple and the input field aligned.
-        final int PANEL_W      = this.collapsed ? 360 : 600;
-        final int PANEL_BOTTOM_MARGIN = 10;
+        // Layout overrides take precedence — sprite HUD uses them to mount
+        // chat inside its bottom-left panel. Otherwise fall back to the
+        // legacy bottom-left float position.
+        final boolean override = this.overrideX != null;
+        final int PANEL_X      = override ? this.overrideX : 10;
+        final int PANEL_W      = override ? this.overrideW
+                                          : (this.collapsed ? 360 : 600);
+        final int PANEL_BOTTOM_MARGIN = override
+                ? (OpenRealmGame.height - (this.overrideY + this.overrideH))
+                : 10;
         final int INPUT_H      = 28;
-        final int MSG_H        = 220;
+        // Messages box height: when overriding, fill the panel minus the
+        // input row + a little inset; otherwise the legacy 220 default.
+        final int MSG_H        = override
+                ? Math.max(60, this.overrideH - INPUT_H - 4)
+                : 220;
         final int TOGGLE_W     = 22;
         final int TOGGLE_H     = 18;
         final float LINE_H     = font.getLineHeight();           // matches web's line-height:1.5

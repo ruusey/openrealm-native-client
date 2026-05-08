@@ -852,15 +852,22 @@ public class PlayState extends GameState {
             }
             boolean canQuickUse = (System.currentTimeMillis() - this.lastQuickUseTick) > QUICK_USE_COOLDOWN_MS;
             if (canQuickUse) {
+                // Shift held → address slots 12..19 (second half of the 16-slot
+                // grid). Plain 1-8 → slots 4..11 (first half). Mirrors the
+                // webclient's bag-tab-replacement scheme since the sprite HUD
+                // shows all 16 inventory cells at once.
+                final boolean shiftHeld = com.badlogic.gdx.Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.SHIFT_LEFT)
+                        || com.badlogic.gdx.Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.SHIFT_RIGHT);
+                final int base = shiftHeld ? 12 : 4;
                 boolean used = false;
-                if (key.one.clicked) { this.handleQuickUseKey(4); used = true; }
-                else if (key.two.clicked) { this.handleQuickUseKey(5); used = true; }
-                else if (key.three.clicked) { this.handleQuickUseKey(6); used = true; }
-                else if (key.four.clicked) { this.handleQuickUseKey(7); used = true; }
-                else if (key.five.clicked) { this.handleQuickUseKey(8); used = true; }
-                else if (key.six.clicked) { this.handleQuickUseKey(9); used = true; }
-                else if (key.seven.clicked) { this.handleQuickUseKey(10); used = true; }
-                else if (key.eight.clicked) { this.handleQuickUseKey(11); used = true; }
+                if (key.one.clicked) { this.handleQuickUseKey(base + 0); used = true; }
+                else if (key.two.clicked)   { this.handleQuickUseKey(base + 1); used = true; }
+                else if (key.three.clicked) { this.handleQuickUseKey(base + 2); used = true; }
+                else if (key.four.clicked)  { this.handleQuickUseKey(base + 3); used = true; }
+                else if (key.five.clicked)  { this.handleQuickUseKey(base + 4); used = true; }
+                else if (key.six.clicked)   { this.handleQuickUseKey(base + 5); used = true; }
+                else if (key.seven.clicked) { this.handleQuickUseKey(base + 6); used = true; }
+                else if (key.eight.clicked) { this.handleQuickUseKey(base + 7); used = true; }
                 if (used) this.lastQuickUseTick = System.currentTimeMillis();
             }
 
