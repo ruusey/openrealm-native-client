@@ -1004,13 +1004,10 @@ public class PlayerUI {
         this.optionsWindow.update();
         this.optionsWindow.render(batch, shapes, font);
 
-        // Dev-stats overlay (FPS / MEM / PING / JITTER) — mirrors web client
-        // _perfEl. Anchored to the top-LEFT corner since the minimap moved
-        // into the right HUD column; left corner is now free real-estate
-        // and putting stats over the HUD would fight with the minimap.
-        // Cheap — four font.draw calls per frame.
+        // Dev-stats overlay removed — the top-left corner now hosts the
+        // minimap panel. PerfMetrics still ticks for any other consumers
+        // (debug logs, future overlay re-enable) but doesn't render.
         PerfMetrics.get().onFrame();
-        PerfMetrics.get().render(batch, font, 80f, 8f);
     }
 
     private void renderTradeUI(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, int startX, int panelWidth) {
@@ -1886,42 +1883,27 @@ public class PlayerUI {
             batch.setColor(prev);
         }
 
-        // The atlas annotation has the player viewport sitting in the upper
-        // half of panel.hud.main and the 4x4 grid in the lower half — but
-        // the actual sprite chrome on the sheet draws them the other way:
-        // recessed player square at the BOTTOM, slot grid at the TOP.
-        // We compute a SHEET_SHIFT that swaps the two y-bands so the
-        // rendered children land on the matching art. Equip ring slots
-        // travel with the player viewport (they frame the stats panel
-        // that now occupies it).
-        final UiComponent playerView = UiAtlas.componentOf("panel.hud.main.player");
-        final UiComponent gridComp   = UiAtlas.componentOf("panel.hud.main.grid");
-        final int playerSheetShift = (playerView != null && gridComp != null)
-                ? (gridComp.getY() - playerView.getY())  // positive: player + equip ring move DOWN
-                : 0;
-        final int gridSheetShift = -playerSheetShift;    // grid moves UP the same amount
-
         // ---- Pass 3: inventory + equipment slots — items rendered AND
         //              backing Buttons repositioned so click/drag hits land here.
         // Equipment ring (panel.hud.main.equip.0..3) — inventory[0..3].
-        // Shifted along with the player viewport so they keep framing it.
+        // No flips, no shifts — children render at their JSON-defined
+        // positions relative to the panel chrome.
         for (int i = 0; i < 4; i++) {
             final UiComponent eq = UiAtlas.componentOf("panel.hud.main.equip." + i);
             if (eq == null) continue;
             final float ex = mainX + (eq.getX() - cMain.getX()) * s;
-            final float ey = mainY + (eq.getY() - cMain.getY() + playerSheetShift) * s;
+            final float ey = mainY + (eq.getY() - cMain.getY()) * s;
             this.repositionSlotButton(this.inventory, i, ex, ey);
             this.drawHudItemIcon(batch, this.getInventoryItem(i),
                     ex, ey, eq.getW() * s, eq.getH() * s);
         }
 
-        // 4×4 main inventory grid — inventory[4..19]. Shifted UP into the
-        // upper band where the chrome's slot grid is drawn.
+        // 4×4 main inventory grid — inventory[4..19].
         final int[][] cells = UiAtlas.gridCells("panel.hud.main.grid");
         for (int i = 0; i < cells.length; i++) {
             final int[] cell = cells[i];
             final float cx = mainX + (cell[0] - cMain.getX()) * s;
-            final float cy = mainY + (cell[1] - cMain.getY() + gridSheetShift) * s;
+            final float cy = mainY + (cell[1] - cMain.getY()) * s;
             this.repositionSlotButton(this.inventory, 4 + i, cx, cy);
             this.drawHudItemIcon(batch, this.getInventoryItem(4 + i),
                     cx, cy, cell[2] * s, cell[3] * s);
@@ -1990,13 +1972,19 @@ public class PlayerUI {
             font.draw(batch, nameLine + "  Lv " + lvl, barX, spriteY + 12);
             font.setColor(Color.WHITE);
         }
-        // Stats list takes over the area where the player sprite previously
-        // sat (panel.hud.main.player). Equip ring still frames it.
-        if (playerView != null) {
-            final float vx = mainX + (playerView.getX() - cMain.getX()) * s;
-            final float vy = mainY + (playerView.getY() - cMain.getY() + playerSheetShift) * s;
-            final float vw = playerView.getW() * s;
-            this.renderStatsAt(batch, font, (int)(vx + 8), (int)(vw - 16), (int) vy);
+        // Stats grid lives in the band between the LEFT and RIGHT equip-ring
+        // columns at the top of panel.hud.main — wider than the cramped
+        // 96-px player viewport, so 2-column "ATT 60 / DEF 56" text actually
+        // fits without overflow.
+        final UiComponent eqNW = UiAtlas.componentOf("panel.hud.main.equip.0");
+        final UiComponent eqNE = UiAtlas.componentOf("panel.hud.main.equip.1");
+        final UiComponent eqSW = UiAtlas.componentOf("panel.hud.main.equip.2");
+        if (eqNW != null && eqNE != null && eqSW != null) {
+            final float statsX = mainX + (eqNW.getX() + eqNW.getW() - cMain.getX()) * s + 4;
+            final float statsRight = mainX + (eqNE.getX() - cMain.getX()) * s - 4;
+            final float statsY = mainY + (eqNW.getY() - cMain.getY()) * s;
+            this.renderStatsAt(batch, font, (int) statsX,
+                    (int) (statsRight - statsX), (int) statsY);
         }
 
         // ---- Pass 6: potion icons + counts inside the oval panels ----
@@ -2097,9 +2085,13 @@ public class PlayerUI {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         final Stats stats = this.playState.getPlayer().getComputedStats();
         if (stats == null) return;
-        final int yOffset = 14;
+        // Smaller font so 4 rows × 2 columns of "ATT 60" / "DEF 56" fit
+        // inside the cramped band between the equip-ring columns.
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(0.85f);
+        final int yOffset = 12;
         final int colGap  = panelWidth / 2;
-        final int textX   = startX + 4;
+        final int textX   = startX;
         final int startY  = statsY + 12;
 
         font.setColor(this.playState.getPlayer().isStatMaxed(0) ? Color.YELLOW : Color.WHITE);
@@ -2120,6 +2112,7 @@ public class PlayerUI {
         font.setColor(this.playState.getPlayer().isStatMaxed(7) ? Color.YELLOW : Color.WHITE);
         font.draw(batch, "WIS " + stats.getWis(), textX + colGap, startY + yOffset * 3);
         font.setColor(Color.WHITE);
+        font.getData().setScale(origScale);
     }
 
     /** Inventory accessor that handles both slot-list and direct backing
