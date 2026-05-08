@@ -23,7 +23,7 @@ import java.lang.reflect.Method;
  * fame currency banked across dead characters.
  *
  * Server flow:
- *   1. Player walks onto a fame-store tile → server sends OpenFameStorePacket
+ *   1. Player walks onto a fame-store tile -> server sends OpenFameStorePacket
  *      with a list of available items + costs.
  *   2. We open this window, show the catalog, and on Buy click send a
  *      {@link BuyFameItemPacket} for that item id.

@@ -320,7 +320,7 @@ public abstract class GameObject {
      * viewport gating the web client uses in game.js updateInterpolation().
      *
      * dx/dy from the server are in pixels-per-TICK at the server's 64 Hz
-     * simulation rate. Per-frame motion = dx * dt * 64 → per-second motion
+     * simulation rate. Per-frame motion = dx * dt * 64 -> per-second motion
      * = dx * 64, matching the server regardless of render FPS.
      *
      * Viewport gate: server only sends ObjectMovePackets for entities

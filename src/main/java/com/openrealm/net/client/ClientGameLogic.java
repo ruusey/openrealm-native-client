@@ -293,7 +293,7 @@ public class ClientGameLogic {
 			// Re-anchor the sub-tick interpolation so the next render
 			// frame's lerp starts from the SNAPPED position. Without this,
 			// a PosAck arriving mid-tick leaves interpFromX pointing at
-			// the pre-snap position; the camera lerps from old → new and
+			// the pre-snap position; the camera lerps from old -> new and
 			// shows a 1-2 px hop every server tick.
 			if (cli.getState() != null) {
 				cli.getState().resetInterpAnchor(ack.getPosX(), ack.getPosY());
@@ -360,9 +360,9 @@ public class ClientGameLogic {
 			List<FameStoreWindow.Entry> entries = new ArrayList<>();
 			// Catalog mirrors ServerFameStoreHelper's accepted itemId
 			// ranges and per-tier costs:
-			//   821-828  → 8 dyes      (500 fame each)
-			//   808-815  → 8 crystals  (1000 fame each)
-			//   830-836  → 7 gems      (5000 fame each — endgame power tier)
+			//   821-828  -> 8 dyes      (500 fame each)
+			//   808-815  -> 8 crystals  (1000 fame each)
+			//   830-836  -> 7 gems      (5000 fame each — endgame power tier)
 			final long DYE_COST     = ServerFameStoreHelper.DYE_FAME_COST;
 			final long CRYSTAL_COST = ServerFameStoreHelper.CRYSTAL_FAME_COST;
 			final long GEM_COST     = ServerFameStoreHelper.GEM_FAME_COST;

@@ -146,8 +146,8 @@ public class PlayerUI {
 
     /**
      * Recompute the right-sidebar Y anchors based on the current window size.
-     * The webclient layout (name → fame → minimap → bars → stats → equip →
-     * bags → potions → nearby) collapses gracefully on shorter windows; we
+     * The webclient layout (name -> fame -> minimap -> bars -> stats -> equip ->
+     * bags -> potions -> nearby) collapses gracefully on shorter windows; we
      * mirror that by deriving everything from the panel width / window height.
      */
     private void recomputeLayout() {

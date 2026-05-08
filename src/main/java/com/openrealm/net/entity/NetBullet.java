@@ -75,11 +75,11 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 	/**
 	 * Hand-rolled construction from a server-side Bullet — bypasses
 	 * ModelMapper reflection. ModelMapper.map() walks all 20 fields via
-	 * reflection per call; with ~200 visible bullets × 11 viewers × 32Hz
+	 * reflection per call; with ~200 visible bullets x 11 viewers x 32Hz
 	 * that's 70K reflective maps/sec, which was eating significant CPU
 	 * during ability spam and contributing to the TPS drop.
 	 *
-	 * Direct field copy is 10-100× faster than reflection-based mapping.
+	 * Direct field copy is 10-100x faster than reflection-based mapping.
 	 */
 	public static NetBullet fromBullet(Bullet b) {
 		final NetBullet n = new NetBullet();
@@ -129,7 +129,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		bullet.setAmplitude(this.amplitude);
 		bullet.setFrequency(this.frequency);
 		bullet.setCreatedTime(this.createdTime);
-		// Web-parity sprite resolution: projectileId → ProjectileGroup → spriteKey.
+		// Web-parity sprite resolution: projectileId -> ProjectileGroup -> spriteKey.
 		// Without this, Bullet.render() short-circuits at its null-check and
 		// every projectile is invisible.
 		final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS != null

@@ -593,8 +593,8 @@ public class PlayState extends GameState {
 
                 // ============================================================
                 // PORTED FROM web client main.js processInput(dt) (~line 2030):
-                // drain ticks → simulateTick(perTick) → set interpFrom/To →
-                // compute renderX = lerp(from, to, frac) → set HUD positions.
+                // drain ticks -> simulateTick(perTick) -> set interpFrom/To ->
+                // compute renderX = lerp(from, to, frac) -> set HUD positions.
                 //
                 // This BLOCK is the entire player movement & visual position
                 // pipeline. Doing it INLINE here (not split between update()
@@ -687,7 +687,7 @@ public class PlayState extends GameState {
                 // Camera follows the lerped player position with
                 // exponential smoothing (web parity, game.js ~1580):
                 //   cameraX += (target - cameraX) * (1 - exp(-dt/halflife))
-                // Halflife 0.03s → ~97% of any gap closes within 150ms,
+                // Halflife 0.03s -> ~97% of any gap closes within 150ms,
                 // frame-rate independent. The hard lock that was here
                 // before made the camera feel sluggish on direction
                 // changes — the player would visibly drift off-center
@@ -713,7 +713,7 @@ public class PlayState extends GameState {
             boolean canUsePortal = (System.currentTimeMillis() - this.lastPortalTick) > PORTAL_COOLDOWN_MS;
             // Space also triggers nearest-portal use, mirroring web client
             // hotkey behaviour. attack.tick() runs in the key.attack
-            // pipeline above (KeyHandler binds Space → key.attack), so
+            // pipeline above (KeyHandler binds Space -> key.attack), so
             // attack.clicked is edge-triggered just like f2.clicked.
             key.attack.tick();
             boolean portalKeyClicked = key.f2.clicked || key.attack.clicked;
@@ -937,7 +937,7 @@ public class PlayState extends GameState {
         final float aimInvScale = 1f / OpenRealmGame.WORLD_SCALE;
         player.setAimX(mouse.getX() * aimInvScale + PlayState.map.x);
         player.setAimY(mouse.getY() * aimInvScale + PlayState.map.y);
-        // Mouse → world conversion: the world camera is zoomed 2× via
+        // Mouse -> world conversion: the world camera is zoomed 2× via
         // OpenRealmGame.WORLD_SCALE, so 1 screen pixel == 1/WORLD_SCALE world
         // pixels. Without dividing here, every shot/ability targets a world
         // point twice as far from the player as the cursor visually points
@@ -1140,7 +1140,7 @@ public class PlayState extends GameState {
      * the server's authoritative position snaps the local player — the
      * old interpFromX/Y would otherwise still point at the pre-snap
      * position and the next render frame would lerp the camera from old
-     * → new, showing a visible hop every server tick.
+     * -> new, showing a visible hop every server tick.
      */
     public void resetInterpAnchor(float x, float y) {
         this.interpFromX = x;
@@ -1966,7 +1966,7 @@ public class PlayState extends GameState {
         int steps = 24;
         float arcHeight = dist * 0.5f;
 
-        // Vial position along arc (t goes 0→1 over the 800ms duration)
+        // Vial position along arc (t goes 0->1 over the 800ms duration)
         float vialFrac = Math.min(t, 1.0f);
 
         // Compute arc positions
@@ -2039,7 +2039,7 @@ public class PlayState extends GameState {
         // overlapping heal-tick packets read as one stream rather than
         // resetting on each tick.
         final float elapsedSec = vfx.getElapsed() / 1000f;
-        final float dropPeriod = 0.85f;     // seconds per droplet (launch → land)
+        final float dropPeriod = 0.85f;     // seconds per droplet (launch -> land)
         final int streams = 14;             // number of staggered launchers around the ring
 
         // Overall fade so the visual eases out at the end of the packet's

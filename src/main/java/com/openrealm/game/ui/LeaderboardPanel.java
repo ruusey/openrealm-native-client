@@ -181,7 +181,7 @@ public class LeaderboardPanel {
         // Plenty of right-column space on a 1080p home screen — earlier
         // 56-px row packed both lines too tight and the equipment icons
         // overdrew the trailing characters of long player names.
-        // Bumped from 92 → 104 so the Fame line has breathing room beneath
+        // Bumped from 92 -> 104 so the Fame line has breathing room beneath
         // the equipment-icon band — at the previous height the descenders
         // of "Fame N,NNN" overlapped the top of the next row's
         // alternating-stripe background, reading as cut off.
@@ -295,11 +295,11 @@ public class LeaderboardPanel {
             font.setColor(0.55f, 0.50f, 0.40f, 1f);
             String hint;
             if (hiddenAbove > 0 && hidden > 0) {
-                hint = "↑ " + hiddenAbove + "  |  ↓ " + hidden + "   (scroll)";
+                hint = "^ " + hiddenAbove + "  |  v " + hidden + "   (scroll)";
             } else if (hidden > 0) {
-                hint = "↓ " + hidden + " more   (scroll)";
+                hint = "v " + hidden + " more   (scroll)";
             } else {
-                hint = "↑ " + hiddenAbove + " above   (scroll)";
+                hint = "^ " + hiddenAbove + " above   (scroll)";
             }
             font.draw(batch, hint, x + 12, y + h - 8);
         }

@@ -61,10 +61,10 @@ public class LoadPacket extends Packet {
             // IOService.mapModel(...) which used ModelMapper reflection.
             // ModelMapper walks 10-20 fields per entity reflectively per
             // call; with ~200 visible bullets + 11 players + 50 enemies +
-            // 6 portals × 11 viewers × 32 Hz that was 90K+ reflective
+            // 6 portals x 11 viewers x 32 Hz that was 90K+ reflective
             // mappings/sec — the dominant CPU sink during ability spam
             // and the cause of the TPS drop on a 2-vCPU instance. Direct
-            // field copy is 10-100× faster.
+            // field copy is 10-100x faster.
             final NetPlayer[] mappedPlayers = new NetPlayer[players.length];
             for (int i = 0; i < players.length; i++) {
                 mappedPlayers[i] = NetPlayer.fromPlayer(players[i]);

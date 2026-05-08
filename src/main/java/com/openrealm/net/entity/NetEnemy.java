@@ -88,7 +88,7 @@ public class NetEnemy extends SerializableFieldType<NetEnemy> {
 		// Wire the sprite sheet here so Enemy.render() doesn't bail at its
 		// null-check. Without this, every enemy is invisible because the
 		// renderer's first line is `if (getSpriteSheet() == null) return;`.
-		// Web-client equivalent: gameState.enemyData[enemyId] → spriteKey lookup.
+		// Web-client equivalent: gameState.enemyData[enemyId] -> spriteKey lookup.
 		final EnemyModel model = GameDataManager.ENEMIES != null
 				? GameDataManager.ENEMIES.get(this.getEnemyId())
 				: null;

@@ -183,9 +183,9 @@ public class GameSpriteManager {
      * tiles, enemies, portals, animations, character classes, set pieces.
      * Without this, a newly-added item/tile that points at a brand-new
      * sprite sheet (e.g. item 837 with a new sheet) silently fails to
-     * render: the sheet isn't in SPRITE_NAMES → Texture never cached →
-     * loadItemSprites' TEXTURE_CACHE.get(spriteKey) returns null → the
-     * item gets no entry in ITEM_SPRITES → blank quad in inventory and
+     * render: the sheet isn't in SPRITE_NAMES -> Texture never cached ->
+     * loadItemSprites' TEXTURE_CACHE.get(spriteKey) returns null -> the
+     * item gets no entry in ITEM_SPRITES -> blank quad in inventory and
      * on the ground.
      */
     private static LinkedHashSet<String> collectAllSpriteKeys() {
@@ -422,8 +422,8 @@ public class GameSpriteManager {
 
         // Build each animation set from the JSON data. Each frame's effective
         // (width, height) follows a fallback chain:
-        //   frame.spriteWidth  → set.spriteWidth  → anim.spriteSize
-        //   frame.spriteHeight → set.spriteHeight → anim.spriteHeight (or spriteSize)
+        //   frame.spriteWidth  -> set.spriteWidth  -> anim.spriteSize
+        //   frame.spriteHeight -> set.spriteHeight -> anim.spriteHeight (or spriteSize)
         // When the resolved size matches the sheet's default cell we use the
         // precomputed grid region; otherwise we slice on-the-fly with
         // getSubSpritePx so a wider attack frame can span multiple cells

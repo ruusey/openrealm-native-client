@@ -310,14 +310,14 @@ public class ServerCommandHandler {
                 throw new IllegalArgumentException("COUNT must be >= 1");
             }
             // Cap to keep a single command from accidentally OOMing the box
-            // — 5000 enemies × ~200 bytes each + collision/AI bookkeeping
+            // — 5000 enemies x ~200 bytes each + collision/AI bookkeeping
             // is enough to stress-test a 2-vCPU instance.
             if (count > 5000) {
                 throw new IllegalArgumentException("COUNT capped at 5000 per command");
             }
         }
 
-        log.info("Player {} spawn enemy {} ×{} at {}",
+        log.info("Player {} spawn enemy {} x{} at {}",
                 target.getName(), enemyId, count, target.getPos());
         final Realm from = mgr.findPlayerRealm(target.getId());
         if (from == null) {

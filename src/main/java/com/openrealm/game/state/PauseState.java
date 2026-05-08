@@ -185,7 +185,7 @@ public class PauseState extends GameState {
             }
             // Character row click: rows stack from y=0 downward in Y-down,
             // row i occupies [i*rowHeight, (i+1)*rowHeight) BEFORE scroll.
-            // Add the scroll offset to the click Y to map screen → list space.
+            // Add the scroll offset to the click Y to map screen -> list space.
             if (mx >= 0 && mx <= rowWidth) {
                 int idx = (my + (int) this.charScrollOffset) / rowHeight;
                 if (idx >= 0 && idx < alive.size() && !this.characterSwitchRequested) {
@@ -361,7 +361,7 @@ public class PauseState extends GameState {
         font.draw(batch, label, btnX + (btnW / 2f) - (label.length() * 4f), btnY + btnH * 0.65f);
 
         // Leaderboard — drawn under the button so it doesn't overlap.
-        // Width bumped from 280 → 360 so account-name + class + level
+        // Width bumped from 280 -> 360 so account-name + class + level
         // doesn't ellipsize aggressively at common name lengths, and
         // height now scales with the screen so additional rows are
         // visible without scrolling on large displays. Mouse wheel

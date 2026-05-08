@@ -247,10 +247,10 @@ public class LootContainer {
     }
 
     /** Render footprint in world pixels. Tier rules:
-     *    BROWN / PURPLE / CYAN / BLUE / WHITE / BOOSTED → 16 px
+     *    BROWN / PURPLE / CYAN / BLUE / WHITE / BOOSTED -> 16 px
      *        (all regular drop bags read as same-size pickups; rarity is
      *        conveyed by bag color, not size)
-     *    GRAVE / CHEST                                  → 32 px
+     *    GRAVE / CHEST                                  -> 32 px
      *        (set-piece world objects, visually distinct from drop bags)
      *  Chest also overrides this for clarity, but the tier check below
      *  handles it identically — keeping the override means a Chest

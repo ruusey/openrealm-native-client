@@ -464,7 +464,7 @@ public class Player extends Entity {
 	 * pos.x / pos.y (which advances in 1/64s tick steps and causes a
 	 * visible per-tick "lurch" between camera and sprite).
 	 *
-	 * Non-local players have renderX=NaN → effective position falls back
+	 * Non-local players have renderX=NaN -> effective position falls back
 	 * to pos.x / pos.y, identical to the old behaviour.
 	 */
 	/** One-shot warn log per (player-id, state-bit) so the diagnostic
@@ -621,7 +621,7 @@ public class Player extends Entity {
 		// the image renders right-side-up against our Y-down ortho camera.
 		// As a side effect getRegionY() returns the BOTTOM edge of the
 		// original cell (= (i+1)*spH) instead of the top. Reading it
-		// directly off-by-ones every row → CLASS_MASK_FRAMES lookup
+		// directly off-by-ones every row -> CLASS_MASK_FRAMES lookup
 		// missed and dyeing silently fell back to the un-recolored sprite.
 		// Compensate by subtracting regionHeight on flipped regions
 		// (same idea for X if anyone ever flips horizontally — unflipped

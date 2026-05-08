@@ -66,9 +66,9 @@ public class CharacterSelectState extends GameState {
      * The legacy ["useast","local","localhost"] list was useless on the
      * native TCP client because those nginx-route names don't resolve
      * outside the web client's reverse proxy. Replace with real targets:
-     *   USEast → user's prod game-server IP
-     *   Local  → 127.0.0.1
-     *   Localhost → localhost
+     *   USEast -> user's prod game-server IP
+     *   Local  -> 127.0.0.1
+     *   Localhost -> localhost
      * Add more here as deployments come online.
      */
     private static final String[][] SERVER_PRESETS = {

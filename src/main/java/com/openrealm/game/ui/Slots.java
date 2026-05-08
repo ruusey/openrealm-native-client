@@ -95,7 +95,7 @@ public class Slots {
             this.button.render(batch);
         }
         // Inset the icon by ICON_PADDING on every side so it visually sits
-        // inside the slot rectangle drawn by PlayerUI (was 64x64 → overflowed
+        // inside the slot rectangle drawn by PlayerUI (was 64x64 -> overflowed
         // a 56x56 slot by 14% on each side; matches webclient #item-slot).
         batch.draw(itemRegion,
                 pos.x + ICON_PADDING, pos.y + ICON_PADDING,

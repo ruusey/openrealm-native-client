@@ -67,7 +67,7 @@ public class RealmManagerClient implements Runnable {
     private long currentPlayerId;
     private volatile boolean awaitingRealmTransition = false;
     private TimedWorkerThread workerThread;
-    // Short ID → Long ID mapping for compact movement packets.
+    // Short ID -> Long ID mapping for compact movement packets.
     // Populated from LoadPacket (NetPlayer.shortId / NetEnemy.shortId).
     private final Map<Short, Long> shortIdToLongId = new ConcurrentHashMap<>();
 

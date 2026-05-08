@@ -140,7 +140,7 @@ public class ClientSession {
     public void enqueueWrite(byte[] frame) {
         // Track the COMPRESSED frame length — that's the true wire cost.
         // Was tracking the pre-compression frame size, which over-reported
-        // the actual on-wire bandwidth by ~2× (deflate compresses our
+        // the actual on-wire bandwidth by ~2x (deflate compresses our
         // packet payloads by 40-60%).
         final byte[] wireFrame = PacketCompression.compressFrame(frame);
         this.writeQueue.add(wireFrame);

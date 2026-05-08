@@ -149,7 +149,7 @@ public class LoginState extends GameState {
                 // token is actually invalid (HTTP 401 / 403). Any other
                 // exception — network timeout, DNS failure, server 500,
                 // server unreachable — should KEEP the token so the next
-                // launch can try again. The previous "catch all → clear"
+                // launch can try again. The previous "catch all -> clear"
                 // behaviour meant a single connectivity blip permanently
                 // forced the user to retype credentials.
                 final String msg = e.getMessage() == null ? "" : e.getMessage();

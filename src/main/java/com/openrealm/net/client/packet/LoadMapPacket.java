@@ -67,7 +67,7 @@ public class LoadMapPacket extends Packet {
         if (this.realmId != other.getRealmId())
             return other;
         // Build a hash set of THIS packet's tile keys ONCE, then check each
-        // tile in `other` in O(1). Was O(N²): with 40 viewers × ~628 tiles
+        // tile in `other` in O(1). Was O(N²): with 40 viewers x ~628 tiles
         // per viewport at 4 Hz LoadMap rate, the old linear scan was costing
         // ~63 M comparisons/sec — the dominant CPU sink in 40-player
         // scenarios on a 2-vCPU box (TPS dropped to 7).

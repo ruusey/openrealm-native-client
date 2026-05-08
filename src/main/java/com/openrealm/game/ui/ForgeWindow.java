@@ -28,7 +28,7 @@ import java.lang.reflect.Method;
  * Pixel-painting forge UI, mirroring the web client's enchant flow.
  *
  * Server flow:
- *   1. Player walks onto a forge tile → server sends {@code OpenForgePacket}.
+ *   1. Player walks onto a forge tile -> server sends {@code OpenForgePacket}.
  *   2. We open this window. It captures the player's current target item,
  *      crystal, and essence (set externally via {@link #setItems}).
  *   3. The 16×16 (scaled to 256×256) canvas lets the player click a pixel to
@@ -221,7 +221,7 @@ public class ForgeWindow {
         // Target weapon scaled to fill the canvas, so existing + new
         // enchantment pixels visibly land on the sword/wand/etc. The
         // grid cells map 1:1 to the item's sprite pixels (8×8 most of
-        // the time → 32 device px per cell).
+        // the time -> 32 device px per cell).
         final int gridDim;
         if (targetItem != null) {
             int sw = targetItem.getSpriteSize() > 0 ? targetItem.getSpriteSize() : 8;
@@ -354,14 +354,14 @@ public class ForgeWindow {
             }
         }
 
-        // Pixel canvas click → paint (mirror render's layout).
+        // Pixel canvas click -> paint (mirror render's layout).
         final int slotY = y + headerH + 24;
         final int canvasSize = CANVAS_RENDER_SIZE;
         final int canvasX = x + (DIALOG_W - canvasSize) / 2;
         final int canvasY = slotY + SLOT_SIZE + 28;
         if (mx >= canvasX && mx < canvasX + canvasSize
                 && my >= canvasY && my < canvasY + canvasSize) {
-            // Convert mouse-pixel → sprite-pixel using the SAME grid
+            // Convert mouse-pixel -> sprite-pixel using the SAME grid
             // dim render() last drew. Hardcoding CANVAS_PIXELS=16 here
             // would mis-locate every click whenever the target weapon
             // is an 8×8 sprite (i.e. nearly every weapon).
@@ -530,7 +530,7 @@ public class ForgeWindow {
         batch.draw(tr, sx + 4, sy + 4, iconSize, iconSize);
     }
 
-    /** Web client's stat-id → tint color. */
+    /** Web client's stat-id -> tint color. */
     private static Color statColor(int statId) {
         switch (statId) {
             case 0: return new Color(0.95f, 0.45f, 0.10f, 1f); // VIT — orange

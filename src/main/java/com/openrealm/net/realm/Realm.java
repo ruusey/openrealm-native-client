@@ -111,10 +111,10 @@ public class Realm {
     // Per-tick cache of stripped (no-inventory) UpdatePacket instances for
     // other-player broadcast at 8 Hz. Each viewer's broadcast loop iterates
     // up to 20 nearby players and previously built each one's stripped
-    // UpdatePacket from scratch — 40 viewers × 20 nearby × 8 Hz = 6400
+    // UpdatePacket from scratch — 40 viewers x 20 nearby x 8 Hz = 6400
     // builds/sec, each doing 20 inventory ModelMapper.map() calls before
     // throwing the inventory away. With the cache, each player is built
-    // ONCE per 8-Hz tick total. ~50× CPU win on the other-player broadcast
+    // ONCE per 8-Hz tick total. ~50x CPU win on the other-player broadcast
     // path during 40-player nexus scenarios.
     private transient Map<Long, UpdatePacket> tickStrippedUpdateCache;
 
@@ -944,7 +944,7 @@ public class Realm {
      * Grid-accelerated ObjectMovePacket construction (players + enemies only).
      * Uses the per-tick movement cache so 40 viewers in nexus only allocate
      * ~50 NetObjectMovement instances per tick total (one per visible
-     * entity), not 40×50 = 2000.
+     * entity), not 40x50 = 2000.
      */
     public ObjectMovePacket getGameObjectsAsPacketsCircularFast(Vector2f center, float radius) throws Exception {
         if (this.spatialGrid == null) {
