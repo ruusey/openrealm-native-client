@@ -2199,32 +2199,41 @@ public class PlayerUI {
             }
         } catch (Exception ignored) {}
 
-        // Layout: two stacked pills, vertically CENTERED alongside the
-        // 148-px-tall preview panel. Solid (alpha=1) backgrounds for full
-        // visibility — matches the webclient #difficulty-icon /
-        // #account-fame-display CSS values literally.
-        final float pillX = previewRightX + 8;
-        final float pillW = 130;
+        // Pre-measure text so pill widths actually FIT the content (FAME
+        // values can hit 6-7 digits, e.g. "99,022 FAME" overflowed the
+        // previous 130-px pill leaving the leading digit outside the chrome).
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(1.0f);
+        final GlyphLayout glDiff = new GlyphLayout();
+        final GlyphLayout glFame = new GlyphLayout();
+        final String diffStr = "DIFF " + String.format("%.1f", difficulty);
+        final String fameStr = String.format("%,d FAME", accountFame);
+        glDiff.setText(font, diffStr);
+        glFame.setText(font, fameStr);
+
+        // Per-pill width = text + 32 px horizontal padding (16 each side).
+        // Stack uses the WIDER of the two so both pills line up flush-right.
+        final float padX = 16f;
         final float pillH = 30;
         final float pillGap = 6;
+        final float pillW = Math.max(glDiff.width, glFame.width) + padX * 2;
         final float pillStackH = pillH * 2 + pillGap;
         final float previewH = 148; // panel.container.small at displayScale 2
+        final float pillX = previewRightX + 8;
         final float diffY = previewTopY + (previewH - pillStackH) / 2f;
         final float fameY = diffY + pillH + pillGap;
 
-        // Switch to ShapeRenderer for the pill backgrounds.
+        // ShapeRenderer pass — solid backgrounds matching the webclient
+        // #difficulty-icon / #account-fame-display CSS rgba values.
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // Difficulty pill — webclient rgba(180, 60, 60, 0.9). Solid red.
         shapes.setColor(180/255f, 60/255f, 60/255f, 1.0f);
         shapes.rect(pillX, diffY, pillW, pillH);
-        // Fame pill — webclient rgba(50, 38, 24, 0.92). Dark brown w/ gold border.
         shapes.setColor(50/255f, 38/255f, 24/255f, 1.0f);
         shapes.rect(pillX, fameY, pillW, pillH);
         shapes.end();
-        // Borders.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(160/255f, 64/255f, 64/255f, 1f);
         shapes.rect(pillX, diffY, pillW, pillH);
@@ -2234,24 +2243,20 @@ public class PlayerUI {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Pill text — use libGDX Align.center to guarantee horizontal
-        // centering regardless of how GlyphLayout measures the string,
-        // and a baseline computed from font.getCapHeight() for vertical
-        // centering.
-        final float origScale = font.getData().scaleX;
-        font.getData().setScale(1.0f);
-        final float baselineDiff = diffY + (pillH + font.getCapHeight()) / 2f;
-        final float baselineFame = fameY + (pillH + font.getCapHeight()) / 2f;
+        // Manual horizontal centering using the GlyphLayout we already
+        // computed — Align.center wasn't reliably centering for some font
+        // configurations. Vertical baseline = pill center + half-cap-height.
+        final float capH = font.getCapHeight();
+        final float diffTextX = pillX + (pillW - glDiff.width) / 2f;
+        final float fameTextX = pillX + (pillW - glFame.width) / 2f;
+        final float baselineDiff = diffY + (pillH + capH) / 2f;
+        final float baselineFame = fameY + (pillH + capH) / 2f;
 
         font.setColor(1f, 1f, 1f, 1f);
-        final String diffStr = "DIFF " + String.format("%.1f", difficulty);
-        font.draw(batch, diffStr, pillX, baselineDiff, pillW,
-                com.badlogic.gdx.utils.Align.center, false);
+        font.draw(batch, diffStr, diffTextX, baselineDiff);
 
         font.setColor(255/255f, 216/255f, 107/255f, 1f);
-        final String fameStr = String.format("%,d FAME", accountFame);
-        font.draw(batch, fameStr, pillX, baselineFame, pillW,
-                com.badlogic.gdx.utils.Align.center, false);
+        font.draw(batch, fameStr, fameTextX, baselineFame);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
