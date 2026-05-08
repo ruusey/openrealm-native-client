@@ -71,6 +71,13 @@ public class PlayerUI {
     private List<Button> nearbyPlayerButtons = new ArrayList<>();
     private List<Player> nearbyPlayerList = new ArrayList<>();
     private Player hoveredPlayer = null;
+    // Screen rect of the nearby-list button the pointer is currently on.
+    // Stored at hover-in so the tooltip lands flush next to that entry
+    // rather than at a fixed corner of the screen.
+    private int hoveredBtnX = 0;
+    private int hoveredBtnY = 0;
+    private int hoveredBtnW = 0;
+    private int hoveredBtnH = 0;
     private long lastNearbyRefresh = 0;
 
     // Click-context menu shown next to a nearby-player entry. Mirrors
@@ -317,43 +324,22 @@ public class PlayerUI {
             Button b = new Button(new Vector2f(x, y), SLOT_SIZE);
 
             b.onMouseUp(event -> {
-                // Don't allow picking up items from ground loot area during trade
                 if (this.isTrading) return;
                 if (this.isDragging) return;
                 this.activeTooltip = null;
-                if (this.canSwap()) {
-                    this.setActionTime();
-                    // HP/MP potions route into the potion counter slots on the
-                    // server (Player.HP_POTION_ITEM_ID / MP_POTION_ITEM_ID) and
-                    // never occupy a regular inventory slot — so the
-                    // "first-null inventory slot" precheck below would
-                    // incorrectly block pickup whenever the inventory was
-                    // full. Send the move directly with a sentinel target.
-                    final GameItem groundItem = item;
-                    if (groundItem != null
-                            && (groundItem.getItemId() == com.openrealm.game.entity.Player.HP_POTION_ITEM_ID
-                             || groundItem.getItemId() == com.openrealm.game.entity.Player.MP_POTION_ITEM_ID)) {
-                        try {
-                            // targetSlot == 0 is harmless here; the server's
-                            // ground-loot branch reads only fromIdx and the
-                            // pot itemId before routing to addHp/MpPotion.
-                            this.playState.getRealmManager().moveItem((byte) 4, actualIdx + 20, false, false);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                        return;
-                    }
-                    GameItem[] currentInv = this.playState.getPlayer().getSlots(4, 12);
-                    int idx = this.firstNullIdx(currentInv);
-                    Slots currentEquip = this.inventory[idx + 4];
-
-                    if ((currentEquip == null) && (idx > -1)) {
-                        try {
-                            this.playState.getRealmManager().moveItem(idx + 4, actualIdx + 20, false, false);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
+                if (!this.canSwap()) return;
+                this.setActionTime();
+                // Mirror webclient onSlotClick: just send moveItem with
+                // target=4 and let the server's ground-loot branch route
+                // it via firstEmptyInvSlot() — covers BAG 1 + BAG 2,
+                // potions, and stack merging. The previous client-side
+                // firstNullIdx only scanned slots 4..11 (BAG 1) and
+                // silently swallowed clicks whenever BAG 1 was full.
+                try {
+                    this.playState.getRealmManager().moveItem((byte) 4, actualIdx + 20, false, false);
+                } catch (Exception e) {
+                    log.warn("[loot-click] moveItem failed for slot {} item {}: {}",
+                            actualIdx, item != null ? item.getItemId() : -1, e.getMessage());
                 }
             });
             this.groundLoot[actualIdx] = new Slots(b, item);
@@ -1139,8 +1125,13 @@ public class PlayerUI {
             final int btnX = x;
             final int btnY = y;
             final int btnW = colWidth;
+            final int btnH2 = entryHeight;
             btn.onHoverIn(event -> {
                 this.hoveredPlayer = hoverTarget;
+                this.hoveredBtnX = btnX;
+                this.hoveredBtnY = btnY;
+                this.hoveredBtnW = btnW;
+                this.hoveredBtnH = btnH2;
             });
             btn.onHoverOut(event -> {
                 if (this.hoveredPlayer == hoverTarget) {
@@ -1234,9 +1225,9 @@ public class PlayerUI {
     }
 
     /** Width / height of the trade-tp context menu. Two rows of options
-     *  plus a name header. Kept small so it fits next to a 2-col nearby
-     *  list entry on a typical screen. */
-    private static final int CTX_MENU_W = 130;
+     *  plus a name header. Wide enough for "Teleport to <NAME>" with
+     *  a 10-char trimmed name (longest expected label). */
+    private static final int CTX_MENU_W = 180;
     private static final int CTX_MENU_HEADER_H = 22;
     private static final int CTX_MENU_OPTION_H = 22;
 
@@ -1276,8 +1267,11 @@ public class PlayerUI {
                 x + 6, yHeader + 14);
 
         font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
-        font.draw(batch, "Trade",    x + 6, yTrade + 14);
-        font.draw(batch, "Teleport", x + 6, yTp + 14);
+        final String pname = (p.getName() != null) ? p.getName() : "Player";
+        // Fit the name into the 130-px menu width by trimming if needed.
+        final String shortName = pname.length() > 10 ? pname.substring(0, 10) : pname;
+        font.draw(batch, "Trade with "    + shortName, x + 6, yTrade + 14);
+        font.draw(batch, "Teleport to "   + shortName, x + 6, yTp + 14);
         font.setColor(Color.WHITE);
     }
 
@@ -1344,15 +1338,11 @@ public class PlayerUI {
         if (this.hoveredPlayer == null) return;
 
         final Player p = this.hoveredPlayer;
-        final int panelW = OpenRealmGame.width / 5;
-        // Anchor the tooltip to the LEFT edge of the right HUD column so it
-        // doesn't fall over the player sprite or escape the screen on
-        // narrow windows. Mirrors the webclient #player-tooltip placement
-        // (just inside the HUD, above the nearby-player list it pops from).
-        final int tooltipW = panelW;
-        final int tooltipX = OpenRealmGame.width - panelW - tooltipW - 8;
-        final int tooltipY = this.layoutNearbyY - 168;
         final int padX = 8;
+        // Tooltip anchors to the hovered nearby-list entry: prefer right
+        // of the entry, flip to left if it would run off-screen (narrow
+        // windows). Webclient parity — see trade.js showPlayerTooltip.
+        final int tooltipW = 220;
 
         // Pull stats — guard nulls so a freshly-added remote player whose
         // UpdatePacket hasn't landed yet doesn't NPE.
@@ -1388,6 +1378,19 @@ public class PlayerUI {
         final int equipGap = 6;
         final int equipRowH = equipSlot + 8;
         final int tooltipH = (rowH * 4) + equipRowH + 16;
+        // Place the tooltip flush against the hovered nearby button.
+        // Prefer right of the button; if that would overflow the screen,
+        // place it to the left instead.
+        int tooltipX = this.hoveredBtnX + this.hoveredBtnW + 6;
+        if (tooltipX + tooltipW > OpenRealmGame.width - 4) {
+            tooltipX = Math.max(4, this.hoveredBtnX - tooltipW - 6);
+        }
+        // Vertically anchor near the row's top, but don't run off the
+        // bottom of the window.
+        int tooltipY = this.hoveredBtnY;
+        if (tooltipY + tooltipH > OpenRealmGame.height - 4) {
+            tooltipY = Math.max(4, OpenRealmGame.height - tooltipH - 4);
+        }
 
         // Background panel — match the webclient's tooltip palette.
         batch.end();
@@ -2118,19 +2121,23 @@ public class PlayerUI {
         final Stats computed = p.getComputedStats();
         final Stats base     = p.getStats();
         if (computed == null) return;
-        // Six non-HP/MP stats stacked in a SINGLE column, each rendered as
-        // "LBL VAL  +BONUS" inline. White label+value, green bonus when
-        // positive, red when negative. Mirrors webclient.
-        // Smaller font (0.6) + 13-px line height — the 0.85 scale was
-        // bleeding past the equip-slot columns and looked overly large
-        // for the cramped band between them.
+        // Six non-HP/MP stats laid out as 2 columns × 3 rows so each
+        // entry has horizontal room for "LBL VAL +BONUS" without
+        // bleeding past the panel edge. Yellow when maxed for class,
+        // green positive bonus / red negative — webclient parity.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.6f);
-        final int yOffset = 13;
-        final int textX   = startX;
+        final int rowH = 13;
+        final int colW = panelWidth / 2;
+        final int textXcol0 = startX;
+        final int textXcol1 = startX + colW;
         final int startY  = statsY + 12;
 
-        // Stat order: ATT, DEF, SPD, DEX, VIT, WIS — webclient parity.
+        // Stat order: ATT, DEF, SPD, DEX, VIT, WIS — same as before.
+        // Layout (column-major so left col = first 3, right col = last 3):
+        //   ATT   DEX
+        //   DEF   VIT
+        //   SPD   WIS
         final int[]    statMaxedIdx = {  3,    6,    4,    5,    2,    7  };
         final String[] statLabels   = { "ATT", "DEF", "SPD", "DEX", "VIT", "WIS" };
         final int[] computedVals = { computed.getAtt(), computed.getDef(),
@@ -2139,19 +2146,20 @@ public class PlayerUI {
         final int[] baseVals = (base != null)
                 ? new int[] { base.getAtt(), base.getDef(), base.getSpd(),
                               base.getDex(), base.getVit(), base.getWis() }
-                : computedVals; // fall back: no bonus shown if base missing
+                : computedVals;
 
         final GlyphLayout gl = new GlyphLayout();
         for (int i = 0; i < statLabels.length; i++) {
-            final int y = startY + yOffset * i;
+            final int col = i / 3;
+            final int row = i % 3;
+            final int textX = (col == 0) ? textXcol0 : textXcol1;
+            final int y = startY + rowH * row;
             final int compV = computedVals[i];
             final int baseV = baseVals[i];
             final int bonus = compV - baseV;
-            // Label + value (white, or gold if maxed).
             font.setColor(p.isStatMaxed(statMaxedIdx[i]) ? Color.YELLOW : Color.WHITE);
             final String main = statLabels[i] + " " + compV;
             font.draw(batch, main, textX, y);
-            // Bonus inline, color-coded.
             if (bonus != 0) {
                 gl.setText(font, main);
                 final float bonusX = textX + gl.width + 4;

@@ -311,17 +311,14 @@ public class PlayerChat {
                 if (rowsAccum >= maxRows) break;
             }
 
-            // Render oldest-of-picked first so newest ends up at the bottom.
-            // Y-flipped ortho: y=0 at top, msgBoxBottom > msgBoxTop. font.draw
-            // grows downward (increasing y) for multi-line layouts. We start
-            // the OLDEST message at the top edge of the block and walk DOWN
-            // by `rows * LINE_H` per message until the NEWEST sits at the
-            // bottom. The previous version used `-= rows * LINE_H`, which
-            // walked upward and stacked every message on the SAME line —
-            // that's why successive realm-load messages appeared as a single
-            // garbled blob.
-            final float blockTotalH = rowsAccum * LINE_H;
-            float topOfNextBlock = msgBoxBottom - TEXT_PAD_Y - blockTotalH + LINE_H;
+            // Anchor messages to the TOP of the box (console-style fill).
+            // First message lands at the top edge with new ones stacking
+            // below until the box is full; once full, the picked window
+            // slides forward (newest still wins) but stays anchored to
+            // the top so the visible block grows down from `msgBoxTop`,
+            // not up from `msgBoxBottom`. Y-flipped ortho: y increases
+            // downward, font.draw grows downward for multi-line layouts.
+            float topOfNextBlock = msgBoxTop + TEXT_PAD_Y + LINE_H;
             for (int idx = picked.size() - 1; idx >= 0; idx--) {
                 final TextPacket pkt = picked.get(idx);
                 final int rows = rowCounts.get(idx);
