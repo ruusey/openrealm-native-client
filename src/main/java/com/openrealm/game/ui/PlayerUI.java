@@ -1362,6 +1362,18 @@ public class PlayerUI {
         final int maxMp = (p.getStats() != null) ? p.getStats().getMp() : 0;
         final CharacterClass cls = CharacterClass.valueOf(p.getClassId());
         final String className = (cls != null) ? cls.name() : "Unknown";
+        // Level: derive from broadcast experience via the same
+        // ExperienceModel the local player level uses. UpdatePacket
+        // ships experience for every player so this resolves nearby
+        // players, not just self. Falls back to "?" if the experience
+        // model hasn't loaded yet (cold-boot only).
+        int level = -1;
+        try {
+            if (com.openrealm.game.data.GameDataManager.EXPERIENCE_LVLS != null) {
+                level = com.openrealm.game.data.GameDataManager.EXPERIENCE_LVLS.getLevel(p.getExperience());
+            }
+        } catch (Exception ignored) { /* leave as -1 */ }
+        final String levelStr = (level > 0) ? ("Lv " + level + " ") : "";
 
         // Equipment slots 0-3. Server's stripped UpdatePacket
         // (UpdatePacket.fromPlayerWithoutInventory) ships these for
@@ -1395,10 +1407,10 @@ public class PlayerUI {
         // Name (role-colored)
         font.setColor(roleColorFor(p.getChatRole()));
         font.draw(batch, p.getName() == null ? "Player" : p.getName(), tooltipX + padX, y);
-        // Class
+        // Level + class — webclient parity ("Lv 12 Wizard").
         y += rowH;
         font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
-        font.draw(batch, className, tooltipX + padX, y);
+        font.draw(batch, levelStr + className, tooltipX + padX, y);
         // HP (cur/max) — webclient parity. setColor mutated so reset to
         // white for the divider character.
         y += rowH;
