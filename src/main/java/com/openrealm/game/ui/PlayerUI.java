@@ -66,6 +66,16 @@ public class PlayerUI {
     private String tradePartnerName = null;
     private Button confirmTradeButton = null;
     private Button cancelTradeButton = null;
+    /** 8 click-targets that overlay the left (mine) grid in the trade
+     *  panel. Click toggles selection on inventory[4..11] — same path
+     *  the legacy right-click on the sidebar took, just routed through
+     *  the centered overlay so the trade UI is self-contained. */
+    private Button[] tradeMyButtons = null;
+    /** Local-only "I have hit Confirm" flag — the network types
+     *  (NetInventorySelection / NetTradeSelection) don't carry a
+     *  per-side confirmed bit, so we mirror the webclient pattern of
+     *  tracking it client-side and clearing on selection change. */
+    private boolean myTradeConfirmed = false;
 
     private Map<Integer, TextureRegion> classIconCache = new HashMap<>();
     private List<Button> nearbyPlayerButtons = new ArrayList<>();
@@ -301,6 +311,8 @@ public class PlayerUI {
         }
         this.confirmTradeButton = null;
         this.cancelTradeButton = null;
+        this.tradeMyButtons = null;
+        this.myTradeConfirmed = false;
     }
 
     public int getNonEmptySlotCount() {
@@ -510,6 +522,11 @@ public class PlayerUI {
             if (this.cancelTradeButton != null) {
                 this.cancelTradeButton.input(mouse, key);
             }
+            if (this.tradeMyButtons != null) {
+                for (Button b : this.tradeMyButtons) {
+                    if (b != null) b.input(mouse, key);
+                }
+            }
         }
 
         // Handle nearby player button input
@@ -608,23 +625,67 @@ public class PlayerUI {
         }
     }
 
-    private void ensureTradeButtons() {
-        if (this.confirmTradeButton != null && this.cancelTradeButton != null) return;
+    /** Lazy-construct the Confirm/Cancel buttons, then re-anchor them
+     *  to the supplied row coords each frame. Called from
+     *  {@link #renderTradeUI} so the buttons follow the centered overlay
+     *  on every resize. */
+    private void ensureTradeButtons(int overlayX, int overlayW, int rowY) {
+        final int btnW = 150;
+        final int btnH = 36;
+        final int gap  = 16;
+        final int totalBtnsW = btnW * 2 + gap;
+        final int btnX0 = overlayX + (overlayW - totalBtnsW) / 2;
+        final int btnX1 = btnX0 + btnW + gap;
+        if (this.confirmTradeButton == null) {
+            this.confirmTradeButton = new Button("CONFIRM", new Vector2f(btnX0, rowY), btnW, btnH);
+            this.confirmTradeButton.onMouseUp(event -> {
+                this.sendTradeCommand("confirm true");
+                this.myTradeConfirmed = true;
+            });
+        }
+        if (this.cancelTradeButton == null) {
+            this.cancelTradeButton = new Button("CANCEL", new Vector2f(btnX1, rowY), btnW, btnH);
+            this.cancelTradeButton.onMouseUp(event -> {
+                this.sendTradeCommand("decline");
+                this.myTradeConfirmed = false;
+            });
+        }
+        this.confirmTradeButton.getPos().x = btnX0;
+        this.confirmTradeButton.getPos().y = rowY;
+        this.cancelTradeButton.getPos().x = btnX1;
+        this.cancelTradeButton.getPos().y = rowY;
+    }
 
-        int panelWidth = (OpenRealmGame.width / 5);
-        int startX = OpenRealmGame.width - panelWidth;
-        int buttonWidth = (panelWidth / 2) - 8;
-        int buttonY = 790;
-
-        this.confirmTradeButton = new Button("CONFIRM", new Vector2f(startX + 4, buttonY), buttonWidth, 32);
-        this.confirmTradeButton.onMouseUp(event -> {
-            this.sendTradeCommand("confirm true");
-        });
-
-        this.cancelTradeButton = new Button("CANCEL", new Vector2f(startX + buttonWidth + 12, buttonY), buttonWidth, 32);
-        this.cancelTradeButton.onMouseUp(event -> {
-            this.sendTradeCommand("decline");
-        });
+    /** Lazy-construct the 8 click-targets that overlay my-side trade
+     *  cells. Click toggles selection on inventory[i + 4] and fires
+     *  UpdatePlayerTradeSelectionPacket. Position is updated each frame
+     *  by {@link #renderTradeUI}. */
+    private void ensureTradeMyButtons(int leftX, int bodyY, UiComponent cInv) {
+        if (this.tradeMyButtons != null && this.tradeMyButtons.length == 8) return;
+        this.tradeMyButtons = new Button[8];
+        final int s = UiAtlas.getDisplayScale();
+        final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
+        final int cellW = (cells != null && cells.length > 0) ? cells[0][2] * s : SLOT_SIZE;
+        for (int i = 0; i < 8; i++) {
+            final int slotIdx = i + 4;
+            final Button b = new Button(new Vector2f(0, 0), cellW);
+            b.onMouseUp(event -> {
+                if (!this.isTrading) return;
+                if (slotIdx >= this.inventory.length) return;
+                final Slots slot = this.inventory[slotIdx];
+                if (slot == null || slot.getItem() == null) return;
+                slot.setSelected(!slot.isSelected());
+                this.myTradeConfirmed = false; // any change voids prior confirm
+                final UpdatePlayerTradeSelectionPacket pkt =
+                        UpdatePlayerTradeSelectionPacket.fromSelection(this.playState.getPlayer(), this);
+                try {
+                    this.playState.getRealmManager().getClient().sendRemote(pkt);
+                } catch (Exception e) {
+                    log.warn("[trade-overlay] selection update failed: {}", e.getMessage());
+                }
+            });
+            this.tradeMyButtons[i] = b;
+        }
     }
 
     // Reusable position vectors for slot rendering to avoid per-frame allocations
@@ -996,78 +1057,194 @@ public class PlayerUI {
         PerfMetrics.get().onFrame();
     }
 
-    private void renderTradeUI(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, int startX, int panelWidth) {
-        this.ensureTradeButtons();
+    /**
+     * Centered trade overlay: two panel.hud.inv_only chromes stuck side
+     * by side with panel.container.inventory headers above each. Confirm
+     * and Cancel buttons sit underneath. Webclient parity with the
+     * #trade-overlay DOM block in trade.js.
+     *
+     * Left side  — MY items (inventory[4..11]); slots 0..7 of BAG 1 are
+     *              clickable to toggle trade selection.
+     * Right side — PARTNER items (currentTradeSelection.other); read-only.
+     */
+    private void renderTradeUI(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
+                                int startX, int panelWidth) {
+        if (!UiAtlas.isReady()) return;
+        final int s = UiAtlas.getDisplayScale();
+        final UiComponent cInv    = UiAtlas.componentOf("panel.hud.inv_only");
+        final UiComponent cInvHdr = UiAtlas.componentOf("panel.container.inventory");
+        if (cInv == null) return; // atlas not loaded — bail to avoid NPE
 
-        // Update ground loot with ALL of other player's items, marking selected ones
-        if (this.currentTradeSelection != null) {
-            NetInventorySelection otherSelection = this.getOtherPlayerSelection();
-            this.groundLoot = new Slots[8];
-            if (otherSelection != null && otherSelection.getItemRefs() != null) {
-                GameItem[] allItems = otherSelection.getGameItems();
-                Boolean[] selection = otherSelection.getSelection();
-                for (int i = 0; i < allItems.length && i < 8; i++) {
-                    GameItem item = allItems[i];
-                    if (item == null || item.getItemId() == -1) continue;
-                    this.buildGroundLootSlotButton(i, item);
-                    // Mark selected items so they render with yellow highlight
-                    if (this.groundLoot[i] != null && selection != null && i < selection.length
-                            && selection[i] != null && selection[i]) {
-                        this.groundLoot[i].setSelected(true);
-                    }
-                }
-            }
-        }
+        // ---- Layout — center the entire overlay on the screen. ----
+        final int panelW = cInv.getW() * s;                    // 240
+        final int panelH = cInv.getH() * s;                    // 254
+        final int hdrH   = cInvHdr != null ? cInvHdr.getH() * s : 36 * s;
+        final int gap    = 16;
+        final int btnH   = 36;
+        final int totalW = panelW * 2 + gap;
+        final int totalH = hdrH + 4 + panelH + gap + btnH;
+        final int ox = (OpenRealmGame.width  - totalW) / 2;
+        final int oy = (OpenRealmGame.height - totalH) / 2;
 
-        // Draw trade header
-        String header = "Trading with " + (this.tradePartnerName != null ? this.tradePartnerName : "...");
-        font.setColor(Color.GREEN);
-        font.draw(batch, header, startX + 4, 230);
+        final int leftX  = ox;
+        final int rightX = ox + panelW + gap;
+        final int hdrY   = oy;
+        final int bodyY  = hdrY + hdrH + 4;
+        final int btnY   = bodyY + panelH + gap;
 
-        // Draw "YOUR OFFER" label
-        font.setColor(Color.YELLOW);
-        font.draw(batch, "YOUR OFFER (right-click to select)", startX + 4, 440);
+        this.ensureTradeButtons(ox, totalW, btnY);
+        this.ensureTradeMyButtons(leftX, bodyY, cInv);
 
-        // Draw "THEIR OFFER" label - show partner's full inventory
-        String theirLabel = this.tradePartnerName != null
-                ? this.tradePartnerName + "'s ITEMS (selected = offered)"
-                : "THEIR ITEMS";
-        font.setColor(Color.CYAN);
-        font.draw(batch, theirLabel, startX + 4, 640);
-
-        // Render the other player's items in the ground loot area
-        Slots[] gl1 = Arrays.copyOfRange(this.groundLoot, 0, 4);
-        Slots[] gl2 = Arrays.copyOfRange(this.groundLoot, 4, 8);
-
-        for (int i = 0; i < gl1.length; i++) {
-            Slots curr = gl1[i];
-            if (curr != null) {
-                curr.render(batch, shapes, new Vector2f(startX + (i * 64), 650));
-            }
-        }
-
-        for (int i = 0; i < gl2.length; i++) {
-            Slots curr = gl2[i];
-            if (curr != null) {
-                curr.render(batch, shapes, new Vector2f(startX + (i * 64), 714));
-            }
-        }
-
-        // Draw Confirm and Cancel buttons
+        // ---- Dimmed backdrop. ----
         batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(Color.FOREST);
-        shapes.rect(this.confirmTradeButton.getPos().x, this.confirmTradeButton.getPos().y,
-                this.confirmTradeButton.getWidth(), this.confirmTradeButton.getHeight());
-        shapes.setColor(Color.FIREBRICK);
-        shapes.rect(this.cancelTradeButton.getPos().x, this.cancelTradeButton.getPos().y,
-                this.cancelTradeButton.getWidth(), this.cancelTradeButton.getHeight());
+        shapes.setColor(0, 0, 0, 0.55f);
+        shapes.rect(0, 0, OpenRealmGame.width, OpenRealmGame.height);
         shapes.end();
         batch.begin();
+
+        // ---- Sprite chrome blits — headers + bodies. ----
+        final TextureRegion rHdr  = (cInvHdr != null) ? UiAtlas.region("panel.container.inventory") : null;
+        final TextureRegion rBody = UiAtlas.region("panel.hud.inv_only");
+        if (rHdr != null) {
+            batch.draw(rHdr,  leftX,  hdrY, panelW, hdrH);
+            batch.draw(rHdr,  rightX, hdrY, panelW, hdrH);
+        } else {
+            // Fallback flat fill if the chrome region resolves but is empty.
+            batch.end();
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.95f);
+            shapes.rect(leftX,  hdrY, panelW, hdrH);
+            shapes.rect(rightX, hdrY, panelW, hdrH);
+            shapes.end();
+            batch.begin();
+        }
+        if (rBody != null) {
+            batch.draw(rBody, leftX,  bodyY, panelW, panelH);
+            batch.draw(rBody, rightX, bodyY, panelW, panelH);
+        }
+
+        // ---- Header text — names + status (role-colored own name,
+        //       cyan partner name, green when each side has confirmed). ----
+        final Player me = (this.playState != null) ? this.playState.getPlayer() : null;
+        final String myName    = (me != null && me.getName() != null) ? me.getName() : "YOU";
+        final String partner   = (this.tradePartnerName != null) ? this.tradePartnerName : "...";
+        final boolean iConfirmed = this.myTradeConfirmed;
+
+        font.setColor(roleColorFor(me != null ? me.getChatRole() : null));
+        font.draw(batch, myName, leftX + 12, hdrY + 22);
+        if (iConfirmed) {
+            font.setColor(0.25f, 0.78f, 0.35f, 1f);
+            font.draw(batch, "CONFIRMED", leftX + 12, hdrY + 40);
+        } else {
+            font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
+            font.draw(batch, "Picking...", leftX + 12, hdrY + 40);
+        }
+
+        font.setColor(0.40f, 0.78f, 0.88f, 1f);
+        font.draw(batch, partner, rightX + 12, hdrY + 22);
+        font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
+        font.draw(batch, "Trade in progress", rightX + 12, hdrY + 40);
         font.setColor(Color.WHITE);
-        font.draw(batch, "CONFIRM", this.confirmTradeButton.getPos().x + 8, this.confirmTradeButton.getPos().y + 22);
-        font.draw(batch, "CANCEL", this.cancelTradeButton.getPos().x + 12, this.cancelTradeButton.getPos().y + 22);
+
+        // ---- Slot grids — only the top 8 cells (BAG 1) are tradable. ----
+        final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
+        if (cells != null && cells.length >= 8) {
+            // My side
+            for (int i = 0; i < 8; i++) {
+                final int[] c = cells[i];
+                final float cx = leftX + (c[0] - cInv.getX()) * s;
+                final float cy = bodyY + (c[1] - cInv.getY()) * s;
+                final float cw = c[2] * s;
+                final float ch = c[3] * s;
+                final Slots slot = (i + 4 < this.inventory.length) ? this.inventory[i + 4] : null;
+                final GameItem item = (slot != null) ? slot.getItem() : null;
+                final boolean selected = slot != null && slot.isSelected();
+                this.drawTradeSlot(batch, shapes, cx, cy, cw, ch, item, selected);
+                // Re-anchor click target to overlay cell so a click on the
+                // overlay routes to the same toggle handler the sidebar
+                // right-click used.
+                if (this.tradeMyButtons != null && this.tradeMyButtons[i] != null) {
+                    this.tradeMyButtons[i].getPos().x = cx;
+                    this.tradeMyButtons[i].getPos().y = cy;
+                }
+            }
+            // Partner side
+            final NetInventorySelection theirSel = this.getOtherPlayerSelection();
+            final GameItem[] theirItems = (theirSel != null) ? theirSel.getGameItems() : null;
+            final Boolean[] theirFlags  = (theirSel != null) ? theirSel.getSelection() : null;
+            for (int i = 0; i < 8; i++) {
+                final int[] c = cells[i];
+                final float cx = rightX + (c[0] - cInv.getX()) * s;
+                final float cy = bodyY  + (c[1] - cInv.getY()) * s;
+                final float cw = c[2] * s;
+                final float ch = c[3] * s;
+                final GameItem item = (theirItems != null && i + 4 < theirItems.length) ? theirItems[i + 4] : null;
+                final boolean sel = (theirFlags != null && i + 4 < theirFlags.length
+                                      && theirFlags[i + 4] != null) ? theirFlags[i + 4] : false;
+                this.drawTradeSlot(batch, shapes, cx, cy, cw, ch, item, sel);
+            }
+        }
+
+        // ---- Confirm + Cancel buttons. ----
+        this.drawTradeButton(batch, shapes, font, this.confirmTradeButton,
+                iConfirmed ? "CONFIRMED ✓" : "CONFIRM",
+                iConfirmed ? new Color(0.18f, 0.55f, 0.23f, 1f)
+                            : new Color(0.25f, 0.78f, 0.35f, 1f));
+        this.drawTradeButton(batch, shapes, font, this.cancelTradeButton,
+                "CANCEL", new Color(0.78f, 0.27f, 0.27f, 1f));
+        Gdx.gl.glDisable(GL20.GL_BLEND);
     }
+
+    /** Render a single trade-overlay slot: optional yellow selection
+     *  border + recessed background + item icon. Centralized so my-side
+     *  and partner-side render identically. */
+    private void drawTradeSlot(SpriteBatch batch, ShapeRenderer shapes,
+                                float x, float y, float w, float h,
+                                GameItem item, boolean selected) {
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0x0e / 255f, 0x0a / 255f, 0x0c / 255f, 0.85f);
+        shapes.rect(x, y, w, h);
+        shapes.end();
+        if (selected) {
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            shapes.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+            shapes.rect(x, y, w, h);
+            shapes.rect(x + 1, y + 1, w - 2, h - 2);
+            shapes.end();
+        }
+        batch.begin();
+        if (item != null && item.getItemId() != -1) {
+            final TextureRegion icon = GameSpriteManager.ITEM_SPRITES.get(item.getItemId());
+            if (icon != null) {
+                batch.draw(icon, x + 4, y + 4, w - 8, h - 8);
+            }
+        }
+    }
+
+    private void drawTradeButton(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
+                                  Button b, String label, Color bg) {
+        if (b == null) return;
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(bg);
+        shapes.rect(b.getPos().x, b.getPos().y, b.getWidth(), b.getHeight());
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0, 0, 0, 0.8f);
+        shapes.rect(b.getPos().x, b.getPos().y, b.getWidth(), b.getHeight());
+        shapes.end();
+        batch.begin();
+        final GlyphLayout gl = new GlyphLayout(font, label);
+        font.setColor(Color.WHITE);
+        font.draw(batch, label,
+                b.getPos().x + (b.getWidth()  - gl.width)  / 2f,
+                b.getPos().y + (b.getHeight() + gl.height) / 2f);
+    }
+
 
     private TextureRegion getClassIcon(int classId) {
         TextureRegion cached = this.classIconCache.get(classId);
