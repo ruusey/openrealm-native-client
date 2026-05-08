@@ -2245,20 +2245,21 @@ public class PlayerUI {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Manual horizontal centering using the GlyphLayout we already
-        // computed — Align.center wasn't reliably centering for some font
-        // configurations. Vertical baseline = pill center + half-cap-height.
-        final float capH = font.getCapHeight();
+        // Manual centering. font.draw with the project's y-DOWN ortho camera
+        // takes (x, y) as the TOP-LEFT of the text bounding box — NOT the
+        // baseline. Previous attempts treated y as the baseline, which
+        // shoved both pill labels to the bottom edge of their pills.
+        // Vertical center = pillY + (pillH - textHeight) / 2.
         final float diffTextX = pillX + (pillW - glDiff.width) / 2f;
         final float fameTextX = pillX + (pillW - glFame.width) / 2f;
-        final float baselineDiff = diffY + (pillH + capH) / 2f;
-        final float baselineFame = fameY + (pillH + capH) / 2f;
+        final float diffTextY = diffY + (pillH - glDiff.height) / 2f;
+        final float fameTextY = fameY + (pillH - glFame.height) / 2f;
 
         font.setColor(1f, 1f, 1f, 1f);
-        font.draw(batch, diffStr, diffTextX, baselineDiff);
+        font.draw(batch, diffStr, diffTextX, diffTextY);
 
         font.setColor(255/255f, 216/255f, 107/255f, 1f);
-        font.draw(batch, fameStr, fameTextX, baselineFame);
+        font.draw(batch, fameStr, fameTextX, fameTextY);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
