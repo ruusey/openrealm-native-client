@@ -1948,13 +1948,12 @@ public class PlayerUI {
         // a clear gap so the name's descender doesn't kiss the HP bar.
         final int barX = (int)(spriteX + spriteCell + 10);
         final int barW = (int)(previewX + smallW - barX - previewPad);
-        final int barH = 14;
-        final int barTop = (int)(previewY + 36);
-        // 14-px bars + 2-px gap = 16-px stride keeps 3 bars + name in the
-        // 148-px panel comfortably (16 + 18 + 16*3 = 82 px total content).
-        if (this.hp != null) { this.hp.getPos().x = barX; this.hp.getPos().y = barTop;       this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
-        if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barTop + 16;  this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
-        if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barTop + 32;  this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
+        final int barH = 22;            // thicker so HP/MP/Fame text has padding
+        final int barStride = barH + 4; // 4-px gap between bars
+        final int barTop = (int)(previewY + 28);
+        if (this.hp != null) { this.hp.getPos().x = barX; this.hp.getPos().y = barTop;                 this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
+        if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barTop + barStride;     this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
+        if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barTop + barStride * 2; this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -2187,50 +2186,61 @@ public class PlayerUI {
             }
         } catch (Exception ignored) {}
 
-        // Layout: stacked pills at previewRight + 8 px gap.
+        // Layout: two stacked pills, vertically CENTERED alongside the
+        // 148-px-tall preview panel. Solid (alpha=1) backgrounds for full
+        // visibility — matches the webclient #difficulty-icon /
+        // #account-fame-display CSS values literally.
         final float pillX = previewRightX + 8;
-        final float pillW = 110;
-        final float pillH = 24;
-        final float diffY = previewTopY + 4;
-        final float fameY = diffY + pillH + 6;
+        final float pillW = 130;
+        final float pillH = 30;
+        final float pillGap = 6;
+        final float pillStackH = pillH * 2 + pillGap;
+        final float previewH = 148; // panel.container.small at displayScale 2
+        final float diffY = previewTopY + (previewH - pillStackH) / 2f;
+        final float fameY = diffY + pillH + pillGap;
 
         // Switch to ShapeRenderer for the pill backgrounds.
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // Green pill — webclient #difficulty-icon background (~#2d4a30)
-        shapes.setColor(0.18f, 0.30f, 0.20f, 1f);
+        // Difficulty pill — webclient rgba(180, 60, 60, 0.9). Solid red.
+        shapes.setColor(180/255f, 60/255f, 60/255f, 1.0f);
         shapes.rect(pillX, diffY, pillW, pillH);
-        // Gold pill — webclient #account-fame-display tan-on-dark
-        shapes.setColor(0.10f, 0.07f, 0.04f, 1f);
+        // Fame pill — webclient rgba(50, 38, 24, 0.92). Dark brown w/ gold border.
+        shapes.setColor(50/255f, 38/255f, 24/255f, 1.0f);
         shapes.rect(pillX, fameY, pillW, pillH);
         shapes.end();
-        // 1-px gold border on the fame pill
+        // Borders.
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.78f, 0.66f, 0.43f, 1f);
+        shapes.setColor(160/255f, 64/255f, 64/255f, 1f);
+        shapes.rect(pillX, diffY, pillW, pillH);
+        shapes.setColor(200/255f, 168/255f, 110/255f, 1f);
         shapes.rect(pillX, fameY, pillW, pillH);
         shapes.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Pill text — centered vertically within each pill.
+        // Pill text — geometrically centered both horizontally + vertically.
         final float origScale = font.getData().scaleX;
-        font.getData().setScale(0.9f);
-        font.setColor(0.65f, 1.00f, 0.50f, 1f); // bright green
-        final String diffStr = "☠ " + String.format("%.1f", difficulty);
-        final GlyphLayout gl = new GlyphLayout(font, diffStr);
-        font.draw(batch, diffStr, pillX + (pillW - gl.width) / 2f,
-                diffY + (pillH + gl.height) / 2f - 2);
+        font.getData().setScale(1.0f);
+        final GlyphLayout gl = new GlyphLayout();
 
-        // Fame value formatted with thousands separators (matches webclient
-        // "99,022 FAME"). No leading sign — that confused the previous
-        // version into reading "+ 0 FAME" when the cache hadn't loaded.
-        font.setColor(0.95f, 0.83f, 0.42f, 1f);
+        // Difficulty: white text, "☠ 1.0" on red.
+        font.setColor(1f, 1f, 1f, 1f);
+        final String diffStr = "DIFF " + String.format("%.1f", difficulty);
+        gl.setText(font, diffStr);
+        font.draw(batch, diffStr,
+                pillX + (pillW - gl.width) / 2f,
+                diffY + pillH / 2f + gl.height / 2f);
+
+        // Fame: gold text, "99,022 FAME" on dark.
+        font.setColor(255/255f, 216/255f, 107/255f, 1f);
         final String fameStr = String.format("%,d FAME", accountFame);
         gl.setText(font, fameStr);
-        font.draw(batch, fameStr, pillX + (pillW - gl.width) / 2f,
-                fameY + (pillH + gl.height) / 2f - 2);
+        font.draw(batch, fameStr,
+                pillX + (pillW - gl.width) / 2f,
+                fameY + pillH / 2f + gl.height / 2f);
 
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
