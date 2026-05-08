@@ -1474,9 +1474,9 @@ public class PlayState extends GameState {
             this.renderDebugTileOverlay(batch, shapes, font, player);
         }
 
-        font.setColor(Color.WHITE);
-        String fps = this.lastFrames + " FPS";
-        font.draw(batch, fps, 6 * 32, 32);
+        // FPS overlay removed — was overlapping with the new sprite-HUD's
+        // top-left preview panel (player name + bars). Re-enable behind a
+        // debug flag if needed.
     }
 
     private void renderDebugTileOverlay(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, Player player) {

@@ -2099,33 +2099,31 @@ public class PlayerUI {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         final Stats stats = this.playState.getPlayer().getComputedStats();
         if (stats == null) return;
-        // 0.75 scale + 11 px line height: legible (the font goes blurry
-        // below ~0.7) and tight enough that 4 rows × 2 columns fit inside
-        // the ~112×56 px band between the equip-ring columns at scale=2.
+        // Six non-HP/MP stats stacked in a SINGLE column. HP and MP are
+        // already shown as bars in the preview panel, so duplicating them
+        // here just wasted space and made the values overlap. 0.85 scale
+        // is comfortably readable; line height 11 fits 6 rows in ~66 px.
         final float origScale = font.getData().scaleX;
-        font.getData().setScale(0.75f);
+        font.getData().setScale(0.85f);
         final int yOffset = 11;
-        final int colGap  = panelWidth / 2;
         final int textX   = startX;
         final int startY  = statsY + 12;
+        final Player p = this.playState.getPlayer();
 
-        font.setColor(this.playState.getPlayer().isStatMaxed(0) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "HP  " + stats.getHp(), textX, startY);
-        font.setColor(this.playState.getPlayer().isStatMaxed(1) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "MP  " + stats.getMp(), textX, startY + yOffset);
-        font.setColor(this.playState.getPlayer().isStatMaxed(3) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "ATT " + stats.getAtt(), textX, startY + yOffset * 2);
-        font.setColor(this.playState.getPlayer().isStatMaxed(4) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "SPD " + stats.getSpd(), textX, startY + yOffset * 3);
+        // isStatMaxed indices: 0=HP 1=MP 2=VIT 3=ATT 4=SPD 5=DEX 6=DEF 7=WIS
+        font.setColor(p.isStatMaxed(3) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "ATT " + stats.getAtt(), textX, startY);
+        font.setColor(p.isStatMaxed(6) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "DEF " + stats.getDef(), textX, startY + yOffset);
+        font.setColor(p.isStatMaxed(4) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "SPD " + stats.getSpd(), textX, startY + yOffset * 2);
+        font.setColor(p.isStatMaxed(5) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "DEX " + stats.getDex(), textX, startY + yOffset * 3);
+        font.setColor(p.isStatMaxed(2) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "VIT " + stats.getVit(), textX, startY + yOffset * 4);
+        font.setColor(p.isStatMaxed(7) ? Color.YELLOW : Color.WHITE);
+        font.draw(batch, "WIS " + stats.getWis(), textX, startY + yOffset * 5);
 
-        font.setColor(this.playState.getPlayer().isStatMaxed(2) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "VIT " + stats.getVit(), textX + colGap, startY);
-        font.setColor(this.playState.getPlayer().isStatMaxed(6) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "DEF " + stats.getDef(), textX + colGap, startY + yOffset);
-        font.setColor(this.playState.getPlayer().isStatMaxed(5) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "DEX " + stats.getDex(), textX + colGap, startY + yOffset * 2);
-        font.setColor(this.playState.getPlayer().isStatMaxed(7) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "WIS " + stats.getWis(), textX + colGap, startY + yOffset * 3);
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
     }
