@@ -1774,14 +1774,16 @@ public class PlayerUI {
         final int H = OpenRealmGame.height;
         final int margin = 16;
 
-        final UiComponent cMinimap = UiAtlas.componentOf("panel.container.large");
-        final UiComponent cSmall   = UiAtlas.componentOf("panel.container.small");
+        // Minimap + chat both use the LARGE container. Single lookup so the
+        // two can't drift out of sync.
         final UiComponent cLarge   = UiAtlas.componentOf("panel.container.large");
+        final UiComponent cSmall   = UiAtlas.componentOf("panel.container.small");
         final UiComponent cMain    = UiAtlas.componentOf("panel.hud.main");
         final UiComponent cInvExt  = UiAtlas.componentOf("panel.hud.inv_ext");
         final UiComponent cHotbar  = UiAtlas.componentOf("panel.hud.equipment");
         final UiComponent cPotion  = UiAtlas.componentOf("panel.hud.potion");
         if (cMain == null || cSmall == null || cLarge == null) return;
+        final UiComponent cMinimap = cLarge;
 
         // ---- Compute panel screen positions ----
         // New layout:
@@ -1799,8 +1801,11 @@ public class PlayerUI {
         final float mainX = W - margin - mainW;
 
         // RIGHT column: minimap pinned to the top-right; main inventory below.
-        final float minimapW = cMinimap != null ? cMinimap.getW() * s : 0;
-        final float minimapH = cMinimap != null ? cMinimap.getH() * s : 0;
+        // cMinimap == cLarge here so it's always non-null after the early
+        // return above; left as direct field accesses (no null-fallback) so
+        // mainY can't accidentally collapse to the top of the screen.
+        final float minimapW = cMinimap.getW() * s;
+        final float minimapH = cMinimap.getH() * s;
         final float minimapX = W - margin - minimapW;
         final float minimapY = margin;
         final float mainY = minimapY + minimapH + 8;
