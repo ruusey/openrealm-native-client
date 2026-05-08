@@ -1774,55 +1774,69 @@ public class PlayerUI {
         final int H = OpenRealmGame.height;
         final int margin = 16;
 
-        // Minimap + chat both use the LARGE container. Single lookup so the
-        // two can't drift out of sync.
-        final UiComponent cLarge   = UiAtlas.componentOf("panel.container.large");
-        final UiComponent cSmall   = UiAtlas.componentOf("panel.container.small");
-        final UiComponent cMain    = UiAtlas.componentOf("panel.hud.main");
-        final UiComponent cInvExt  = UiAtlas.componentOf("panel.hud.inv_ext");
-        final UiComponent cHotbar  = UiAtlas.componentOf("panel.hud.equipment");
-        final UiComponent cPotion  = UiAtlas.componentOf("panel.hud.potion");
-        if (cMain == null || cSmall == null || cLarge == null) return;
-        final UiComponent cMinimap = cLarge;
+        // Component lookups for the new dedicated panels. Names mirror the
+        // atlas component IDs exactly:
+        //   panel.hud.player_info        — class sprite + name + HP/MP/Fame bars
+        //   panel.hud.chat               — chat with dedicated text_area + input_box rects
+        //   panel.hud.equipment_with_stats — 4 equip slots + 8-stat grid
+        //   panel.hud.inv_only           — 4×4 inventory grid
+        //   panel.hud.inv_ext            — 4×2 ground-loot grid (conditional)
+        //   panel.hud.equipment          — bottom-center equipment hotbar
+        //   panel.hud.potion ×2          — HP / MP potion ovals
+        //   panel.container.small        — minimap chrome
+        final UiComponent cPlayerInfo = UiAtlas.componentOf("panel.hud.player_info");
+        final UiComponent cChat       = UiAtlas.componentOf("panel.hud.chat");
+        final UiComponent cEquipStats = UiAtlas.componentOf("panel.hud.equipment_with_stats");
+        final UiComponent cInvOnly    = UiAtlas.componentOf("panel.hud.inv_only");
+        final UiComponent cMinimap    = UiAtlas.componentOf("panel.container.small");
+        final UiComponent cNearby     = UiAtlas.componentOf("panel.container.small");
+        final UiComponent cInvExt     = UiAtlas.componentOf("panel.hud.inv_ext");
+        final UiComponent cHotbar     = UiAtlas.componentOf("panel.hud.equipment");
+        final UiComponent cPotion     = UiAtlas.componentOf("panel.hud.potion");
+        if (cPlayerInfo == null || cChat == null || cEquipStats == null
+                || cInvOnly == null || cMinimap == null) return;
 
         // ---- Compute panel screen positions ----
-        // New layout:
-        //   LEFT  : [preview+bars] - [nearby players] - [chat] (top-down)
-        //   RIGHT : [minimap]      - [main inventory] - [loot ext] (top-down)
-        // The player sprite preview lives in the LEFT preview panel; the
-        // stats list lives inside main.player (the viewport rect that
-        // previously held the sprite). Minimap moved from top-left to
-        // top-right above the inventory.
-        final float smallW = cSmall.getW() * s;
-        final float smallH = cSmall.getH() * s;
+        // LEFT  : playerInfo (top) → chat (bottom-anchored)
+        // RIGHT : minimap → equipStats → invOnly → invExt (top-down)
+        // BOT   : hotbar with potion ovals flanking
+        final float playerInfoW = cPlayerInfo.getW() * s;
+        final float playerInfoH = cPlayerInfo.getH() * s;
+        final float playerInfoX = margin;
+        final float playerInfoY = margin;
 
-        final float mainW = cMain.getW() * s;
-        final float mainH = cMain.getH() * s;
-        final float mainX = W - margin - mainW;
+        // Nearby-players panel sits BETWEEN playerInfo (top) and chat (bottom)
+        // on the left column. Uses panel.container.small chrome.
+        final float nearbyW = cNearby != null ? cNearby.getW() * s : 0;
+        final float nearbyH = cNearby != null ? cNearby.getH() * s : 0;
+        final float nearbyX = margin;
+        final float nearbyY = playerInfoY + playerInfoH + 8;
 
-        // RIGHT column: minimap pinned to the top-right; main inventory below.
-        // cMinimap == cLarge here so it's always non-null after the early
-        // return above; left as direct field accesses (no null-fallback) so
-        // mainY can't accidentally collapse to the top of the screen.
+        final float chatW = cChat.getW() * s;
+        final float chatH = cChat.getH() * s;
+        final float chatX = margin;
+        final float chatY = H - margin - chatH;
+
         final float minimapW = cMinimap.getW() * s;
         final float minimapH = cMinimap.getH() * s;
         final float minimapX = W - margin - minimapW;
         final float minimapY = margin;
-        final float mainY = minimapY + minimapH + 8;
 
-        // LEFT column: preview chrome at top, nearby panel below. Each uses
-        // panel.container.small for chrome — same width as the right-column
-        // mini-panels so the layout reads as paired columns.
-        final float previewX = margin;
-        final float previewY = margin;
-        final float nearbyX  = margin;
-        final float nearbyY  = previewY + smallH + 8;
+        final float equipStatsW = cEquipStats.getW() * s;
+        final float equipStatsH = cEquipStats.getH() * s;
+        final float equipStatsX = W - margin - equipStatsW;
+        final float equipStatsY = minimapY + minimapH + 8;
+
+        final float invOnlyW = cInvOnly.getW() * s;
+        final float invOnlyH = cInvOnly.getH() * s;
+        final float invOnlyX = W - margin - invOnlyW;
+        final float invOnlyY = equipStatsY + equipStatsH + 8;
 
         final boolean lootVisible = !this.isGroundLootEmpty();
         final float invExtW = cInvExt != null ? cInvExt.getW() * s : 0;
         final float invExtH = cInvExt != null ? cInvExt.getH() * s : 0;
         final float invExtX = W - margin - invExtW;
-        final float invExtY = mainY + mainH + 4;
+        final float invExtY = invOnlyY + invOnlyH + 4;
 
         final float hotbarW = cHotbar != null ? cHotbar.getW() * s : 0;
         final float hotbarH = cHotbar != null ? cHotbar.getH() * s : 0;
@@ -1836,86 +1850,69 @@ public class PlayerUI {
         final float mpPotX = hotbarX + hotbarW + 8;
         final float mpPotY = hpPotY;
 
-        // Chat uses the LARGE container, anchored bottom-left underneath the
-        // nearby panel.
-        final float largeW = cLarge.getW() * s;
-        final float largeH = cLarge.getH() * s;
-        final float chatX = margin;
-        final float chatY = H - margin - largeH;
-
         // ---- Pass 1: panel chrome (atlas blits) ----
-        final TextureRegion rMinimap = UiAtlas.region("panel.container.large");
-        final TextureRegion rSmall   = UiAtlas.region("panel.container.small");
-        final TextureRegion rMain    = UiAtlas.region("panel.hud.main");
-        final TextureRegion rInvExt  = UiAtlas.region("panel.hud.inv_ext");
-        final TextureRegion rHotbar  = UiAtlas.region("panel.hud.equipment");
-        final TextureRegion rPotion  = UiAtlas.region("panel.hud.potion");
+        final TextureRegion rPlayerInfo = UiAtlas.region("panel.hud.player_info");
+        final TextureRegion rChat       = UiAtlas.region("panel.hud.chat");
+        final TextureRegion rMinimap    = UiAtlas.region("panel.container.small");
+        final TextureRegion rEquipStats = UiAtlas.region("panel.hud.equipment_with_stats");
+        final TextureRegion rInvOnly    = UiAtlas.region("panel.hud.inv_only");
+        final TextureRegion rInvExt     = UiAtlas.region("panel.hud.inv_ext");
+        final TextureRegion rHotbar     = UiAtlas.region("panel.hud.equipment");
+        final TextureRegion rPotion     = UiAtlas.region("panel.hud.potion");
 
-        if (rMinimap != null) batch.draw(rMinimap, minimapX, minimapY, minimapW, minimapH);
-        if (rSmall   != null) {
-            batch.draw(rSmall, previewX, previewY, smallW, smallH); // preview + bars
-            batch.draw(rSmall, nearbyX,  nearbyY,  smallW, smallH); // nearby players
-        }
-        // Chat uses the LARGE container chrome — but only when chat is
-        // expanded. Collapsed → the entire panel disappears (PlayerChat
-        // keeps just the toggle button visible so the player can reopen).
-        final boolean chatExpanded = (this.playerChat != null) && !this.playerChat.isCollapsed();
-        if (rMinimap != null && chatExpanded) batch.draw(rMinimap, chatX, chatY, largeW, largeH);
-        if (rMain != null) batch.draw(rMain, mainX, mainY, mainW, mainH);
+        if (rPlayerInfo != null) batch.draw(rPlayerInfo, playerInfoX, playerInfoY, playerInfoW, playerInfoH);
+        // Nearby-players panel chrome (small container, between playerInfo and chat).
+        final TextureRegion rNearby = UiAtlas.region("panel.container.small");
+        if (rNearby != null && cNearby != null) batch.draw(rNearby, nearbyX, nearbyY, nearbyW, nearbyH);
+        if (rMinimap    != null) batch.draw(rMinimap,    minimapX,    minimapY,    minimapW,    minimapH);
+        if (rEquipStats != null) batch.draw(rEquipStats, equipStatsX, equipStatsY, equipStatsW, equipStatsH);
+        if (rInvOnly    != null) batch.draw(rInvOnly,    invOnlyX,    invOnlyY,    invOnlyW,    invOnlyH);
         if (lootVisible && rInvExt != null) batch.draw(rInvExt, invExtX, invExtY, invExtW, invExtH);
-        if (rHotbar != null) batch.draw(rHotbar, hotbarX, hotbarY, hotbarW, hotbarH);
+        if (rHotbar     != null) batch.draw(rHotbar,     hotbarX,     hotbarY,     hotbarW,     hotbarH);
         if (rPotion != null) {
             batch.draw(rPotion, hpPotX, hpPotY, potionW, potionH);
             batch.draw(rPotion, mpPotX, mpPotY, potionW, potionH);
         }
+        // Chat chrome — only when chat is expanded.
+        final boolean chatExpanded = (this.playerChat != null) && !this.playerChat.isCollapsed();
+        if (rChat != null && chatExpanded) batch.draw(rChat, chatX, chatY, chatW, chatH);
 
-        // ---- Pass 2: player class sprite (LEFT preview panel) ----
-        // Sprite hugs the left edge of the preview chrome; name + bars stack
-        // to its right. Layout mirrors the example image: small character
-        // portrait, label+bars column to the right.
-        final int previewPad = 10;
-        final int spriteCell = (int) Math.min(smallH - previewPad * 2, 64);
-        final float spriteX = previewX + previewPad;
-        final float spriteY = previewY + (smallH - spriteCell) / 2f;
-        if (this.playState != null && this.playState.getPlayer() != null) {
+        // ---- Pass 2: player class sprite into player_info.player rect ----
+        final UiComponent rPlayerSprite = UiAtlas.componentOf("panel.hud.player_info.player");
+        if (rPlayerSprite != null && this.playState != null && this.playState.getPlayer() != null) {
+            final float vx = playerInfoX + (rPlayerSprite.getX() - cPlayerInfo.getX()) * s;
+            final float vy = playerInfoY + (rPlayerSprite.getY() - cPlayerInfo.getY()) * s;
+            final float vw = rPlayerSprite.getW() * s;
+            final float vh = rPlayerSprite.getH() * s;
             final Color prev = batch.getColor();
             batch.setColor(Color.WHITE);
             try {
-                final Player p = this.playState.getPlayer();
-                // Use the class's STATIC idle_front frame from animations data
-                // — NOT the live spritesheet's current frame, which would
-                // mirror the player's in-world walk/attack animation in
-                // the HUD. Falls back to getCurrentFrame() if anim data
-                // hasn't loaded yet.
-                final TextureRegion frame = this.getHudIdleFrame(p);
+                final TextureRegion frame = this.getHudIdleFrame(this.playState.getPlayer());
                 if (frame != null && frame.getRegionWidth() > 0) {
-                    batch.draw(frame, spriteX, spriteY, spriteCell, spriteCell);
+                    final float spriteSize = Math.min(vw, vh) * 0.85f;
+                    batch.draw(frame, vx + (vw - spriteSize) / 2f, vy + (vh - spriteSize) / 2f,
+                            spriteSize, spriteSize);
                 }
             } catch (Exception ignore) { /* sprite sheet not ready yet */ }
             batch.setColor(prev);
         }
 
-        // ---- Pass 3: inventory + equipment slots — items rendered AND
-        //              backing Buttons repositioned so click/drag hits land here.
-        // Equipment ring (panel.hud.main.equip.0..3) — inventory[0..3].
-        // No flips, no shifts — children render at their JSON-defined
-        // positions relative to the panel chrome.
+        // ---- Pass 3: equipment slots (panel.hud.equipment_with_stats.0..3)
+        //              + inventory grid (panel.hud.inv_only.grid). ----
         for (int i = 0; i < 4; i++) {
-            final UiComponent eq = UiAtlas.componentOf("panel.hud.main.equip." + i);
+            final UiComponent eq = UiAtlas.componentOf("panel.hud.equipment_with_stats." + i);
             if (eq == null) continue;
-            final float ex = mainX + (eq.getX() - cMain.getX()) * s;
-            final float ey = mainY + (eq.getY() - cMain.getY()) * s;
+            final float ex = equipStatsX + (eq.getX() - cEquipStats.getX()) * s;
+            final float ey = equipStatsY + (eq.getY() - cEquipStats.getY()) * s;
             this.repositionSlotButton(this.inventory, i, ex, ey);
             this.drawHudItemIcon(batch, this.getInventoryItem(i),
                     ex, ey, eq.getW() * s, eq.getH() * s);
         }
-
-        // 4×4 main inventory grid — inventory[4..19].
-        final int[][] cells = UiAtlas.gridCells("panel.hud.main.grid");
+        final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
         for (int i = 0; i < cells.length; i++) {
             final int[] cell = cells[i];
-            final float cx = mainX + (cell[0] - cMain.getX()) * s;
-            final float cy = mainY + (cell[1] - cMain.getY()) * s;
+            final float cx = invOnlyX + (cell[0] - cInvOnly.getX()) * s;
+            final float cy = invOnlyY + (cell[1] - cInvOnly.getY()) * s;
             this.repositionSlotButton(this.inventory, 4 + i, cx, cy);
             this.drawHudItemIcon(batch, this.getInventoryItem(4 + i),
                     cx, cy, cell[2] * s, cell[3] * s);
@@ -1947,18 +1944,29 @@ public class PlayerUI {
             }
         }
 
-        // ---- Pass 4: HP / MP / XP bars in the LEFT preview panel ----
-        // Bars stack to the right of the player sprite. Name occupies the
-        // top ~18 px of that column, then bars start at previewY+36 with
-        // a clear gap so the name's descender doesn't kiss the HP bar.
-        final int barX = (int)(spriteX + spriteCell + 10);
-        final int barW = (int)(previewX + smallW - barX - previewPad);
-        final int barH = 22;            // thicker so HP/MP/Fame text has padding
-        final int barStride = barH + 4; // 4-px gap between bars
-        final int barTop = (int)(previewY + 38);  // pushed down so name+level have a clear gap above the HP bar
-        if (this.hp != null) { this.hp.getPos().x = barX; this.hp.getPos().y = barTop;                 this.hp.setBarWidth(barW); this.hp.setBarHeight(barH); }
-        if (this.mp != null) { this.mp.getPos().x = barX; this.mp.getPos().y = barTop + barStride;     this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
-        if (this.xp != null) { this.xp.getPos().x = barX; this.xp.getPos().y = barTop + barStride * 2; this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
+        // ---- Pass 4: HP / MP / Fame bars positioned at their dedicated
+        //              atlas rects inside panel.hud.player_info. ----
+        final UiComponent rHpRect   = UiAtlas.componentOf("panel.hud.player_info.hp");
+        final UiComponent rMpRect   = UiAtlas.componentOf("panel.hud.player_info.mp");
+        final UiComponent rFameRect = UiAtlas.componentOf("panel.hud.player_info.fame");
+        if (this.hp != null && rHpRect != null) {
+            this.hp.getPos().x   = playerInfoX + (rHpRect.getX() - cPlayerInfo.getX()) * s;
+            this.hp.getPos().y   = playerInfoY + (rHpRect.getY() - cPlayerInfo.getY()) * s;
+            this.hp.setBarWidth ((int)(rHpRect.getW() * s));
+            this.hp.setBarHeight((int)(rHpRect.getH() * s));
+        }
+        if (this.mp != null && rMpRect != null) {
+            this.mp.getPos().x   = playerInfoX + (rMpRect.getX() - cPlayerInfo.getX()) * s;
+            this.mp.getPos().y   = playerInfoY + (rMpRect.getY() - cPlayerInfo.getY()) * s;
+            this.mp.setBarWidth ((int)(rMpRect.getW() * s));
+            this.mp.setBarHeight((int)(rMpRect.getH() * s));
+        }
+        if (this.xp != null && rFameRect != null) {
+            this.xp.getPos().x   = playerInfoX + (rFameRect.getX() - cPlayerInfo.getX()) * s;
+            this.xp.getPos().y   = playerInfoY + (rFameRect.getY() - cPlayerInfo.getY()) * s;
+            this.xp.setBarWidth ((int)(rFameRect.getW() * s));
+            this.xp.setBarHeight((int)(rFameRect.getH() * s));
+        }
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -1973,76 +1981,57 @@ public class PlayerUI {
         if (this.mp != null) this.mp.renderText(batch, font);
         if (this.xp != null) this.xp.renderText(batch, font);
 
-        // ---- Pass 5: name + level (top of LEFT preview panel),
-        //              8-stat grid inside main.player viewport (RIGHT) ----
-        if (this.playState != null && this.playState.getPlayer() != null) {
-            font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent
+        // ---- Pass 5: name + level into player_info.player_name rect,
+        //              8-stat grid into equipment_with_stats.stats rect. ----
+        final UiComponent rNameRect = UiAtlas.componentOf("panel.hud.player_info.player_name");
+        if (rNameRect != null && this.playState != null && this.playState.getPlayer() != null) {
+            final float nx = playerInfoX + (rNameRect.getX() - cPlayerInfo.getX()) * s;
+            final float ny = playerInfoY + (rNameRect.getY() - cPlayerInfo.getY()) * s;
             String nameLine = this.playState.getPlayer().getName() != null
-                    ? this.playState.getPlayer().getName()
-                    : "Player";
+                    ? this.playState.getPlayer().getName() : "Player";
             int lvl = 1;
             try { lvl = GameDataManager.EXPERIENCE_LVLS.getLevel(this.playState.getPlayer().getExperience()); }
             catch (Exception ignore) { /* xp data not yet loaded */ }
-            // Anchor name to the TOP of the preview panel (well above
-            // barTop=previewY+36) so the text's descender doesn't overlap
-            // the HP bar. Smaller scale so a long name + level fits in the
-            // ~140-px column to the right of the sprite.
             final float origNameScale = font.getData().scaleX;
-            font.getData().setScale(0.85f);
-            // Name baseline at previewY+14 so the descender clears the
-            // HP bar (top at previewY+38) by ~10 px instead of touching it.
-            font.draw(batch, nameLine + "  Lv " + lvl, barX, previewY + 14);
-            font.getData().setScale(origNameScale);
+            font.getData().setScale(0.95f);
+            font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent
+            font.draw(batch, nameLine + "  Lv " + lvl, nx + 4, ny + 4);
             font.setColor(Color.WHITE);
+            font.getData().setScale(origNameScale);
         }
-        // Stats grid lives in the band between the LEFT and RIGHT equip-ring
-        // columns at the top of panel.hud.main — wider than the cramped
-        // 96-px player viewport, so 2-column "ATT 60 / DEF 56" text actually
-        // fits without overflow.
-        final UiComponent eqNW = UiAtlas.componentOf("panel.hud.main.equip.0");
-        final UiComponent eqNE = UiAtlas.componentOf("panel.hud.main.equip.1");
-        final UiComponent eqSW = UiAtlas.componentOf("panel.hud.main.equip.2");
-        if (eqNW != null && eqNE != null && eqSW != null) {
-            final float statsX = mainX + (eqNW.getX() + eqNW.getW() - cMain.getX()) * s + 4;
-            final float statsRight = mainX + (eqNE.getX() - cMain.getX()) * s - 4;
-            final float statsY = mainY + (eqNW.getY() - cMain.getY()) * s;
-            this.renderStatsAt(batch, font, (int) statsX,
-                    (int) (statsRight - statsX), (int) statsY);
+        final UiComponent rStatsRect = UiAtlas.componentOf("panel.hud.equipment_with_stats.stats");
+        if (rStatsRect != null) {
+            final float statsX = equipStatsX + (rStatsRect.getX() - cEquipStats.getX()) * s;
+            final float statsY = equipStatsY + (rStatsRect.getY() - cEquipStats.getY()) * s;
+            final float statsW = rStatsRect.getW() * s;
+            this.renderStatsAt(batch, font, (int) statsX, (int) statsW, (int) statsY);
         }
-
-        // ---- Pass 5b: difficulty + account fame badges (pill style,
-        //               webclient parity) to the RIGHT of the preview. ----
-        this.renderBadgesNextToPreview(batch, shapes, font,
-                previewX + smallW, previewY);
 
         // ---- Pass 6: potion icons + counts inside the oval panels ----
         this.drawPotionWidget(batch, font, hpPotX, hpPotY, potionW, potionH, true);
         this.drawPotionWidget(batch, font, mpPotX, mpPotY, potionW, potionH, false);
 
-        // ---- Pass 7: minimap into panel.container.large (top-RIGHT) ----
+        // ---- Pass 7: minimap into panel.container.small (top-RIGHT) ----
         if (this.minimap != null) {
-            final int mmInset = 12;
+            final int mmInset = 8;
             final int mmSize = (int) Math.min(minimapW - mmInset * 2, minimapH - mmInset * 2);
             this.minimap.setLayout((int)(minimapX + mmInset), (int)(minimapY + mmInset), Math.max(32, mmSize));
         }
 
-        // ---- Pass 8: chat into the bottom-left large panel ----
-        // Pass the FULL chrome rect (no inset) so chat content fills the
-        // container edge-to-edge — the panel.container.large sprite has
-        // its own visible border, no need for an extra padding ring.
+        // ---- Pass 8: chat layout — full panel.hud.chat rect; PlayerChat's
+        //              internal layout splits into messages + input. ----
         if (this.playerChat != null) {
-            this.playerChat.setLayout(
-                (int) chatX, (int) chatY,
-                (int) largeW, (int) largeH);
+            this.playerChat.setLayout((int) chatX, (int) chatY, (int) chatW, (int) chatH);
         }
 
-        // ---- Pass 9: nearby players panel coords (rendered later in
-        //              the main render path so its hover tooltip can layer
-        //              over earlier passes). ----
+        // Nearby-players list re-routed into its dedicated bottom-left
+        // panel.container.small. renderNearbyPlayers reads layoutNearbyY
+        // for the section header — set those fields so it lands inside
+        // the right rect.
         this.spriteHudNearbyX = (int)(nearbyX + 8);
-        this.spriteHudNearbyW = (int)(smallW - 16);
+        this.spriteHudNearbyW = (int)(nearbyW - 16);
         this.spriteHudNearbyY = (int)(nearbyY + 8);
-        this.spriteHudNearbyEnabled = true;
+        this.spriteHudNearbyEnabled = (cNearby != null);
     }
 
     // Sprite HUD — nearby panel position passed to renderNearbyPlayers().
