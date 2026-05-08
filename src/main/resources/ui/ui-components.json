@@ -1,0 +1,143 @@
+{
+  "sheet": "Open_Realm_User_Interface_V1.png",
+  "displayScale": 2,
+  "iconScale": 2,
+  "contentInset": 4,
+  "components": [
+    {
+      "id": "panel.hud.equipment",
+      "x": 0,
+      "y": 0,
+      "w": 120,
+      "h": 36
+    },
+    {
+      "id": "panel.hud.main",
+      "x": 0,
+      "y": 41,
+      "w": 120,
+      "h": 202
+    },
+    {
+      "id": "panel.hud.potion",
+      "x": 256,
+      "y": 0,
+      "w": 34,
+      "h": 16
+    },
+    {
+      "id": "panel.container.small",
+      "x": 257,
+      "y": 256,
+      "w": 119,
+      "h": 74
+    },
+    {
+      "id": "panel.container.large",
+      "x": 256,
+      "y": 120,
+      "w": 120,
+      "h": 130
+    },
+    {
+      "id": "panel.hud.minimap",
+      "x": 383,
+      "y": 31,
+      "w": 48,
+      "h": 48
+    },
+    {
+      "id": "panel.container.inventory",
+      "x": 136,
+      "y": 0,
+      "w": 120,
+      "h": 36
+    },
+    {
+      "id": "panel.hud.equipment.grid",
+      "x": 4,
+      "y": 4,
+      "w": 112,
+      "h": 28,
+      "cols": 4,
+      "rows": 1,
+      "cellW": 28,
+      "cellH": 28,
+      "spacing": 0
+    },
+    {
+      "id": "panel.hud.main.player",
+      "x": 36,
+      "y": 60,
+      "w": 48,
+      "h": 48
+    },
+    {
+      "id": "panel.hud.main.equip.0",
+      "x": 6,
+      "y": 56,
+      "w": 28,
+      "h": 28
+    },
+    {
+      "id": "panel.hud.main.equip.1",
+      "x": 86,
+      "y": 56,
+      "w": 28,
+      "h": 28
+    },
+    {
+      "id": "panel.hud.main.equip.2",
+      "x": 6,
+      "y": 84,
+      "w": 28,
+      "h": 28
+    },
+    {
+      "id": "panel.hud.main.equip.3",
+      "x": 86,
+      "y": 84,
+      "w": 28,
+      "h": 28
+    },
+    {
+      "id": "panel.hud.main.grid",
+      "x": 4,
+      "y": 127,
+      "w": 112,
+      "h": 112,
+      "cols": 4,
+      "rows": 4,
+      "cellW": 28,
+      "cellH": 28,
+      "spacing": 0
+    },
+    {
+      "id": "panel.hud.inv_ext",
+      "x": 1,
+      "y": 447,
+      "w": 118,
+      "h": 75
+    },
+    {
+      "id": "panel.hud.inv_ext.grid",
+      "x": 4,
+      "y": 462,
+      "w": 112,
+      "h": 56,
+      "cols": 4,
+      "rows": 2,
+      "cellW": 28,
+      "cellH": 28,
+      "spacing": 0
+    },
+    {
+      "id": "panel.hud.potion.slot",
+      "x": 267,
+      "y": 2,
+      "w": 14,
+      "h": 12
+    }
+  ],
+  "layouts": []
+}

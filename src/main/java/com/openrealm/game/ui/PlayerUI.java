@@ -41,6 +41,9 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.openrealm.game.entity.Portal;
 import com.openrealm.game.model.PortalModel;
+import com.openrealm.game.ui.atlas.UiAtlas;
+import com.openrealm.game.ui.atlas.UiComponent;
+import com.openrealm.game.graphics.SpriteRecolorCache;
 
 @Data
 @Slf4j
@@ -215,8 +218,15 @@ public class PlayerUI {
     public void setEquipment(GameItem[] loot) {
         this.inventory = new Slots[20];
 
-        GameItem[] equipmentArr = Arrays.copyOfRange(loot, 0, 4);
-        GameItem[] inventoryArr = Arrays.copyOfRange(loot, 4, 12);
+        // Load all 20 slots (4 equipment + 16 inventory). Previously truncated
+        // to slots 4..11 because the legacy HUD uses bag tabs to view 4..11
+        // and 12..19 separately; the new sprite HUD shows all 16 in one 4×4
+        // grid (panel.hud.main.grid). Bounds-check loot.length for older
+        // servers that send a shorter payload.
+        final int equipEnd = Math.min(4, loot.length);
+        final int invEnd   = Math.min(20, loot.length);
+        GameItem[] equipmentArr = Arrays.copyOfRange(loot, 0, equipEnd);
+        GameItem[] inventoryArr = invEnd > 4 ? Arrays.copyOfRange(loot, 4, invEnd) : new GameItem[0];
 
         this.buildEquipmentSlots(equipmentArr);
         this.buildInventorySlots(inventoryArr);
@@ -953,6 +963,12 @@ public class PlayerUI {
                 log.warn("Minimap render failed (recovering): {}", t.toString());
             }
         }
+
+        // Sprite-based HUD prototype — draws the new panel.hud.main and its
+        // children from the UI atlas. Renders ALONGSIDE the legacy sidebar
+        // during migration so it can be validated visually before the old
+        // HUD is removed (step 2 of the sprite-HUD migration).
+        this.renderSpriteHud(batch);
 
         // Web-parity overlays render last so they sit on top of the HUD.
         // Each one is a no-op when its `visible` / `active` flag is false.
@@ -1703,5 +1719,110 @@ public class PlayerUI {
         font.setColor(this.playState.getPlayer().isStatMaxed(7) ? Color.YELLOW : Color.WHITE);
         font.draw(batch, "WIS " + stats.getWis(), textX + colGap, startY + (2 * yOffset));
         font.setColor(Color.WHITE);
+    }
+
+    // ===================================================================
+    // Sprite HUD prototype (panel.hud.main only, for visual validation).
+    // ===================================================================
+
+    /**
+     * Renders the new sprite-based HUD panel (panel.hud.main) at a fixed
+     * screen position so it can be validated visually side-by-side with
+     * the legacy sidebar HUD. Includes:
+     *   - panel chrome (single atlas blit)
+     *   - 4 equipment slots framing the player view (inventory[0..3])
+     *   - 4×4 inventory grid (inventory[4..19], all 16 cells, no bag tabs)
+     *   - live player class sprite in the center viewport
+     *
+     * Coordinate system: PlayerUI uses Y-down (camera setToOrtho yDown=true),
+     * so child sheet-Y offsets translate directly to screen-Y. The displayScale
+     * field on the atlas (=2) multiplies sheet pixels into screen pixels
+     * everywhere here.
+     */
+    private void renderSpriteHud(SpriteBatch batch) {
+        if (!UiAtlas.isReady()) return;
+        final UiComponent panel = UiAtlas.componentOf("panel.hud.main");
+        if (panel == null) return;
+        final int s = UiAtlas.getDisplayScale();
+
+        // Position: center-left of the screen, top-anchored. Avoids the
+        // legacy right sidebar HUD so both can be seen simultaneously.
+        // Final placement (right-side) gets locked in by the layout JSON
+        // in step 3 of the migration; this hardcode is intentional.
+        final float panelW = panel.getW() * s;
+        final float panelH = panel.getH() * s;
+        final float sx = 16f;
+        final float sy = 16f;
+
+        // 1. Panel chrome — one atlas blit covers the equip ring + grid bg.
+        final TextureRegion panelRegion = UiAtlas.region("panel.hud.main");
+        if (panelRegion != null) batch.draw(panelRegion, sx, sy, panelW, panelH);
+
+        // 2. Player class sprite, centered in panel.hud.main.player viewport.
+        final UiComponent playerView = UiAtlas.componentOf("panel.hud.main.player");
+        if (playerView != null && this.playState != null && this.playState.getPlayer() != null) {
+            final float vx = sx + (playerView.getX() - panel.getX()) * s;
+            final float vy = sy + (playerView.getY() - panel.getY()) * s;
+            final float vw = playerView.getW() * s;
+            final float vh = playerView.getH() * s;
+            try {
+                final TextureRegion frame = this.playState.getPlayer().getSpriteSheet().getCurrentFrame();
+                if (frame != null) {
+                    // Render at 64×64 (matches in-world player size: BASE_TILE_SIZE
+                    // * WORLD_SCALE = 32*2). Centered inside the viewport.
+                    final float spriteSize = 64f;
+                    batch.draw(frame, vx + (vw - spriteSize) / 2f, vy + (vh - spriteSize) / 2f,
+                            spriteSize, spriteSize);
+                }
+            } catch (Exception ignore) { /* sprite sheet not ready yet */ }
+        }
+
+        // 3. Equipment ring — inventory[0..3] mirrored from the eventual
+        // bottom-center hotbar, drawn at the four corner anchors around
+        // the player viewport.
+        for (int i = 0; i < 4; i++) {
+            final UiComponent eq = UiAtlas.componentOf("panel.hud.main.equip." + i);
+            if (eq == null) continue;
+            final float ex = sx + (eq.getX() - panel.getX()) * s;
+            final float ey = sy + (eq.getY() - panel.getY()) * s;
+            this.drawHudItemIcon(batch, this.getInventoryItem(i),
+                    ex, ey, eq.getW() * s, eq.getH() * s);
+        }
+
+        // 4. 4×4 inventory grid — inventory[4..19], one cell per slot.
+        final int[][] cells = UiAtlas.gridCells("panel.hud.main.grid");
+        for (int i = 0; i < cells.length; i++) {
+            final int[] cell = cells[i];
+            final float cx = sx + (cell[0] - panel.getX()) * s;
+            final float cy = sy + (cell[1] - panel.getY()) * s;
+            this.drawHudItemIcon(batch, this.getInventoryItem(4 + i),
+                    cx, cy, cell[2] * s, cell[3] * s);
+        }
+    }
+
+    /** Inventory accessor that handles both slot-list and direct backing
+     *  array shapes. Returns null for empty / out-of-range. */
+    private GameItem getInventoryItem(int idx) {
+        if (this.inventory == null || idx < 0 || idx >= this.inventory.length) return null;
+        final Slots slot = this.inventory[idx];
+        if (slot == null) return null;
+        return slot.getItem();
+    }
+
+    /** Centered item icon at iconScale × source-size (32×32 for 8px sprites).
+     *  Mirrors {@link Slots#renderItem} so per-item enchant overlays still
+     *  show up. No-op when the cell is empty. */
+    private void drawHudItemIcon(SpriteBatch batch, GameItem item,
+                                  float x, float y, float w, float h) {
+        if (item == null || item.getItemId() == -1) return;
+        if (item.getSpriteKey() == null) {
+            GameDataManager.loadSpriteModel(item);
+        }
+        TextureRegion icon = SpriteRecolorCache.getEnchantedItemRegion(item);
+        if (icon == null) icon = GameSpriteManager.ITEM_SPRITES.get(item.getItemId());
+        if (icon == null) return;
+        // 8px source × iconScale(2) × displayScale(2) = 32px on screen.
+        final float iconSize = 8f * UiAtlas.getIconScale() * UiAtlas.getDisplayScale();
+        batch.draw(icon, x + (w - iconSize) / 2f, y + (h - iconSize) / 2f, iconSize, iconSize);
     }
 }

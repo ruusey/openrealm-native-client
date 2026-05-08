@@ -532,6 +532,10 @@ public class GameDataManager {
 				GameDataManager.log.error("Failed to load class masks remotely ({}); trying local fallback", e.getMessage());
 				try { GameDataManager.loadClassMasks(false); } catch (Exception e2) { GameDataManager.log.error("Local class-masks fallback failed: {}", e2.getMessage()); }
 			} },
+			() -> { try { com.openrealm.game.ui.atlas.UiAtlas.load(loadRemote); } catch (Exception e) {
+				GameDataManager.log.error("Failed to load UI atlas remotely ({}); trying local fallback", e.getMessage());
+				try { com.openrealm.game.ui.atlas.UiAtlas.load(false); } catch (Exception e2) { GameDataManager.log.error("Local UI atlas fallback failed: {}", e2.getMessage()); }
+			} },
 		};
 		for (Runnable loader : loaders) {
 			loader.run();
