@@ -2170,7 +2170,15 @@ public class PlayerUI {
                                             float previewRightX, float previewTopY) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         final Player p = this.playState.getPlayer();
-        final long accountFame = p.getCachedAccountFame();
+        // Account fame: Player.cachedAccountFame is only populated on the
+        // initial join packet — it falls to 0 after a realm transition.
+        // FameStoreWindow.accountFame is updated whenever the store opens,
+        // which is more reliable, so prefer that when non-zero.
+        long accountFame = p.getCachedAccountFame();
+        if (accountFame == 0L && this.fameStoreWindow != null
+                && this.fameStoreWindow.getAccountFame() > 0L) {
+            accountFame = this.fameStoreWindow.getAccountFame();
+        }
         float difficulty = 1.0f;
         try {
             if (this.playState.getRealmManager() != null
@@ -2215,8 +2223,11 @@ public class PlayerUI {
         font.draw(batch, diffStr, pillX + (pillW - gl.width) / 2f,
                 diffY + (pillH + gl.height) / 2f - 2);
 
+        // Fame value formatted with thousands separators (matches webclient
+        // "99,022 FAME"). No leading sign — that confused the previous
+        // version into reading "+ 0 FAME" when the cache hadn't loaded.
         font.setColor(0.95f, 0.83f, 0.42f, 1f);
-        final String fameStr = "+ " + accountFame + " FAME";
+        final String fameStr = String.format("%,d FAME", accountFame);
         gl.setText(font, fameStr);
         font.draw(batch, fameStr, pillX + (pillW - gl.width) / 2f,
                 fameY + (pillH + gl.height) / 2f - 2);
