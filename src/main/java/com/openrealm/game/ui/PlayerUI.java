@@ -144,6 +144,10 @@ public class PlayerUI {
     private int contextMenuX = 0;
     private int contextMenuY = 0;
     private boolean prevContextMenuMouseDown = false;
+    /** Edge-trigger flag for the loot-pickup click diagnostic log so we
+     *  print bounds + mouse pos exactly once per click cycle (on the
+     *  press transition), not every frame the button is held. */
+    private boolean prevLootDebugMouseDown = false;
 
     private int dragSourceIndex = -1;
     private boolean isDragging = false;
@@ -298,11 +302,40 @@ public class PlayerUI {
         if (this.isTrading && this.currentTradeSelection != null) {
             loot = this.getOtherPlayerSelectedItems();
         }
-        this.groundLoot = new Slots[8];
-        for (int i = 0; i < loot.length; i++) {
-            GameItem item = loot[i];
-            if (item == null || item.getItemId() == -1) continue;
-            this.buildGroundLootSlotButton(i, item);
+        // CRITICAL: only REBUILD a slot's Button if that slot transitioned
+        // from empty→item or item→empty. For an item-id change in an
+        // existing slot, swap the Slots' item field but keep the same
+        // Button instance (which has its sprite-HUD position from the
+        // previous render's repositionSlotButton). Rebuilding every
+        // call wiped the sprite-HUD positions back to legacy slotX()/
+        // groundLootRowY() — those legacy coords sit OFF-SCREEN on the
+        // new HUD layout, so Button.bounds.inside() never matched the
+        // user's click on the visible bag and NO loot click ever fired.
+        // Webclient parity: createSlot rebuilds DOM nodes, but the DOM
+        // is positioned by CSS so layout is never lost on rebuild.
+        if (this.groundLoot == null || this.groundLoot.length != 8) {
+            this.groundLoot = new Slots[8];
+        }
+        for (int i = 0; i < this.groundLoot.length; i++) {
+            final GameItem item = (i < loot.length) ? loot[i] : null;
+            final boolean isEmpty = (item == null || item.getItemId() == -1);
+            final Slots existing = this.groundLoot[i];
+            if (isEmpty) {
+                this.groundLoot[i] = null;
+            } else if (existing == null) {
+                // Empty -> populated: build a fresh Button (will be
+                // repositioned by renderSpriteHud on the next render
+                // tick). The first click on the FIRST frame after
+                // building may still miss because input runs before
+                // render — this is unavoidable for a freshly-spawned
+                // bag and only affects the very first click.
+                this.buildGroundLootSlotButton(i, item);
+            } else {
+                // Populated -> populated (same slot, possibly different
+                // item or stack count): swap the item field and keep
+                // the existing Button + handler + position.
+                existing.setItem(item);
+            }
         }
     }
 
@@ -391,11 +424,30 @@ public class PlayerUI {
         this.recomputeLayout();
         if (item != null) {
             final int actualIdx = index;
-            final int row = (index > 3) ? 1 : 0;
-            final int col = (index > 3) ? index - 4 : index;
-            final int x = this.slotX(col);
-            final int y = this.groundLootRowY(row);
+            // Try to position the new Button directly at its sprite-HUD
+            // grid cell so the FIRST click after a fresh loot bag spawn
+            // doesn't miss (input runs before render — the legacy
+            // slotX()/groundLootRowY() seed put the bounds off-screen
+            // until renderSpriteHud could reposition). Falls back to
+            // the legacy coords if the atlas hasn't loaded yet.
+            int x = this.slotX((index > 3) ? index - 4 : index);
+            int y = this.groundLootRowY((index > 3) ? 1 : 0);
+            try {
+                if (UiAtlas.isReady()) {
+                    final UiComponent cInvExt = UiAtlas.componentOf("panel.hud.inv_ext");
+                    final int[][] cells = UiAtlas.gridCells("panel.hud.inv_ext.grid");
+                    if (cInvExt != null && cells != null && index < cells.length
+                            && this.spriteHudInvExtX > 0 && this.spriteHudInvExtY > 0) {
+                        final int s = UiAtlas.getDisplayScale();
+                        final int[] cell = cells[index];
+                        x = (int)(this.spriteHudInvExtX + (cell[0] - cInvExt.getX()) * s);
+                        y = (int)(this.spriteHudInvExtY + (cell[1] - cInvExt.getY()) * s);
+                    }
+                }
+            } catch (Exception ignored) { /* fall through to legacy coords */ }
             Button b = new Button(new Vector2f(x, y), SLOT_SIZE);
+            log.info("[loot-build] slot={} itemId={} pos=({}, {}) size={}",
+                    actualIdx, item.getItemId(), x, y, SLOT_SIZE);
 
             b.onMouseUp(event -> {
                 // Always log entry so a missing log makes it obvious the
@@ -604,9 +656,23 @@ public class PlayerUI {
             }
         }
 
+        // Debug-log loot slot bounds whenever the LEFT mouse JUST went
+        // down (not held) — surfaces 'click went here, button is at
+        // these coords' so we can see why a click on a visible loot
+        // bag isn't reaching the handler.
+        final boolean lootDebugLogThisFrame = mouse.isPressed(1) && !this.prevLootDebugMouseDown;
+        this.prevLootDebugMouseDown = mouse.isPressed(1);
         for (int i = 0; i < this.groundLoot.length; i++) {
             Slots curr = this.groundLoot[i];
             if (curr != null) {
+                if (lootDebugLogThisFrame && curr.getButton() != null) {
+                    final var bnd = curr.getButton().getBounds();
+                    log.info("[loot-input] slot={} mouse=({}, {}) bounds=({}, {}, {}x{}) inside={}",
+                            i, mouse.getX(), mouse.getY(),
+                            (int) bnd.getPos().x, (int) bnd.getPos().y,
+                            (int) bnd.getWidth(), (int) bnd.getHeight(),
+                            bnd.inside(mouse.getX(), mouse.getY()));
+                }
                 curr.input(mouse, key);
             }
         }
@@ -2355,6 +2421,15 @@ public class PlayerUI {
                     cx, cy, cell[2] * s, cell[3] * s);
         }
 
+        // Cache loot panel coords so buildGroundLootSlotButton can
+        // spawn freshly-built Buttons directly at the sprite-HUD
+        // grid position (instead of the off-screen legacy coords
+        // that dropped every first-click).
+        if (cInvExt != null) {
+            this.spriteHudInvExtX = (int) invExtX;
+            this.spriteHudInvExtY = (int) invExtY;
+        }
+
         // Loot extension (panel.hud.inv_ext) — 8 ground-loot slots when present.
         if (lootVisible && cInvExt != null) {
             final int[][] lootCells = UiAtlas.gridCells("panel.hud.inv_ext.grid");
@@ -2465,6 +2540,12 @@ public class PlayerUI {
     private int spriteHudNearbyX = 0;
     private int spriteHudNearbyY = 0;
     private int spriteHudNearbyW = 0;
+    /** Cached sprite-HUD inv_ext (loot bag) panel coords — used by
+     *  buildGroundLootSlotButton so the new Button's bounds are
+     *  spawned at the correct sprite-HUD position from frame 1
+     *  instead of the legacy off-screen slotX/groundLootRowY. */
+    private int spriteHudInvExtX = 0;
+    private int spriteHudInvExtY = 0;
     private int spriteHudNearbyPanelRight = 0; // outer chrome right edge — tooltip anchors here
     private int spriteHudNearbyPanelTop = 0;
     private int spriteHudNearbyPanelBottom = 0;

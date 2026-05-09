@@ -1682,7 +1682,17 @@ public class PlayState extends GameState {
     }
 
     /** True if the loot container's current items differ in count, item
-     *  id, or stack count from the cached groundLoot UI snapshot. */
+     *  id, or stack count from the cached groundLoot UI snapshot.
+     *  IMPORTANT: setGroundLoot skips items where item==null OR itemId==-1
+     *  (the empty-slot sentinel), so the UI snapshot has null Slots in
+     *  those positions. The diff MUST treat both representations as
+     *  equivalent — otherwise it returns true every frame, setGroundLoot
+     *  is called every render, and the freshly-built Buttons reset to
+     *  legacy positions BEFORE the next input tick reads their bounds.
+     *  Result: the user clicks the visible (sprite-HUD-positioned) bag
+     *  but the bounds are still at the off-screen legacy coords from
+     *  the rebuild — every click misses, no handler ever fires.
+     *  This was the actual cause of 'loot pickup never works'. */
     private boolean lootDiffersFromUI(LootContainer closeLoot) {
         final com.openrealm.game.ui.Slots[] uiSlots = this.getPui().getGroundLoot();
         final GameItem[] lcItems = closeLoot.getItems();
@@ -1690,7 +1700,11 @@ public class PlayState extends GameState {
         final int n = Math.min(uiSlots.length, lcItems.length);
         for (int i = 0; i < n; i++) {
             final GameItem ui  = (uiSlots[i] != null) ? uiSlots[i].getItem() : null;
-            final GameItem src = lcItems[i];
+            final GameItem srcRaw = lcItems[i];
+            // Treat itemId==-1 as the empty sentinel so it lines up with
+            // setGroundLoot's empty-slot skip.
+            final GameItem src = (srcRaw == null || srcRaw.getItemId() == -1)
+                    ? null : srcRaw;
             if (ui == null && src == null) continue;
             if (ui == null || src == null) return true;
             if (ui.getItemId() != src.getItemId()) return true;
