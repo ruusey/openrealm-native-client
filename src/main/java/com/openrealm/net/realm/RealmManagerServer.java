@@ -2277,13 +2277,11 @@ public class RealmManagerServer implements Runnable {
 			int maxHealth = (int) (model.getHealth() * e.getDifficulty());
 			e.setHealthpercent((float) e.getHealth() / (float) maxHealth);
 			// Pierce: bows, quivers and stun shields pass through any number of
-			// enemies, hitting each one once (hasHitEnemy de-dups). Without the
-			// flag, the existing rule still applies — first enemy hit keeps the
-			// bullet alive (one extra pierce), subsequent hits remove it.
+			// enemies, hitting each one once (hasHitEnemy de-dups). Anything
+			// without the flag (rogue daggers, wizard staves, etc.) dies on
+			// first hit, matching webclient game.js (_consumed = true; break).
 			if (b.hasFlag(ProjectileFlag.PASS_THROUGH_ENEMIES)) {
 				if (!b.isEnemyHit()) b.setEnemyHit(true);
-			} else if (b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE) && !b.isEnemyHit()) {
-				b.setEnemyHit(true);
 			} else {
 				targetRealm.getExpiredBullets().add(b.getId());
 				targetRealm.removeBullet(b);

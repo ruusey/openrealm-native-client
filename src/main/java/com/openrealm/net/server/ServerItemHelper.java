@@ -256,8 +256,7 @@ public class ServerItemHelper {
             }
             player.getInventory()[targetIdx] = from.clone();
 
-        // Equip -> equip swap (e.g. dragging from slot 0 to slot 3 directly).
-        // Both endpoints must validate against the destination slot.
+        // Equip -> equip swap (e.g. dragging from s  destination slot.
         } else if (MoveItemPacket.isEquipment(fromIdx)
                 && MoveItemPacket.isEquipment(targetIdx) && (from != null)) {
             if (!canEquipInSlot(player, from, targetIdx)) {
