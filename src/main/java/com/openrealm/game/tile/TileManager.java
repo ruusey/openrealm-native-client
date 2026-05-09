@@ -69,6 +69,21 @@ public class TileManager {
     /** Brightness multiplier applied to the side-strip texture so it reads as a shaded wall face. */
     private static final float WALL_SIDE_BRIGHTNESS = 0.55f;
     private static final Integer VIEWPORT_TILE_MAX = 20;
+    /** Reusable per-frame tile-classification buffers. The render() pass
+     *  used to allocate 5 fresh ArrayLists every frame — at 60 fps over
+     *  a long session that's ~18k allocations a minute just for tile
+     *  classification. With pre-allocated buffers we just clear() each
+     *  frame; capacity grows once on first contact and stays. Single-
+     *  threaded because render() runs only on the main thread. */
+    private final List<Tile> wallTilesBuf       = new ArrayList<>(256);
+    private final List<Tile> objectTilesBuf     = new ArrayList<>(64);
+    private final List<Tile> decorationTilesBuf = new ArrayList<>(64);
+    private final List<Tile> waterTilesBuf      = new ArrayList<>(128);
+    private final List<Tile> overWaterTilesBuf  = new ArrayList<>(32);
+    /** Reusable Vector2f for the per-frame normalized player position
+     *  in render(). Used to be `new Vector2f(...)` every frame. */
+    private final Vector2f posNormalizedBuf = new Vector2f();
+
     /** Per-tile highlight color cache, indexed by tileId. Sampled once
      *  from the wall sprite's pixmap (lightened by 35%) so the N+W
      *  edge highlight looks like the wall material's own light side
@@ -787,8 +802,10 @@ public class TileManager {
         final int playerSize = player.getSize() / 2;
         final Vector2f pos = player.getPos().clone(playerSize, playerSize);
         final int ts = this.getBaseLayer().getTileSize();
-        final Vector2f posNormalized = new Vector2f(pos.x / ts,
-                pos.y / ts);
+        // Reuse the per-frame buffer instead of allocating a new Vector2f.
+        final Vector2f posNormalized = this.posNormalizedBuf;
+        posNormalized.x = pos.x / ts;
+        posNormalized.y = pos.y / ts;
         this.normalizeToBounds(posNormalized);
 
         // Lazy-allocate fog-of-war array sized to the current map.
@@ -837,11 +854,13 @@ public class TileManager {
         }
         batch.setColor(1f, 1f, 1f, 1f);
 
-        // Separate collision layer tiles into walls, objects, and decorations
-        final List<Tile> wallTiles = new ArrayList<>();
-        final List<Tile> objectTiles = new ArrayList<>();
-        final List<Tile> decorationTiles = new ArrayList<>();
-        final List<Tile> waterTiles = new ArrayList<>();
+        // Separate collision layer tiles into walls, objects, and decorations.
+        // Reuse the per-frame buffers (cleared each call) so a busy realm
+        // doesn't churn 5 fresh ArrayLists × 60 fps through young-gen.
+        final List<Tile> wallTiles       = this.wallTilesBuf;       wallTiles.clear();
+        final List<Tile> objectTiles     = this.objectTilesBuf;     objectTiles.clear();
+        final List<Tile> decorationTiles = this.decorationTilesBuf; decorationTiles.clear();
+        final List<Tile> waterTiles      = this.waterTilesBuf;      waterTiles.clear();
         // Collision/decoration tiles whose BASE tile is water (e.g. stones,
         // tile 168, lining the nexus river edges). Pass 5 redraws every
         // water tile on top to prevent shadow-ellipses from bleeding into
@@ -849,7 +868,7 @@ public class TileManager {
         // decorationTiles over water got clobbered. We render this list
         // in its own pass AFTER the water redraw so the stones land on
         // top of the water surface like they should.
-        final List<Tile> overWaterTiles = new ArrayList<>();
+        final List<Tile> overWaterTiles  = this.overWaterTilesBuf;  overWaterTiles.clear();
 
         // FIRST: scan the FULL SCREEN VIEWPORT (much larger than the
         // 10-tile sight square) for walls. Every wall the camera shows

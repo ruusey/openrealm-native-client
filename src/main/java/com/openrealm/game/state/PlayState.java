@@ -267,7 +267,9 @@ public class PlayState extends GameState {
                             && bul.getPos() != null
                             && tm != null) {
                         final float half = bul.getSize() * 0.5f;
-                        final Vector2f center = bul.getPos().clone(half, half);
+                        // Thread-local reuse — was `pos.clone(half, half)`
+                        // which allocated per-bullet per-frame.
+                        final Vector2f center = bul.getPos().centerOffset(half, half);
                         if (tm.isCollisionTile(center)) {
                             expired = true;
                         }
@@ -387,24 +389,29 @@ public class PlayState extends GameState {
                 this.pui.update(time);
             }
 
-            final List<EffectText> toRemove = new ArrayList<>();
-            for (EffectText text : this.getDamageText()) {
+            // Iterator-remove avoids the per-frame `new ArrayList<>` for
+            // toRemove AND the O(n*m) cost of ConcurrentLinkedQueue.removeAll
+            // (n=queue size, m=ArrayList.contains lookup per element). The
+            // queue's iterator is weakly consistent and supports remove(),
+            // which is what we want here — we're the only mutator on the
+            // render thread, and concurrent producers (network thread
+            // adding damage text) don't conflict with the iterator.
+            for (java.util.Iterator<EffectText> it = this.damageText.iterator(); it.hasNext(); ) {
+                final EffectText text = it.next();
                 text.update();
                 if (text.getRemove()) {
-                    toRemove.add(text);
+                    it.remove();
                 }
             }
-            this.damageText.removeAll(toRemove);
 
             final float deltaMs = (float) (time * 1000.0);
-            final List<ActiveVisualEffect> effectsToRemove = new ArrayList<>();
-            for (ActiveVisualEffect vfx : this.activeEffects) {
+            for (java.util.Iterator<ActiveVisualEffect> it = this.activeEffects.iterator(); it.hasNext(); ) {
+                final ActiveVisualEffect vfx = it.next();
                 vfx.update(deltaMs);
                 if (vfx.getRemove()) {
-                    effectsToRemove.add(vfx);
+                    it.remove();
                 }
             }
-            this.activeEffects.removeAll(effectsToRemove);
 
             this.cam.target(player);
             this.cam.update();

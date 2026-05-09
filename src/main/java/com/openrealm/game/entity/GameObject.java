@@ -207,10 +207,25 @@ public abstract class GameObject {
     protected float correctionOffsetY = 0f;
     private static final float CORRECTION_BLEND_RATE = 0.15f;
     /** Time (sec) over which pos is lerped to target after a server packet
-     *  diverges from extrapolation. Mirrors web's `dist / 0.05` formula. */
+     *  diverges from extrapolation. Mirrors web's `dist / 0.05` formula —
+     *  the FLOOR for close time. Adaptive close time scales up for larger
+     *  gaps (see MAX_CATCHUP_SPEED_PX_PER_SEC) so a 100 px correction
+     *  doesn't get ironed out at 2000 px/s on high-latency clients. */
     private static final float CORRECTION_CLOSE_TIME_SEC = 0.05f;
-    // If target diverges by more than this from pos, hard-snap pos.
-    private static final float CORRECTION_SNAP_THRESHOLD_SQ = (3 * 32) * (3 * 32);
+    /** Adaptive close-speed cap. The reconciler uses
+     *      closeTime = max(CORRECTION_CLOSE_TIME_SEC,
+     *                      dist / MAX_CATCHUP_SPEED_PX_PER_SEC)
+     *  so small gaps still close in 50 ms (low-latency feel) but large
+     *  gaps glide in at a bounded speed instead of teleporting. 256 px/s
+     *  is 8 tiles/s — slightly faster than a sprinting player so the
+     *  correction is always converging, but slow enough that a 100 px
+     *  jitter spike reads as smooth motion (~390 ms) instead of a snap. */
+    private static final float MAX_CATCHUP_SPEED_PX_PER_SEC = 256f;
+    /** If target diverges by more than this from pos, hard-snap pos.
+     *  Bumped from 3 → 5 tiles so high-latency clients glide on routine
+     *  jitter instead of teleporting; legitimate teleports/realm transitions
+     *  still trip the snap. */
+    private static final float CORRECTION_SNAP_THRESHOLD_SQ = (5 * 32) * (5 * 32);
     /** Web parity: if no server velocity update arrives for this long, the
      *  client is extrapolating into thin air. Snap pos back to the last
      *  known server position and zero velocity. */
@@ -411,10 +426,14 @@ public abstract class GameObject {
         }
 
         if (hasTarget) {
-            // Constant-speed close from pos toward target. Mirrors the web
-            // client's `speed = dist / 0.05; step = speed * dt` formula:
-            // any divergence collapses to zero in CORRECTION_CLOSE_TIME_SEC,
-            // regardless of frame rate.
+            // Adaptive constant-speed close from pos toward target. The
+            // floor (CORRECTION_CLOSE_TIME_SEC = 50 ms) preserves the
+            // tight feel of the web client's `speed = dist / 0.05`
+            // formula on low-latency connections — small gaps still
+            // collapse in one frame. For LARGE gaps (high-latency or
+            // jitter spikes) the close speed is capped at
+            // MAX_CATCHUP_SPEED_PX_PER_SEC so a 100 px correction takes
+            // ~390 ms of smooth motion instead of a 50 ms teleport.
             final float gapX = tx - this.pos.x;
             final float gapY = ty - this.pos.y;
             final float distSq = gapX * gapX + gapY * gapY;
@@ -425,7 +444,10 @@ public abstract class GameObject {
                 this.pos.y = ty;
             } else if (distSq > 0.09f /* 0.3px */) {
                 final float dist = (float) Math.sqrt(distSq);
-                final float step = (dist / CORRECTION_CLOSE_TIME_SEC) * dt;
+                final float adaptiveCloseTime = Math.max(
+                        CORRECTION_CLOSE_TIME_SEC,
+                        dist / MAX_CATCHUP_SPEED_PX_PER_SEC);
+                final float step = (dist / adaptiveCloseTime) * dt;
                 if (step >= dist) {
                     this.pos.x = tx;
                     this.pos.y = ty;

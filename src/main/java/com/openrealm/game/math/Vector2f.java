@@ -136,6 +136,21 @@ public class Vector2f extends SerializableFieldType<Vector2f>{
         return tmp;
     }
 
+    /** Thread-local "center" vector for hot-path collision checks. The
+     *  alternative was {@code pos.clone(half, half)} which allocated a
+     *  Vector2f per bullet per frame — at 50 bullets × 60 fps that's
+     *  3 k allocations/sec just for the bullet-vs-tile check. Callers
+     *  must consume the returned vector synchronously and not retain
+     *  it across other calls to centerOf() on the same thread. */
+    private static final ThreadLocal<Vector2f> CENTER_TEMP = ThreadLocal.withInitial(Vector2f::new);
+
+    public Vector2f centerOffset(float xOffset, float yOffset) {
+        final Vector2f tmp = CENTER_TEMP.get();
+        tmp.x = this.x + xOffset;
+        tmp.y = this.y + yOffset;
+        return tmp;
+    }
+
     @Override
     public String toString() {
         return this.x + ", " + this.y;
