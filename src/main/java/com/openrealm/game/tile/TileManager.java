@@ -879,12 +879,19 @@ public class TileManager {
                     if (collisionTile != null && !collisionTile.isVoid()) {
                         boolean baseIsWater = normalTile != null && normalTile.getData() != null
                                 && normalTile.getData().slows() && !normalTile.getData().hasCollision();
-                        if (baseIsWater) {
-                            // Skip collision effects over water
-                        } else if (isWallTile) {
+                        if (isWallTile) {
                             // Wall tiles get 3D effect (shadow + contour + side face)
                             // — INCLUDING those past the fog circle.
                             wallTiles.add(collisionTile);
+                        } else if (baseIsWater && insideCircle) {
+                            // Collision objects sitting on water (e.g. stones
+                            // tile 168 on the nexus river edges) render without
+                            // the elliptical ground shadow — water doesn't
+                            // accept the projected shadow cleanly. They were
+                            // previously dropped here entirely, so the fog
+                            // pass painted them outside the circle but
+                            // in-circle they vanished while still colliding.
+                            decorationTiles.add(collisionTile);
                         } else if (insideCircle && collisionTile.getData() != null && collisionTile.getData().hasCollision()) {
                             objectTiles.add(collisionTile);
                         } else if (insideCircle) {
