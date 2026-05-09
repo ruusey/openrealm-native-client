@@ -309,6 +309,10 @@ public class ClientGameLogic {
 					if (loot != null) loot.clear();
 					final java.util.Map<Long, com.openrealm.game.entity.Portal> portals = cli.getRealm().getPortals();
 					if (portals != null) portals.clear();
+					// Buffered UpdatePackets for the previous realm's
+					// players are stale — drop them so a same-id player
+					// in the new realm doesn't replay an old packet.
+					PENDING_UPDATES.clear();
 				} catch (Exception ignored) { /* defensive — never block transition */ }
 
 				// Snap local player to the new map's spawn so we don't render
@@ -571,6 +575,16 @@ public class ClientGameLogic {
 				}
 				final boolean wasNew = cli.getRealm().getPlayer(p.getId()) == null;
 				cli.getRealm().addPlayerIfNotExists(p);
+				if (wasNew) {
+					// If we'd already received an UpdatePacket for this
+					// player before LoadPacket added them (race between
+					// LoadPacket assembly and server's broadcast loop),
+					// replay it now so HP/MP/exp/inventory aren't blank
+					// until the next state change. Webclient parity: it
+					// suffers the same race but typically loads tiles
+					// faster so it doesn't manifest.
+					replayPendingUpdate(cli, p.getId());
+				}
 				// Refresh authoritative remote-player fields in place when
 				// the entry already exists. addPlayerIfNotExists is a no-op
 				// for known IDs, so without this the server-broadcast size /
@@ -965,17 +979,53 @@ public class ClientGameLogic {
 		}
 	}
 
+	/** UpdatePackets that arrive for an unknown player id (the server sent
+	 *  the broadcast but the LoadPacket adding this player either hadn't
+	 *  arrived yet or was skipped by the pos==(0,0) sentinel guard).
+	 *  Buffered here and applied when {@link #handleLoadClient} actually
+	 *  adds the player. Without this, the joining player's HP/MP/exp/
+	 *  inventory stayed empty because the server's delta-check
+	 *  (`oldOtherUpdate.equals(stripped, false)`) considered the
+	 *  one-shot first-send already done and never resent the UpdatePacket
+	 *  even though the receiving client never actually applied it. */
+	private static final java.util.concurrent.ConcurrentHashMap<Long, UpdatePacket> PENDING_UPDATES =
+			new java.util.concurrent.ConcurrentHashMap<>();
+
 	public static void handleUpdateClient(RealmManagerClient cli, Packet packet) {
 		final UpdatePacket updatePacket = (UpdatePacket) packet;
 		final Player toUpdate = cli.getRealm().getPlayer((updatePacket.getPlayerId()));
 		if (toUpdate != null) {
 			toUpdate.applyUpdate(updatePacket, cli.getState());
+			PENDING_UPDATES.remove(updatePacket.getPlayerId());
 		} else {
 			final Enemy enemyToUpdate = cli.getRealm().getEnemy((updatePacket.getPlayerId()));
 			if (enemyToUpdate != null) {
 				enemyToUpdate.applyUpdate(updatePacket, cli.getState());
 				log.debug("[CLIENT] Recieved update for enemy {}", updatePacket);
+			} else {
+				// Unknown id — buffer the packet so we can replay it the
+				// moment LoadPacket adds the player. Cap at the most
+				// recent packet per player so a stale entry can't grow
+				// unbounded if a packet arrives for a player we'll
+				// never see (e.g. they leave before LoadPacket adds them).
+				PENDING_UPDATES.put(updatePacket.getPlayerId(), updatePacket);
 			}
+		}
+	}
+
+	/** Drain any buffered UpdatePacket for {@code playerId} now that the
+	 *  player has been added to the realm. Called from
+	 *  {@link #handleLoadClient} immediately after addPlayerIfNotExists. */
+	private static void replayPendingUpdate(RealmManagerClient cli, long playerId) {
+		final UpdatePacket pending = PENDING_UPDATES.remove(playerId);
+		if (pending == null) return;
+		final Player target = cli.getRealm().getPlayer(playerId);
+		if (target == null) return;
+		try {
+			target.applyUpdate(pending, cli.getState());
+			log.info("[CLIENT] Replayed buffered UpdatePacket for newly-loaded player {}", playerId);
+		} catch (Exception e) {
+			log.warn("[CLIENT] Buffered UpdatePacket replay failed for player {}: {}", playerId, e.getMessage());
 		}
 	}
 

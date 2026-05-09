@@ -537,8 +537,16 @@ public class PlayState extends GameState {
             final float shootAngle = baseAngle + projAngleOffset;
             final short rolledDamage = (short) (proj.getDamage() + atkBonus);
             final short offset = (short) (player.getSize() / 2);
-            final Vector2f spawnPos = source.clone(-offset, -offset);
             for (int i = 0; i < totalBullets; i++) {
+                // CLONE spawnPos per-bullet — Bullet's GameObject ctor
+                // does `this.pos = origin;` (no defensive copy), so all
+                // bullets sharing one source Vector2f advance THE SAME
+                // pos every tick. With multishot+1, both bullets shared
+                // one pos and each tick's update() ran twice on it,
+                // making the visible bullet appear to move at 2x speed
+                // (and overlap in screen space, so the player saw one
+                // 'phantom' shot rather than the expected pair).
+                final Vector2f spawnPos = source.clone(-offset, -offset);
                 final float deltaA = (i - (totalBullets - 1) / 2f) * SPREAD;
                 // CRITICAL: predicted Bullet.projectileId MUST be the GROUP
                 // id (projGroupId) — not proj.getProjectileId() — to match
