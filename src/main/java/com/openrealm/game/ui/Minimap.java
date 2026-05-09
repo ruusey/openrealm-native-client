@@ -442,6 +442,11 @@ public class Minimap {
             if (globals != null && globals.length > 0) {
                 shapes.setColor(0.55f, 0.55f, 0.85f, 0.8f);
                 final int ts = GlobalConstants.BASE_TILE_SIZE;
+                // Add half-a-default-player-size offset so the global dot
+                // sits at the player's CENTER like local player does
+                // (localPlayerTile applies +size/2). NetPlayerPosition
+                // doesn't carry per-player size, so use the default.
+                final float halfPlayer = GlobalConstants.PLAYER_SIZE / 2f;
                 for (com.openrealm.net.entity.NetPlayerPosition gp : globals) {
                     if (gp == null) continue;
                     if (local != null && gp.getPlayerId() == localId) continue;
@@ -450,8 +455,8 @@ public class Minimap {
                     // loop above already drew them.
                     if (this.playState.getRealmManager().getRealm()
                             .getPlayer(gp.getPlayerId()) != null) continue;
-                    final float tx = gp.getX() / ts;
-                    final float ty = gp.getY() / ts;
+                    final float tx = (gp.getX() + halfPlayer) / ts;
+                    final float ty = (gp.getY() + halfPlayer) / ts;
                     final float sx = this.drawX + (tx - srcX) * scaleX;
                     final float sy = this.drawY + (ty - srcY) * scaleY;
                     if (sx < this.drawX - 4 || sx > this.drawX + this.sizePx + 4) continue;

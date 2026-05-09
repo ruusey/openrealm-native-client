@@ -833,15 +833,37 @@ public class TileManager {
         final List<Tile> objectTiles = new ArrayList<>();
         final List<Tile> decorationTiles = new ArrayList<>();
         final List<Tile> waterTiles = new ArrayList<>();
+        // Collision/decoration tiles whose BASE tile is water (e.g. stones,
+        // tile 168, lining the nexus river edges). Pass 5 redraws every
+        // water tile on top to prevent shadow-ellipses from bleeding into
+        // the river — the side effect was that anything drawn from
+        // decorationTiles over water got clobbered. We render this list
+        // in its own pass AFTER the water redraw so the stones land on
+        // top of the water surface like they should.
+        final List<Tile> overWaterTiles = new ArrayList<>();
+
+        // FIRST: scan the FULL SCREEN VIEWPORT (much larger than the
+        // 10-tile sight square) for walls. Every wall the camera shows
+        // — even ones past the fog-of-war circle — gets queued into
+        // wallTiles so the 3D extrusion is applied uniformly across
+        // the whole visible scene. Without this, walls drew as flat
+        // textures past the fog circle (visible ring boundary).
+        for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {
+            for (int sy = syMin; sy < syMin + screenTilesY; sy++) {
+                if (sx < 0 || sy < 0 || sx >= mapW || sy >= mapH) continue;
+                final Tile maybeWall = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
+                if (maybeWall == null || maybeWall.isVoid()) continue;
+                if (maybeWall.getData() == null || !maybeWall.getData().isWall()) continue;
+                wallTiles.add(maybeWall);
+            }
+        }
 
         // Pass 1: Draw all base tiles (circular viewport) and classify
-        // collision layer tiles. Wall tiles, however, get classified in
-        // the FULL SQUARE bounds — not gated by the circular fog-of-war
-        // — so the 3D extrusion always sits on every visible wall, not
-        // just the ones inside the player-centered circle. The previous
-        // version produced a visible "ring" where walls past the circle
-        // were flat textures while walls inside the circle had the
-        // shadow/highlight bands.
+        // collision layer tiles INSIDE the 10-tile sight square. Walls
+        // are already in wallTiles from the screen-viewport scan above
+        // (we re-add them here too — duplicates are filtered by the
+        // wallSet HashSet during 3D render). Non-wall in-sight tiles
+        // route into objectTiles / decorationTiles / overWaterTiles.
         final float radiusSq = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
         for (int x = (int) (posNormalized.x - VIEWPORT_TILE_MIN); x < (posNormalized.x + VIEWPORT_TILE_MIN); x++) {
             for (int y = (int) (posNormalized.y - VIEWPORT_TILE_MIN); y < (int) (posNormalized.y + VIEWPORT_TILE_MIN); y++) {
@@ -880,18 +902,15 @@ public class TileManager {
                         boolean baseIsWater = normalTile != null && normalTile.getData() != null
                                 && normalTile.getData().slows() && !normalTile.getData().hasCollision();
                         if (isWallTile) {
-                            // Wall tiles get 3D effect (shadow + contour + side face)
-                            // — INCLUDING those past the fog circle.
-                            wallTiles.add(collisionTile);
+                            // Walls already added to wallTiles by the
+                            // screen-viewport scan above — skip here so
+                            // we don't render the 3D shadow/highlight
+                            // twice for inside-circle walls.
                         } else if (baseIsWater && insideCircle) {
-                            // Collision objects sitting on water (e.g. stones
-                            // tile 168 on the nexus river edges) render without
-                            // the elliptical ground shadow — water doesn't
-                            // accept the projected shadow cleanly. They were
-                            // previously dropped here entirely, so the fog
-                            // pass painted them outside the circle but
-                            // in-circle they vanished while still colliding.
-                            decorationTiles.add(collisionTile);
+                            // Collision tile sitting on water (stones, etc.) —
+                            // route to the AFTER-WATER pass so Pass 5's water
+                            // redraw doesn't paint over them.
+                            overWaterTiles.add(collisionTile);
                         } else if (insideCircle && collisionTile.getData() != null && collisionTile.getData().hasCollision()) {
                             objectTiles.add(collisionTile);
                         } else if (insideCircle) {
@@ -1059,6 +1078,17 @@ public class TileManager {
 
         // Pass 5: Redraw water tiles on top so shadows don't cover them
         for (Tile t : waterTiles) {
+            t.render(batch);
+        }
+
+        // Pass 6: Collision tiles whose base is water (stones lining
+        // the river, etc.). Drawn AFTER the water redraw so the water
+        // doesn't paint over them. Without this, stones-on-water were
+        // visible only via the fog pass (when out of sight) and
+        // disappeared the moment the player got close enough for the
+        // bright pass to take over — exactly the user-reported
+        // 'inverted viewport' behaviour.
+        for (Tile t : overWaterTiles) {
             t.render(batch);
         }
 
