@@ -64,6 +64,22 @@ public class PlayerUI {
 
     private NetTradeSelection currentTradeSelection = null;
     private String tradePartnerName = null;
+    /** Snapshot of the partner's inventory at trade-accept time. The
+     *  on-wire trade-selection packets carry only Boolean[] flags (no
+     *  items), so we cache the partner's full 20-slot inventory from
+     *  AcceptTradeRequestPacket and use Boolean[] flags from
+     *  {@link #currentTradeSelection} purely as overlay highlights.
+     *  Webclient parity (game.tradePartnerInv).
+     */
+    @lombok.Getter @lombok.Setter
+    private com.openrealm.game.entity.item.GameItem[] partnerInventory = null;
+    /** Class id of the trade partner, used by the trade overlay header
+     *  portrait + the in-tooltip class label. Captured at trade accept. */
+    @lombok.Getter @lombok.Setter
+    private int partnerClassId = 0;
+    /** Dye id of the trade partner. Captured at trade accept. */
+    @lombok.Getter @lombok.Setter
+    private int partnerDyeId = 0;
     private Button confirmTradeButton = null;
     private Button cancelTradeButton = null;
     /** 8 click-targets that overlay the left (mine) grid in the trade
@@ -1171,10 +1187,14 @@ public class PlayerUI {
                     this.tradeMyButtons[i].getPos().y = cy;
                 }
             }
-            // Partner side
+            // Partner side — items come from the snapshot we captured at
+            // trade-accept (partnerInventory), selection flags come from
+            // the live UpdateTradePacket. The on-wire selection packet
+            // does NOT carry items; .getGameItems() on it would NPE on
+            // the null itemRefs.
             final NetInventorySelection theirSel = this.getOtherPlayerSelection();
-            final GameItem[] theirItems = (theirSel != null) ? theirSel.getGameItems() : null;
-            final Boolean[] theirFlags  = (theirSel != null) ? theirSel.getSelection() : null;
+            final Boolean[] theirFlags = (theirSel != null) ? theirSel.getSelection() : null;
+            final GameItem[] theirItems = this.partnerInventory;
             for (int i = 0; i < 8; i++) {
                 final int[] c = cells[i];
                 final float cx = rightX + (c[0] - cInv.getX()) * s;
@@ -1182,8 +1202,10 @@ public class PlayerUI {
                 final float cw = c[2] * s;
                 final float ch = c[3] * s;
                 final GameItem item = (theirItems != null && i + 4 < theirItems.length) ? theirItems[i + 4] : null;
-                final boolean sel = (theirFlags != null && i + 4 < theirFlags.length
-                                      && theirFlags[i + 4] != null) ? theirFlags[i + 4] : false;
+                // Partner's selection is keyed 0..7 (server uses bag-1
+                // relative indices); our flags array matches that.
+                final boolean sel = (theirFlags != null && i < theirFlags.length
+                                      && theirFlags[i] != null) ? theirFlags[i] : false;
                 this.drawTradeSlot(batch, shapes, cx, cy, cw, ch, item, sel);
             }
         }
@@ -1315,10 +1337,14 @@ public class PlayerUI {
                     this.hoveredPlayer = null;
                 }
             });
-            // Open the trade/tp context menu on left-click. Button has no
-            // onClick callback, so use onMouseDown (mirrors webclient
-            // trade.js click handler — show menu at click coords).
-            btn.onMouseDown(event -> {
+            // Open the trade/tp context menu on left-click RELEASE
+            // (onMouseUp). Releasing rather than pressing means the
+            // same-frame `handleContextMenuInput` doesn't see a fresh
+            // mouse-down and dismiss the menu we just opened —
+            // justClicked there requires a transition from up→down,
+            // which only happens on the NEXT click (which IS a menu
+            // option click, the path we want).
+            btn.onMouseUp(event -> {
                 this.contextMenuPlayer = hoverTarget;
                 this.contextMenuX = btnX + btnW + 4;
                 this.contextMenuY = btnY;
@@ -1515,11 +1541,13 @@ public class PlayerUI {
         if (this.hoveredPlayer == null) return;
 
         final Player p = this.hoveredPlayer;
-        final int padX = 8;
-        // Tooltip anchors to the hovered nearby-list entry: prefer right
-        // of the entry, flip to left if it would run off-screen (narrow
-        // windows). Webclient parity — see trade.js showPlayerTooltip.
-        final int tooltipW = 220;
+        final int padX = 12;
+        final int padY = 12;
+        // Tooltip anchors flush against the right edge of the entire
+        // nearby-players panel chrome — never overlaps the player list
+        // entries. Webclient parity (#player-tooltip lands to the right
+        // of the entry; we anchor to the panel for cleaner alignment).
+        final int tooltipW = 240;
 
         // Pull stats — guard nulls so a freshly-added remote player whose
         // UpdatePacket hasn't landed yet doesn't NPE.
@@ -1547,24 +1575,38 @@ public class PlayerUI {
         // remote players; null until the first broadcast lands.
         final GameItem[] equips = p.getSlots(0, 4);
 
-        // Layout sizes — equipment slots are 36px to give a little
-        // breathing room (was 32 touching). Compute panel height
-        // dynamically so we don't paint unused chrome.
-        final int rowH = 16;
+        // Vertical layout (top→down inside the tooltip):
+        //   nameRow   16   "Name [role]"
+        //   classRow  14   "Lv N Class"
+        //   hpRow     14   "HP: cur/max"
+        //   mpRow     14   "MP: cur/max"
+        //   gap        8
+        //   equipRow  40   4 slot icons (36 + 4 padding)
+        // Plus padY top + padY bottom.
+        final int nameRowH  = 18;
+        final int classRowH = 16;
+        final int hpRowH    = 16;
+        final int mpRowH    = 16;
+        final int gapBeforeEquip = 8;
         final int equipSlot = 36;
-        final int equipGap = 6;
-        final int equipRowH = equipSlot + 8;
-        final int tooltipH = (rowH * 4) + equipRowH + 16;
-        // Place the tooltip flush against the hovered nearby button.
-        // Prefer right of the button; if that would overflow the screen,
-        // place it to the left instead.
-        int tooltipX = this.hoveredBtnX + this.hoveredBtnW + 6;
+        final int equipGap  = 4;
+        final int equipRowH = equipSlot + 4;
+        final int tooltipH = padY + nameRowH + classRowH + hpRowH + mpRowH
+                            + gapBeforeEquip + equipRowH + padY;
+
+        // X anchor: flush right of the nearby-players panel chrome.
+        // Falls back to next-to-button if the panel rect isn't tracked
+        // (e.g. legacy non-sprite-HUD render path).
+        int tooltipX = (this.spriteHudNearbyPanelRight > 0)
+                ? this.spriteHudNearbyPanelRight + 8
+                : this.hoveredBtnX + this.hoveredBtnW + 6;
         if (tooltipX + tooltipW > OpenRealmGame.width - 4) {
-            tooltipX = Math.max(4, this.hoveredBtnX - tooltipW - 6);
+            tooltipX = Math.max(4, OpenRealmGame.width - tooltipW - 4);
         }
-        // Vertically anchor near the row's top, but don't run off the
-        // bottom of the window.
-        int tooltipY = this.hoveredBtnY;
+        // Y anchor: vertically center against the hovered entry row,
+        // clamped to stay inside the window.
+        int tooltipY = this.hoveredBtnY - 4;
+        if (tooltipY < 4) tooltipY = 4;
         if (tooltipY + tooltipH > OpenRealmGame.height - 4) {
             tooltipY = Math.max(4, OpenRealmGame.height - tooltipH - 4);
         }
@@ -1583,28 +1625,35 @@ public class PlayerUI {
         shapes.end();
         batch.begin();
 
-        int y = tooltipY + rowH;
-        // Name (role-colored)
+        int y = tooltipY + padY + nameRowH;
+        // Name (role-colored). Append "[role]" badge if non-empty.
         font.setColor(roleColorFor(p.getChatRole()));
-        font.draw(batch, p.getName() == null ? "Player" : p.getName(), tooltipX + padX, y);
+        final String nameLine = p.getName() == null ? "Player" : p.getName();
+        font.draw(batch, nameLine, tooltipX + padX, y);
+        if (p.getChatRole() != null && !p.getChatRole().isEmpty()) {
+            final GlyphLayout nameGl = new GlyphLayout(font, nameLine);
+            font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
+            font.draw(batch, "[" + p.getChatRole() + "]",
+                    tooltipX + padX + nameGl.width + 6, y);
+        }
         // Level + class — webclient parity ("Lv 12 Wizard").
-        y += rowH;
+        y += classRowH;
         font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
         font.draw(batch, levelStr + className, tooltipX + padX, y);
-        // HP (cur/max) — webclient parity. setColor mutated so reset to
-        // white for the divider character.
-        y += rowH;
+        // HP (cur/max) — red.
+        y += hpRowH;
         font.setColor(0xe0 / 255f, 0x55 / 255f, 0x55 / 255f, 1f);
         font.draw(batch, "HP: " + hp + "/" + maxHp, tooltipX + padX, y);
-        // MP (cur/max)
-        y += rowH;
+        // MP (cur/max) — blue.
+        y += mpRowH;
         font.setColor(0x55 / 255f, 0x77 / 255f, 0xe0 / 255f, 1f);
         font.draw(batch, "MP: " + mp + "/" + maxMp, tooltipX + padX, y);
-        // Equipment row — slots 0-3 spaced with a real gap so they're
-        // not touching, no black background under empty slots.
-        y += 6;
-        final int totalEquipsW = 4 * equipSlot + 3 * equipGap;
-        int equipStartX = tooltipX + (tooltipW - totalEquipsW) / 2;
+        // Equipment row — left-justified beneath the stat lines so the
+        // 4 slot icons line up with the left edge of the text block.
+        y += gapBeforeEquip;
+        // Left-justified beneath the stat lines (was centered, which
+        // made it visually disconnect from the text block above).
+        int equipStartX = tooltipX + padX;
         for (int i = 0; i < equips.length; i++) {
             final int sx = equipStartX + i * (equipSlot + equipGap);
             // Slot bg — uniform muted purple regardless of contents,
@@ -2223,6 +2272,9 @@ public class PlayerUI {
         this.spriteHudNearbyX = (int)(nearbyX + 8);
         this.spriteHudNearbyW = (int)(nearbyW - 16);
         this.spriteHudNearbyY = (int)(nearbyY + 8);
+        this.spriteHudNearbyPanelRight  = (int)(nearbyX + nearbyW);
+        this.spriteHudNearbyPanelTop    = (int)(nearbyY);
+        this.spriteHudNearbyPanelBottom = (int)(nearbyY + nearbyH);
         this.spriteHudNearbyEnabled = (cNearby != null);
     }
 
@@ -2230,6 +2282,9 @@ public class PlayerUI {
     private int spriteHudNearbyX = 0;
     private int spriteHudNearbyY = 0;
     private int spriteHudNearbyW = 0;
+    private int spriteHudNearbyPanelRight = 0; // outer chrome right edge — tooltip anchors here
+    private int spriteHudNearbyPanelTop = 0;
+    private int spriteHudNearbyPanelBottom = 0;
     private boolean spriteHudNearbyEnabled = false;
 
     /** Move the inventory or groundLoot slot's {@link Button} to a new screen

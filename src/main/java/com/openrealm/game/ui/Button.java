@@ -124,12 +124,17 @@ public class Button {
             }
             this.canHover = false;
             if ((mouse.isPressed(1)) && !this.clicked) {
+                // EDGE: button just went DOWN inside our bounds. Fires
+                // mouseDownEvents only — mouseUpEvents waits for release
+                // so a single click doesn't double-fire (the previous
+                // version fired mouseUp on both press AND release, which
+                // toggled selection-style handlers right back to their
+                // start state and made trade-slot clicks look like no-ops).
                 this.clicked = true;
                 this.pressed = true;
-
                 this.pressedtime = System.nanoTime() / 1000000;
-                for (int i = 0; i < this.mouseUpEvents.size(); i++) {
-                    this.mouseUpEvents.get(i).action(new Vector2f(mouse.getX(), mouse.getY()));
+                for (int i = 0; i < this.mouseDownEvents.size(); i++) {
+                    this.mouseDownEvents.get(i).action(1);
                 }
             } else if (mouse.isPressed(3) && !this.clicked) {
                 this.clicked = true;
@@ -139,6 +144,9 @@ public class Button {
                     this.rightClickEvents.get(i).action(new Vector2f(mouse.getX(), mouse.getY()));
                 }
             } else if ((!mouse.isPressed(1)) && this.clicked) {
+                // EDGE: button was clicked, now released inside bounds.
+                // Fire mouseUpEvents — pickup / confirm / cancel listeners
+                // run here. Single fire per click cycle.
                 this.clicked = false;
                 for (int i = 0; i < this.mouseUpEvents.size(); i++) {
                     this.mouseUpEvents.get(i).action(new Vector2f(mouse.getX(), mouse.getY()));

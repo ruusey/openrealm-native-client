@@ -90,15 +90,47 @@ public class ClientGameLogic {
 
 		if (tradeRequest.isAccepted()) {
 			log.info("[CLIENT] Trade accepted between {} and {}", tradeRequest.getPlayer0().getName(), tradeRequest.getPlayer1().getName());
-			cli.getState().getPui().setTrading(true);
-			cli.getState().getPui().setTradePartnerName(tradeRequest.getPlayer1().getName());
+			final var pui = cli.getState().getPui();
+			pui.setTrading(true);
+			// Server constructs the packet with player0=self, player1=partner
+			// for each recipient (see ServerTradeManager line 131-132). So
+			// player1Inv is always the partner's inventory regardless of
+			// who sent /trade. Capture it now — selection-update packets
+			// carry only Boolean[] flags, no items, so this snapshot is
+			// the only source of truth for "partner inventory contents"
+			// during the trade.
+			pui.setTradePartnerName(tradeRequest.getPlayer1().getName());
+			pui.setPartnerClassId(tradeRequest.getPlayer1().getClassId());
+			pui.setPartnerDyeId(tradeRequest.getPlayer1().getDyeId());
+			pui.setPartnerInventory(buildPartnerInventory(tradeRequest));
 		} else {
 			log.info("[CLIENT] Trade closed");
-			cli.getState().getPui().setTrading(false);
-			cli.getState().getPui().setCurrentTradeSelection(null);
-			cli.getState().getPui().setTradePartnerName(null);
-			cli.getState().getPui().clearTradeSelections();
+			final var pui = cli.getState().getPui();
+			pui.setTrading(false);
+			pui.setCurrentTradeSelection(null);
+			pui.setTradePartnerName(null);
+			pui.setPartnerInventory(null);
+			pui.setPartnerClassId(0);
+			pui.setPartnerDyeId(0);
+			pui.clearTradeSelections();
 		}
+	}
+
+	/** Convert AcceptTradeRequestPacket.player1Inv (NetGameItem[]) into a
+	 *  GameItem[] the trade overlay can read directly. Empty / itemId<=0
+	 *  slots stay null so the overlay's null-check renders an empty cell. */
+	private static com.openrealm.game.entity.item.GameItem[] buildPartnerInventory(
+			AcceptTradeRequestPacket pkt) {
+		final com.openrealm.net.entity.NetGameItem[] src = pkt.getPlayer1Inv();
+		if (src == null) return new com.openrealm.game.entity.item.GameItem[0];
+		final com.openrealm.game.entity.item.GameItem[] out =
+				new com.openrealm.game.entity.item.GameItem[src.length];
+		for (int i = 0; i < src.length; i++) {
+			if (src[i] == null) continue;
+			if (src[i].getItemId() <= 0) continue;
+			out[i] = src[i].asGameItem();
+		}
+		return out;
 	}
 
 	@PacketHandlerClient(UpdatePlayerTradeSelectionPacket.class)
@@ -397,21 +429,50 @@ public class ClientGameLogic {
 	}
 
 	// Angle window for matching server-echoed player bullets back to a
-	// locally-predicted bullet. ~5° matches the webclient (game.js ~770).
-	private static final float PREDICTED_ANGLE_TOLERANCE = 0.09f;
+	// locally-predicted bullet. Bumped from 0.09 (5°) to 0.12 (~6.9°) to
+	// match the SPREAD constant — without this, the CENTER bullet of a
+	// MultiShot fan could be the lone predicted bullet that DIDN'T pair
+	// up (float-precision drift in (i - (totalBullets-1)/2f)*SPREAD
+	// pushed the absolute angle diff just past the old 0.09 threshold for
+	// totalBullets=3 i=1), producing a phantom predicted center shot
+	// that drifted forever between the two server-echoed flank shots.
+	private static final float PREDICTED_ANGLE_TOLERANCE = 0.12f;
+	// Position-proximity window (px²) used as a fallback when the
+	// server-echoed bullet has no PLAYER_PROJECTILE flag (many ability
+	// projectile groups in projectile-groups.json ship with flags: [],
+	// so the flag-gated dedup misses them entirely and the player sees
+	// both their predicted shot and the server's authoritative copy).
+	// Webclient parity (game.js handleLoad ~line 770).
+	private static final float PREDICTED_POS_TOLERANCE_SQ = 96f * 96f;
 
+	/** Find a locally-predicted bullet that corresponds to the server's
+	 *  authoritative {@code server} bullet. Match is by projectileId +
+	 *  angle (within {@link #PREDICTED_ANGLE_TOLERANCE}). When the
+	 *  server bullet carries the PLAYER_PROJECTILE flag the angle
+	 *  match alone is enough; for unflagged ability projectiles we
+	 *  also require the predicted bullet to be within
+	 *  {@link #PREDICTED_POS_TOLERANCE_SQ} so an unrelated enemy bullet
+	 *  with a coincidental angle can't be mistakenly deduped against
+	 *  the player's predicted shot. */
 	private static Bullet findMatchingPredictedBullet(RealmManagerClient cli, Bullet server) {
 		final long localId = cli.getCurrentPlayerId();
 		if (localId == 0L) return null;
+		final boolean serverIsFlagged = server.hasFlag(ProjectileFlag.PLAYER_PROJECTILE);
 		for (final Bullet pb : cli.getRealm().getBullets().values()) {
 			if (!pb.isPredicted()) continue;
 			if (pb.getSrcEntityId() != localId) continue;
 			if (pb.getProjectileId() != server.getProjectileId()) continue;
-			final float diff = Math.abs(pb.getAngle() - server.getAngle());
-			if (diff < PREDICTED_ANGLE_TOLERANCE
-					|| diff > (float) (Math.PI * 2) - PREDICTED_ANGLE_TOLERANCE) {
-				return pb;
-			}
+			final float angleDiff = Math.abs(pb.getAngle() - server.getAngle());
+			final boolean angleNear = angleDiff < PREDICTED_ANGLE_TOLERANCE
+					|| angleDiff > (float) (Math.PI * 2) - PREDICTED_ANGLE_TOLERANCE;
+			if (!angleNear) continue;
+			if (serverIsFlagged) return pb;
+			// Unflagged: also gate on position so we don't misalign with a
+			// far-away predicted bullet that happens to share an angle.
+			if (pb.getPos() == null || server.getPos() == null) return pb;
+			final float dx = pb.getPos().x - server.getPos().x;
+			final float dy = pb.getPos().y - server.getPos().y;
+			if (dx * dx + dy * dy < PREDICTED_POS_TOLERANCE_SQ) return pb;
 		}
 		return null;
 	}
@@ -541,36 +602,66 @@ public class ClientGameLogic {
 				}
 			}
 
+			// Approximate one-way latency (ms) — used to fast-forward a
+			// freshly-arrived bullet by RTT/2 along its angle so it
+			// doesn't visually appear to "spawn at the firing player's
+			// feet and slowly catch up". Webclient parity (game.js
+			// handleLoad ~line 808). Falls back to 0 (no catchup) when
+			// PerfMetrics hasn't accumulated samples yet.
+			int oneWayMsForCatchup = 0;
+			try {
+				oneWayMsForCatchup = com.openrealm.game.ui.PerfMetrics.get().getPing();
+			} catch (Exception ignored) { /* leave as 0 */ }
+			final float catchupSec = Math.min(oneWayMsForCatchup / 1000f, 0.25f);
+			final float catchupScale = catchupSec * 64f;
+
 			for (final NetBullet bullet : loadPacket.getBullets()) {
 				final Bullet b = bullet.asBullet();
 				// WHY: Mirrors webclient game.js handleLoad (~line 770).
 				// If a predicted local bullet matches this server bullet's
-				// projectileId + angle (within ~5°), keep the prediction
-				// rendering and skip inserting the duplicate. Otherwise
-				// the player sees their predicted shot AND the server
-				// echo as two side-by-side bullets, and worse, the
-				// server-confirmed copy without an existing match would
-				// render at a stale (one-RTT-old) position.
-				if (b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE)) {
-					final Bullet match = findMatchingPredictedBullet(cli, b);
-					if (match != null) {
-						// Adopt the server's authoritative ID so the eventual
-						// UnloadPacket (keyed by server ID) can actually find
-						// and remove this bullet. Without this, predicted
-						// bullets are stored under a client-random ID and
-						// outlive every cleanup signal — they fly forever
-						// past walls until the wall-clock cap kicks in (and
-						// only if something culls expired bullets at all).
-						final long oldId = match.getId();
-						final long newId = b.getId();
-						if (oldId != newId) {
-							cli.getRealm().getBullets().remove(oldId);
-							match.setId(newId);
-							cli.getRealm().getBullets().put(newId, match);
-						}
-						match.setPredicted(false);
-						continue;
+				// projectileId + angle, keep the prediction rendering and
+				// skip the duplicate. The match check now runs for ALL
+				// player bullets (not just PLAYER_PROJECTILE-flagged ones)
+				// — many ability projectile groups in projectile-groups.json
+				// ship with flags: [], so the old flag gate let those
+				// bullets through unmatched and the player saw both their
+				// predicted shot AND the server's echo as two ghosts.
+				final Bullet match = findMatchingPredictedBullet(cli, b);
+				if (match != null) {
+					// Adopt the server's authoritative ID so the eventual
+					// UnloadPacket (keyed by server ID) can actually find
+					// and remove this bullet. Without this, predicted
+					// bullets are stored under a client-random ID and
+					// outlive every cleanup signal — they fly forever
+					// past walls until the wall-clock cap kicks in.
+					final long oldId = match.getId();
+					final long newId = b.getId();
+					if (oldId != newId) {
+						cli.getRealm().getBullets().remove(oldId);
+						match.setId(newId);
+						cli.getRealm().getBullets().put(newId, match);
 					}
+					match.setPredicted(false);
+					continue;
+				}
+				// Non-matched (NOT our own predicted) — typically another
+				// player's bullet. Fast-forward by RTT/2 along its angle
+				// so it visually appears where the server has it NOW
+				// rather than at the snapshot pos one RTT ago. Skip for
+				// orbital + parametric (their position function isn't a
+				// straight line) and for zero-magnitude (stationary
+				// effect bullets).
+				if (catchupScale > 0.5f && b.getMagnitude() > 0
+						&& !b.hasFlag(ProjectileFlag.ORBITAL)
+						&& !b.hasFlag(ProjectileFlag.PARAMETRIC)
+						&& !b.hasFlag(ProjectileFlag.INVERTED_PARAMETRIC)
+						&& b.getPos() != null) {
+					final float advance = b.getMagnitude() * catchupScale;
+					final float velX = b.getSinAngle() * advance;
+					final float velY = b.getCosAngle() * advance;
+					b.getPos().addX(velX);
+					b.getPos().addY(velY);
+					b.setRange(b.getRange() - advance);
 				}
 				cli.getRealm().addBulletIfNotExists(b);
 			}
