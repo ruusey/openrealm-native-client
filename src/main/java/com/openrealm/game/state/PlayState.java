@@ -639,7 +639,18 @@ public class PlayState extends GameState {
                 // lurch even when both endpoints are correct, because dt has
                 // moved on before the lerp catches up.
                 // ============================================================
-                final float TICK_RATE = 64f;
+                // EXPERIMENT B: client tick rate bumped 64 -> 120Hz.
+                // At 60Hz vsync the old 64Hz tick produced ~1.067 ticks
+                // per frame — most frames executed 1 tick (interp lagged
+                // by 1 tick, frac near 0) and ~every 16th frame ran 2
+                // ticks (frac snapped backward). 120Hz gives a steady
+                // 2 ticks/frame at 60fps and 1 tick/frame at 120fps —
+                // either way the per-frame tick count is consistent
+                // so the lerp / extrapolation is steady. Per-second
+                // velocity is unchanged because pxPerTick scales by
+                // 1/TICK_RATE. PlayerMovePacket only fires on direction
+                // change so wire bandwidth doesn't increase.
+                final float TICK_RATE = 120f;
                 final float TICK_DT = 1f / TICK_RATE;
                 float frameDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
                 this.moveAccumulator += frameDt;
@@ -681,6 +692,20 @@ public class PlayState extends GameState {
                     this.hasInterpAnchor = true;
                 }
 
+                // EXPERIMENT A: capture the per-tick step so render() can
+                // EXTRAPOLATE forward from the latest tick rather than
+                // INTERPOLATE backward from the previous tick. Lerp from
+                // the OLD position always renders 1 tick behind the
+                // simulation (frac stays small at 60fps + 64Hz tick =>
+                // renderX ~= preTickX); extrapolating from the NEW
+                // position renders where the physics is heading this
+                // frame, so the sprite is always at-or-ahead of the
+                // sim, never behind. Direction-change overshoot is at
+                // most 1 tick worth (~3-5 px) and gets corrected on
+                // the next tick.
+                this.lastTickStepX = vx * pxPerTick;
+                this.lastTickStepY = vy * pxPerTick;
+
                 // Set facing flags for animation/aim regardless of ticks.
                 if (player.getIsUp())    lastDirectionTempMap.put(Cardinality.NORTH, true); else lastDirectionTempMap.put(Cardinality.NORTH, false);
                 if (player.getIsDown())  lastDirectionTempMap.put(Cardinality.SOUTH, true); else lastDirectionTempMap.put(Cardinality.SOUTH, false);
@@ -708,16 +733,23 @@ public class PlayState extends GameState {
                     this.lastDirectionMap = lastDirectionTempMap;
                 }
 
-                // Compute render position INLINE — must happen this same
-                // call so render() sees up-to-date values. Web client does
-                // this in the same processInput frame.
+                // Render position via EXTRAPOLATION (Experiment A). The
+                // accumulator's leftover fraction projects forward by
+                // up to one tick worth of the most-recent velocity:
+                //
+                //   renderX = pos.x + (acc / TICK_DT) * lastTickStep
+                //
+                // pos is the LATEST simulated state; we extrapolate
+                // toward where the next tick will land. As the next
+                // tick fires, pos advances and accumulator resets,
+                // so renderX walks continuously without snap-back
+                // (the old interp formula could snap backward on
+                // multi-tick frames because it lerped from preTick
+                // through 2 ticks of advance, briefly putting render
+                // behind the visible position).
                 final float interpFrac = Math.max(0f, Math.min(1f, this.moveAccumulator / TICK_DT));
-                float renderX = this.hasInterpAnchor
-                        ? this.interpFromX + (player.getPos().x - this.interpFromX) * interpFrac
-                        : player.getPos().x;
-                float renderY = this.hasInterpAnchor
-                        ? this.interpFromY + (player.getPos().y - this.interpFromY) * interpFrac
-                        : player.getPos().y;
+                float renderX = player.getPos().x + this.lastTickStepX * interpFrac;
+                float renderY = player.getPos().y + this.lastTickStepY * interpFrac;
                 player.setRenderPos(renderX, renderY);
 
                 // Camera follows the lerped player position with
@@ -1161,6 +1193,12 @@ public class PlayState extends GameState {
      * though simulation is fixed at 64 Hz.
      */
     private float interpFromX, interpFromY;
+    /** Per-tick step (px) the player JUST moved on the latest sim tick.
+     *  Used by the render-extrapolation formula: renderX = pos.x +
+     *  (acc / TICK_DT) * lastTickStepX. Captured inside the tick loop
+     *  so direction changes between frames don't smear the prediction
+     *  with a stale velocity. */
+    private float lastTickStepX = 0f, lastTickStepY = 0f;
     /**
      * Smoothed camera position. Mirrors the web client's
      * {@code game.cameraX/cameraY} (game.js ~line 1580). The camera
@@ -1449,8 +1487,16 @@ public class PlayState extends GameState {
             final String nm = rp.getName();
             if (nm == null || nm.isEmpty()) continue;
             final int s = rp.getSize() > 0 ? rp.getSize() : 32;
-            final float wx = rp.getPos().getWorldVar().x;
-            final float wy = rp.getPos().getWorldVar().y;
+            // Use the LERPED render position (same source as the sprite
+            // and HP bar use) instead of raw pos. Was reading
+            // rp.getPos().getWorldVar() which is the post-tick sim
+            // position — that snaps in tick-sized increments while the
+            // sprite (which uses getEffectiveRenderX) walks smoothly,
+            // so the nameplate visibly jittered above the moving
+            // sprite. With this change the nameplate locks frame-for-
+            // frame to the same coords the sprite renders at.
+            final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
+            final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
             this.nameLayoutScratch.setText(font, nm);
             font.setColor(roleColorFor(rp.getChatRole()));
             // y = top of HP bar minus 2px gap. HP bar sits at wy - 10, so
