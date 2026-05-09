@@ -134,9 +134,9 @@ public class ServerTradeManager {
 			ServerTradeManager.playerActiveTrades.put(target.getId(), toRespond.getId());
 
 			playerTradeSelections.put(target.getId(),
-					new NetInventorySelection(target.getId(), new Boolean[8], target.getInventoryAsNetGameItemRefs()));
+					new NetInventorySelection(target.getId(), new Boolean[8], target.getInventoryAsNetGameItemRefs(), false));
 			playerTradeSelections.put(toRespond.getId(), new NetInventorySelection(toRespond.getId(), new Boolean[8],
-					toRespond.getInventoryAsNetGameItemRefs()));
+					toRespond.getInventoryAsNetGameItemRefs(), false));
 
 			// Reset confirmations for the active trade
 			ServerTradeManager.playerTradeConfirmation.put(target.getId(), (short) 0);

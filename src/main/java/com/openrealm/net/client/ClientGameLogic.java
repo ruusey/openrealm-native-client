@@ -77,10 +77,16 @@ public class ClientGameLogic {
 	@PacketHandlerClient(RequestTradePacket.class)
 	public static void handleTradeRequestClient(RealmManagerClient cli, Packet packet) {
 		final RequestTradePacket tradeRequest = (RequestTradePacket) packet;
-		cli.getState().getPui().getPlayerChat().addChatMessage(TextPacket.create(tradeRequest.getRequestingPlayerName(),
+		final String fromName = tradeRequest.getRequestingPlayerName();
+		// Surface a UI popup with Accept/Decline buttons (PlayerUI renders
+		// when pendingTradeRequestFrom is set). Webclient parity with
+		// trade.js showTradeRequestPopup. Also keep the chat-line so
+		// players who minimize the popup can still see who asked.
+		cli.getState().getPui().setPendingTradeRequestFrom(fromName);
+		cli.getState().getPui().setPendingTradeRequestStartMs(System.currentTimeMillis());
+		cli.getState().getPui().getPlayerChat().addChatMessage(TextPacket.create(fromName,
 				cli.getState().getPlayer().getName(),
-				tradeRequest.getRequestingPlayerName() + " has proposed a trade, type /accept to initiate the trade"));
-
+				fromName + " wants to trade — Accept / Decline"));
 	}
 	
 	@PacketHandlerClient(AcceptTradeRequestPacket.class)
@@ -91,6 +97,7 @@ public class ClientGameLogic {
 		if (tradeRequest.isAccepted()) {
 			log.info("[CLIENT] Trade accepted between {} and {}", tradeRequest.getPlayer0().getName(), tradeRequest.getPlayer1().getName());
 			final var pui = cli.getState().getPui();
+			pui.setPendingTradeRequestFrom(null); // close popup if open
 			pui.setTrading(true);
 			// Server constructs the packet with player0=self, player1=partner
 			// for each recipient (see ServerTradeManager line 131-132). So
@@ -106,13 +113,24 @@ public class ClientGameLogic {
 		} else {
 			log.info("[CLIENT] Trade closed");
 			final var pui = cli.getState().getPui();
-			pui.setTrading(false);
-			pui.setCurrentTradeSelection(null);
-			pui.setTradePartnerName(null);
-			pui.setPartnerInventory(null);
-			pui.setPartnerClassId(0);
-			pui.setPartnerDyeId(0);
-			pui.clearTradeSelections();
+			pui.setPendingTradeRequestFrom(null); // close popup if open
+			// Trigger the post-trade 1s "trade complete" delay rather
+			// than closing the overlay instantly. closeTradeOverlayDeferred
+			// keeps the overlay rendered with both 'CONFIRMED' badges
+			// visible for 1000ms, then clears the trade state. Mirrors
+			// the webclient pattern. If we weren't actually trading
+			// (e.g. /trade refused before accept), close immediately.
+			if (pui.isTrading()) {
+				pui.scheduleTradeOverlayClose();
+			} else {
+				pui.setTrading(false);
+				pui.setCurrentTradeSelection(null);
+				pui.setTradePartnerName(null);
+				pui.setPartnerInventory(null);
+				pui.setPartnerClassId(0);
+				pui.setPartnerDyeId(0);
+				pui.clearTradeSelections();
+			}
 		}
 	}
 
@@ -271,6 +289,27 @@ public class ClientGameLogic {
 				// Clear chat on realm change so the log doesn't carry over
 				// across maps / instances. Mirrors the web client.
 				try { cli.getState().getPui().getPlayerChat().clearChat(); } catch (Exception ignored) {}
+				// Clear cross-realm carry-over state: previous realm's
+				// players/enemies/bullets/loot/portals were lingering in
+				// the local realm map, so e.g. transitioning from nexus
+				// → vault still showed the nexus crowd in the nearby
+				// list. The next LoadPacket for the new realm will
+				// re-add anything that's actually present.
+				try {
+					final long localId = cli.getCurrentPlayerId();
+					final java.util.Map<Long, com.openrealm.game.entity.Player> players = cli.getRealm().getPlayers();
+					if (players != null) {
+						players.entrySet().removeIf(e -> e.getKey() != localId);
+					}
+					final java.util.Map<Long, com.openrealm.game.entity.Enemy> enemies = cli.getRealm().getEnemies();
+					if (enemies != null) enemies.clear();
+					final java.util.Map<Long, com.openrealm.game.entity.Bullet> bullets = cli.getRealm().getBullets();
+					if (bullets != null) bullets.clear();
+					final java.util.Map<Long, com.openrealm.game.entity.item.LootContainer> loot = cli.getRealm().getLoot();
+					if (loot != null) loot.clear();
+					final java.util.Map<Long, com.openrealm.game.entity.Portal> portals = cli.getRealm().getPortals();
+					if (portals != null) portals.clear();
+				} catch (Exception ignored) { /* defensive — never block transition */ }
 
 				// Snap local player to the new map's spawn so we don't render
 				// at the previous realm's coordinates inside the new tile
@@ -346,14 +385,15 @@ public class ClientGameLogic {
 		try {
 			final GlobalPlayerPositionPacket gp = (GlobalPlayerPositionPacket) packet;
 			if (gp.getPlayers() == null) return;
-			final long localId = cli.getCurrentPlayerId();
-			for (NetPlayerPosition p : gp.getPlayers()) {
-				if (p == null) continue;
-				final Player target = cli.getRealm().getPlayer(p.getPlayerId());
-				if (target == null || target.getPos() == null) continue;
-				target.getPos().x = p.getX();
-				target.getPos().y = p.getY();
-			}
+			// Store the server-wide snapshot for the minimap to render
+			// — this is the SAME path the webclient uses
+			// (game.minimapPlayers). Do NOT overwrite cli.getRealm().getPlayer
+			// positions: those are LOCAL realm players whose positions are
+			// authoritatively driven by ObjectMovePacket / PlayerPosAckPacket;
+			// the global packet carries cross-realm positions that would
+			// otherwise drag in-realm dots around as players in OTHER
+			// realms moved.
+			cli.getState().setMinimapPlayers(gp.getPlayers());
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed GlobalPlayerPosition handler. Reason: {}", e.getMessage());
 		}

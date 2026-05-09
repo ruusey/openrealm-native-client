@@ -64,6 +64,35 @@ public class PlayerUI {
 
     private NetTradeSelection currentTradeSelection = null;
     private String tradePartnerName = null;
+    /** Pending incoming trade request — name of the player who sent
+     *  the /trade. Triggers an Accept / Decline popup (rendered under
+     *  the right HUD column). Cleared on accept, decline, or 15s
+     *  timeout (matches the server-side TTL). Webclient parity
+     *  (trade.js showTradeRequestPopup). */
+    @lombok.Getter @lombok.Setter
+    private String pendingTradeRequestFrom = null;
+    @lombok.Getter @lombok.Setter
+    private long pendingTradeRequestStartMs = 0L;
+    /** Buttons for the pending-trade-request popup — Accept fires
+     *  /accept, Decline fires /decline. Lazy built when the popup
+     *  first renders so we know the panel position. */
+    private Button tradeRequestAcceptBtn = null;
+    private Button tradeRequestDeclineBtn = null;
+    /** Wall-clock timestamp at which the trade overlay should close
+     *  after a trade completes. Set to System.currentTimeMillis()+1000
+     *  by {@link #scheduleTradeOverlayClose} so both players can see
+     *  the dual-CONFIRMED state for a beat before the UI dismisses. 0
+     *  means no scheduled close. */
+    private long tradeOverlayCloseAtMs = 0L;
+
+    /** Defer the trade overlay close by 1 second so the dual-CONFIRMED
+     *  status is visible after a successful trade completes. Called
+     *  from ClientGameLogic.handleAcceptTrade when the server sends an
+     *  AcceptTradeRequestPacket(false) closing the trade — but we want
+     *  to keep the overlay up briefly first. */
+    public void scheduleTradeOverlayClose() {
+        this.tradeOverlayCloseAtMs = System.currentTimeMillis() + 1000L;
+    }
     /** Snapshot of the partner's inventory at trade-accept time. The
      *  on-wire trade-selection packets carry only Boolean[] flags (no
      *  items), so we cache the partner's full 20-slot inventory from
@@ -280,6 +309,20 @@ public class PlayerUI {
     /**
      * Get the other player's NetInventorySelection (not filtered).
      */
+    /** Local player's NetInventorySelection (the side keyed to our id).
+     *  Used by the trade overlay to read the server-broadcast confirmed
+     *  flag (the only authoritative signal that the server has accepted
+     *  my /confirm true). */
+    private NetInventorySelection getMyTradeSelection() {
+        if (this.currentTradeSelection == null || this.playState == null) return null;
+        final long myId = this.playState.getPlayerId();
+        if (this.currentTradeSelection.getPlayer0Selection() != null
+                && this.currentTradeSelection.getPlayer0Selection().getPlayerId() == myId) {
+            return this.currentTradeSelection.getPlayer0Selection();
+        }
+        return this.currentTradeSelection.getPlayer1Selection();
+    }
+
     private NetInventorySelection getOtherPlayerSelection() {
         if (this.currentTradeSelection == null) return null;
 
@@ -329,6 +372,9 @@ public class PlayerUI {
         this.cancelTradeButton = null;
         this.tradeMyButtons = null;
         this.myTradeConfirmed = false;
+        this.tradeOverlayCloseAtMs = 0L;
+        this.tradeRequestAcceptBtn = null;
+        this.tradeRequestDeclineBtn = null;
     }
 
     public int getNonEmptySlotCount() {
@@ -475,6 +521,29 @@ public class PlayerUI {
     }
 
     public void update(double time) {
+        // Tick the deferred trade-overlay close timer. When the server
+        // closes a completed trade we keep the overlay rendered for ~1s
+        // showing both 'CONFIRMED' badges, then run the actual close
+        // here so the player can see that both sides accepted.
+        if (this.tradeOverlayCloseAtMs > 0L
+                && System.currentTimeMillis() >= this.tradeOverlayCloseAtMs) {
+            this.tradeOverlayCloseAtMs = 0L;
+            this.setTrading(false);
+            this.setCurrentTradeSelection(null);
+            this.setTradePartnerName(null);
+            this.setPartnerInventory(null);
+            this.setPartnerClassId(0);
+            this.setPartnerDyeId(0);
+            this.clearTradeSelections();
+        }
+        // Auto-dismiss pending trade-request popup after 15s (matches
+        // server-side TTL).
+        if (this.pendingTradeRequestFrom != null
+                && System.currentTimeMillis() - this.pendingTradeRequestStartMs > 15000L) {
+            this.pendingTradeRequestFrom = null;
+            this.tradeRequestAcceptBtn = null;
+            this.tradeRequestDeclineBtn = null;
+        }
         for (int i = 0; i < this.inventory.length; i++) {
             Slots curr = this.inventory[i];
             if (curr != null) {
@@ -543,6 +612,12 @@ public class PlayerUI {
                     if (b != null) b.input(mouse, key);
                 }
             }
+        }
+
+        // Trade-request popup input — Accept / Decline buttons.
+        if (this.pendingTradeRequestFrom != null) {
+            if (this.tradeRequestAcceptBtn != null) this.tradeRequestAcceptBtn.input(mouse, key);
+            if (this.tradeRequestDeclineBtn != null) this.tradeRequestDeclineBtn.input(mouse, key);
         }
 
         // Handle nearby player button input
@@ -685,7 +760,11 @@ public class PlayerUI {
         for (int i = 0; i < 8; i++) {
             final int slotIdx = i + 4;
             final Button b = new Button(new Vector2f(0, 0), cellW);
-            b.onMouseUp(event -> {
+            // onMouseDown so the toggle fires ONCE per click cycle —
+            // onMouseUp fires twice (press + release), which toggled
+            // selection on→off in a single click and looked like the
+            // selection wasn't sticking.
+            b.onMouseDown(event -> {
                 if (!this.isTrading) return;
                 if (slotIdx >= this.inventory.length) return;
                 final Slots slot = this.inventory[slotIdx];
@@ -1023,6 +1102,7 @@ public class PlayerUI {
 
         this.renderPlayerTooltip(batch, shapes, font);
         this.renderPlayerContextMenu(batch, shapes, font);
+        this.renderTradeRequestPopup(batch, shapes, font);
         if (!useSpriteHud) this.renderStats(batch, font); // sprite HUD draws stats in renderSpriteHud
         this.renderPortalPrompt(batch, shapes, font);
         this.renderInteractPrompt(batch, shapes, font);
@@ -1147,7 +1227,16 @@ public class PlayerUI {
         final Player me = (this.playState != null) ? this.playState.getPlayer() : null;
         final String myName    = (me != null && me.getName() != null) ? me.getName() : "YOU";
         final String partner   = (this.tradePartnerName != null) ? this.tradePartnerName : "...";
-        final boolean iConfirmed = this.myTradeConfirmed;
+        // Read confirmed flags from the live UpdateTradePacket — these
+        // are now broadcast by the server (NetInventorySelection.confirmed
+        // field) so each side sees real-time confirmation status of the
+        // other. My own confirmed mirrors the local `myTradeConfirmed`
+        // flag too in case the server's broadcast lags by a frame.
+        final NetInventorySelection mySel    = this.getMyTradeSelection();
+        final NetInventorySelection theirSel2 = this.getOtherPlayerSelection();
+        final boolean iConfirmed     = this.myTradeConfirmed
+                || (mySel != null && mySel.isConfirmed());
+        final boolean theyConfirmed  = theirSel2 != null && theirSel2.isConfirmed();
 
         font.setColor(roleColorFor(me != null ? me.getChatRole() : null));
         font.draw(batch, myName, leftX + 12, hdrY + 22);
@@ -1161,8 +1250,13 @@ public class PlayerUI {
 
         font.setColor(0.40f, 0.78f, 0.88f, 1f);
         font.draw(batch, partner, rightX + 12, hdrY + 22);
-        font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
-        font.draw(batch, "Trade in progress", rightX + 12, hdrY + 40);
+        if (theyConfirmed) {
+            font.setColor(0.25f, 0.78f, 0.35f, 1f);
+            font.draw(batch, "CONFIRMED", rightX + 12, hdrY + 40);
+        } else {
+            font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
+            font.draw(batch, "Picking...", rightX + 12, hdrY + 40);
+        }
         font.setColor(Color.WHITE);
 
         // ---- Slot grids — only the top 8 cells (BAG 1) are tradable. ----
@@ -1220,6 +1314,66 @@ public class PlayerUI {
         Gdx.gl.glDisable(GL20.GL_BLEND);
     }
 
+    /** Pop-up "X wants to trade — Accept / Decline" surfaced under the
+     *  right HUD column. Lazy-builds the two buttons on first render
+     *  so they sit underneath whatever the right column currently
+     *  resolves to. Buttons clear themselves on click and feed
+     *  /accept or /decline through the existing chat command path
+     *  (no need to actually type the command). Webclient parity. */
+    private void renderTradeRequestPopup(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        if (this.pendingTradeRequestFrom == null) return;
+        final int panelW = OpenRealmGame.width / 5;
+        final int boxW = panelW;
+        final int boxH = 80;
+        final int boxX = OpenRealmGame.width - panelW - 16;
+        // Sit underneath the inventory bag (~700 px) so it's clearly
+        // visible without overlapping minimap/equip-stats above it.
+        final int boxY = OpenRealmGame.height - 16 - 36 - 8 - boxH - 16;
+        if (this.tradeRequestAcceptBtn == null || this.tradeRequestDeclineBtn == null) {
+            final int btnW = (boxW - 24) / 2;
+            final int btnH = 28;
+            final int btnY = boxY + boxH - btnH - 8;
+            this.tradeRequestAcceptBtn = new Button("ACCEPT", new Vector2f(boxX + 8, btnY), btnW, btnH);
+            this.tradeRequestAcceptBtn.onMouseDown(event -> {
+                this.sendServerCommand("accept", "");
+                this.pendingTradeRequestFrom = null;
+                this.tradeRequestAcceptBtn = null;
+                this.tradeRequestDeclineBtn = null;
+            });
+            this.tradeRequestDeclineBtn = new Button("DECLINE", new Vector2f(boxX + 16 + btnW, btnY), btnW, btnH);
+            this.tradeRequestDeclineBtn.onMouseDown(event -> {
+                this.sendServerCommand("decline", "");
+                this.pendingTradeRequestFrom = null;
+                this.tradeRequestAcceptBtn = null;
+                this.tradeRequestDeclineBtn = null;
+            });
+        }
+
+        // Background panel — same palette as the trade overlay header.
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f);
+        shapes.rect(boxX, boxY, boxW, boxH);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+        shapes.rect(boxX, boxY, boxW, boxH);
+        shapes.end();
+        batch.begin();
+        font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+        font.draw(batch, this.pendingTradeRequestFrom + " wants to trade", boxX + 10, boxY + 22);
+        font.setColor(Color.WHITE);
+
+        // Accept (green) / Decline (red) buttons.
+        this.drawTradeButton(batch, shapes, font, this.tradeRequestAcceptBtn,
+                "ACCEPT", new Color(0.25f, 0.78f, 0.35f, 1f));
+        this.drawTradeButton(batch, shapes, font, this.tradeRequestDeclineBtn,
+                "DECLINE", new Color(0.78f, 0.27f, 0.27f, 1f));
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
     /** Render a single trade-overlay slot: optional yellow selection
      *  border + recessed background + item icon. Centralized so my-side
      *  and partner-side render identically. */
@@ -1262,9 +1416,14 @@ public class PlayerUI {
         batch.begin();
         final GlyphLayout gl = new GlyphLayout(font, label);
         font.setColor(Color.WHITE);
+        // font.draw y is the TOP of the text bbox in y-down ortho (NOT
+        // the baseline). To vertically center: text_top = box_top +
+        // (box_h - text_h)/2 + text_h ≈ box_top + (box_h + text_h)/2 ?
+        // No — for TOP convention, text_top = box_top + (box_h-text_h)/2
+        // centers the text. The previous +text_h pushed it bottom-aligned.
         font.draw(batch, label,
                 b.getPos().x + (b.getWidth()  - gl.width)  / 2f,
-                b.getPos().y + (b.getHeight() + gl.height) / 2f);
+                b.getPos().y + (b.getHeight() + gl.height) / 2f - gl.height * 0.15f);
     }
 
 
@@ -1911,13 +2070,16 @@ public class PlayerUI {
      */
     private void renderHintBox(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, String text, int stackIndex) {
         final GlyphLayout gl = new GlyphLayout(font, text);
-        final int padX = 14, padY = 8;
+        final int padX = 14, padY = 10;
         final int boxW = (int) gl.width + padX * 2;
         final int boxH = (int) gl.height + padY * 2;
-        final int panelW = OpenRealmGame.width / 5;
-        // Pin to the bottom of the screen, just left of the right HUD column.
-        final int boxX = OpenRealmGame.width - panelW - boxW - 16;
-        final int boxY = OpenRealmGame.height - 24 - boxH - stackIndex * (boxH + 6);
+        // Center horizontally on the screen, anchor ABOVE the bottom-
+        // center hotbar (panel.hud.equipment is 36 px tall at 1x =
+        // 72 px at 2x display scale, plus the 16-px margin above it).
+        // Stack additional hints (e.g. forge prompt) ABOVE this one.
+        final int hotbarReserve = 72 + 16;
+        final int boxX = (OpenRealmGame.width  - boxW) / 2;
+        final int boxY = OpenRealmGame.height - hotbarReserve - 12 - boxH - stackIndex * (boxH + 6);
 
         batch.end();
         com.badlogic.gdx.Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
@@ -1934,7 +2096,13 @@ public class PlayerUI {
         batch.begin();
 
         font.setColor(0.95f, 0.85f, 0.45f, 1f);
-        font.draw(batch, text, boxX + padX, boxY + padY + gl.height);
+        // Vertically center the text: baseline at boxY + (boxH + textH)/2
+        // (matches the BAG-tab centering pattern). The previous formula
+        // pinned the text top to a fixed offset which left a visible
+        // gap below the baseline and looked awful.
+        font.draw(batch, text,
+                boxX + (boxW - gl.width) / 2f,
+                boxY + (boxH + gl.height) / 2f - 2f);
         font.setColor(Color.WHITE);
     }
 

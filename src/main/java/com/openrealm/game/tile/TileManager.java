@@ -69,6 +69,71 @@ public class TileManager {
     /** Brightness multiplier applied to the side-strip texture so it reads as a shaded wall face. */
     private static final float WALL_SIDE_BRIGHTNESS = 0.55f;
     private static final Integer VIEWPORT_TILE_MAX = 20;
+    /** Per-tile highlight color cache, indexed by tileId. Sampled once
+     *  from the wall sprite's pixmap (lightened by 35%) so the N+W
+     *  edge highlight looks like the wall material's own light side
+     *  rather than a hard pure-white band. Lazy-populated. */
+    private static final java.util.Map<Integer, float[]> WALL_HIGHLIGHT_CACHE =
+            new java.util.HashMap<>();
+    /** Default highlight if we can't sample (sheet missing, etc.) — a
+     *  warm off-white that reads softer than pure white on most
+     *  ambient-tone walls. */
+    private static final float[] WALL_HIGHLIGHT_FALLBACK =
+            new float[] { 0.95f, 0.92f, 0.84f };
+
+    /** Sample the dominant color of a wall tile sprite and return a
+     *  lightened tint to use as the N/W edge highlight color. Cached
+     *  per tileId. Falls back to a warm off-white if the texture's
+     *  pixmap isn't readable (e.g. sheet hasn't been textured yet or
+     *  is mip-loaded). */
+    private static float[] wallHighlightColor(int tileId) {
+        float[] cached = WALL_HIGHLIGHT_CACHE.get(tileId);
+        if (cached != null) return cached;
+        float[] result = WALL_HIGHLIGHT_FALLBACK;
+        try {
+            final TextureRegion region = com.openrealm.game.data.GameSpriteManager.TILE_SPRITES.get(tileId);
+            if (region != null && region.getTexture() != null) {
+                final com.badlogic.gdx.graphics.Texture tex = region.getTexture();
+                if (tex.getTextureData() != null) {
+                    if (!tex.getTextureData().isPrepared()) {
+                        tex.getTextureData().prepare();
+                    }
+                    final com.badlogic.gdx.graphics.Pixmap pix = tex.getTextureData().consumePixmap();
+                    if (pix != null) {
+                        // Sample a small grid in the center of the
+                        // region — averages out edge dithering / outlines.
+                        final int rx = region.getRegionX();
+                        final int ry = region.getRegionY();
+                        final int rw = region.getRegionWidth();
+                        final int rh = region.getRegionHeight();
+                        long r = 0, g = 0, b = 0; int n = 0;
+                        for (int dy = rh / 4; dy < rh - rh / 4; dy += 2) {
+                            for (int dx = rw / 4; dx < rw - rw / 4; dx += 2) {
+                                final int color = pix.getPixel(rx + dx, ry + dy);
+                                final int ar = (color >> 24) & 0xFF;
+                                if (ar < 16) continue; // skip transparent
+                                r += (color >> 16) & 0xFF;
+                                g += (color >>  8) & 0xFF;
+                                b += (color      ) & 0xFF;
+                                n++;
+                            }
+                        }
+                        if (tex.getTextureData().disposePixmap()) pix.dispose();
+                        if (n > 0) {
+                            // Lighten by 35% toward white so the highlight
+                            // reads as a brighter version of the same surface.
+                            float fr = Math.min(1f, ((r / (float) n) / 255f) * 1.35f + 0.10f);
+                            float fg = Math.min(1f, ((g / (float) n) / 255f) * 1.35f + 0.10f);
+                            float fb = Math.min(1f, ((b / (float) n) / 255f) * 1.35f + 0.10f);
+                            result = new float[] { fr, fg, fb };
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) { /* fall through to fallback */ }
+        WALL_HIGHLIGHT_CACHE.put(tileId, result);
+        return result;
+    }
     private final ReentrantLock mapLock = new ReentrantLock();
     private List<TileMap> mapLayers;
     private Vector2f bossSpawnPos;
@@ -769,7 +834,14 @@ public class TileManager {
         final List<Tile> decorationTiles = new ArrayList<>();
         final List<Tile> waterTiles = new ArrayList<>();
 
-        // Pass 1: Draw all base tiles (circular viewport) and classify collision layer tiles
+        // Pass 1: Draw all base tiles (circular viewport) and classify
+        // collision layer tiles. Wall tiles, however, get classified in
+        // the FULL SQUARE bounds — not gated by the circular fog-of-war
+        // — so the 3D extrusion always sits on every visible wall, not
+        // just the ones inside the player-centered circle. The previous
+        // version produced a visible "ring" where walls past the circle
+        // were flat textures while walls inside the circle had the
+        // shadow/highlight bands.
         final float radiusSq = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
         for (int x = (int) (posNormalized.x - VIEWPORT_TILE_MIN); x < (posNormalized.x + VIEWPORT_TILE_MIN); x++) {
             for (int y = (int) (posNormalized.y - VIEWPORT_TILE_MIN); y < (int) (posNormalized.y + VIEWPORT_TILE_MIN); y++) {
@@ -779,14 +851,22 @@ public class TileManager {
                 }
                 float dx = x - posNormalized.x;
                 float dy = y - posNormalized.y;
-                if (dx * dx + dy * dy > radiusSq) continue;
-                // Mark this tile as discovered for future fog-of-war passes.
-                this.discovered[y][x] = true;
+                final boolean insideCircle = (dx * dx + dy * dy) <= radiusSq;
                 try {
                     Tile normalTile = (Tile) this.mapLayers.get(0).getBlocks()[y][x];
                     Tile collisionTile = (Tile) this.mapLayers.get(1).getBlocks()[y][x];
+                    final boolean isWallTile = collisionTile != null
+                            && !collisionTile.isVoid()
+                            && collisionTile.getData() != null
+                            && collisionTile.getData().isWall();
+                    // Skip strictly non-wall tiles outside the circle —
+                    // they're the fog-of-war hidden region. Walls keep
+                    // rendering so the level geometry stays continuous.
+                    if (!insideCircle && !isWallTile) continue;
+                    // Mark this tile as discovered for future fog-of-war passes.
+                    this.discovered[y][x] = true;
 
-                    if (normalTile != null) {
+                    if (normalTile != null && insideCircle) {
                         normalTile.render(batch);
                         boolean isWaterTile = normalTile.getData() != null && normalTile.getData().slows()
                                 && !normalTile.getData().hasCollision();
@@ -801,14 +881,13 @@ public class TileManager {
                                 && normalTile.getData().slows() && !normalTile.getData().hasCollision();
                         if (baseIsWater) {
                             // Skip collision effects over water
-                        } else if (collisionTile.getData() != null && collisionTile.getData().isWall()) {
+                        } else if (isWallTile) {
                             // Wall tiles get 3D effect (shadow + contour + side face)
+                            // — INCLUDING those past the fog circle.
                             wallTiles.add(collisionTile);
-                        } else if (collisionTile.getData() != null && collisionTile.getData().hasCollision()) {
-                            // Non-wall collision tiles get elliptical shadow
+                        } else if (insideCircle && collisionTile.getData() != null && collisionTile.getData().hasCollision()) {
                             objectTiles.add(collisionTile);
-                        } else {
-                            // Non-collision decorative tile on collision layer
+                        } else if (insideCircle) {
                             decorationTiles.add(collisionTile);
                         }
                     }
@@ -908,8 +987,13 @@ public class TileManager {
                 t.render(batch);
             }
 
-            // N + W highlights on edge walls (top-light from NW). Drawn after
-            // the top tile so they sit on top of the wall texture's edge.
+            // N + W highlights on edge walls (top-light from NW). Drawn
+            // after the top tile so they sit on top of the wall texture's
+            // edge. Colour tinted from the tile's own dominant color
+            // (looked up in WALL_HIGHLIGHT_CACHE) and lightened by ~35%,
+            // so each material gets a highlight that reads as "the same
+            // surface, brighter" rather than the previous pure-white
+            // band that looked harsh on dark walls (stone, dungeon).
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             for (Tile t : wallTiles) {
@@ -921,13 +1005,14 @@ public class TileManager {
                 long row = (long) Math.floor(wy / sz);
                 boolean wN = wallSet.contains(((row - 1) << 32) | (col & 0xffffffffL));
                 boolean wW = wallSet.contains((row << 32) | ((col - 1) & 0xffffffffL));
+                final float[] hl = wallHighlightColor((int) t.getTileId());
                 if (!wN) {
-                    shapes.setColor(1f, 1f, 1f, 0.26f); shapes.rect(wx, wy,     sz, 2);
-                    shapes.setColor(1f, 1f, 1f, 0.11f); shapes.rect(wx, wy + 2, sz, 2);
+                    shapes.setColor(hl[0], hl[1], hl[2], 0.20f); shapes.rect(wx, wy,     sz, 2);
+                    shapes.setColor(hl[0], hl[1], hl[2], 0.09f); shapes.rect(wx, wy + 2, sz, 2);
                 }
                 if (!wW) {
-                    shapes.setColor(1f, 1f, 1f, 0.14f); shapes.rect(wx,     wy, 1, sz);
-                    shapes.setColor(1f, 1f, 1f, 0.06f); shapes.rect(wx + 1, wy, 1, sz);
+                    shapes.setColor(hl[0], hl[1], hl[2], 0.11f); shapes.rect(wx,     wy, 1, sz);
+                    shapes.setColor(hl[0], hl[1], hl[2], 0.05f); shapes.rect(wx + 1, wy, 1, sz);
                 }
             }
             shapes.end();

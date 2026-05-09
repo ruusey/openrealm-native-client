@@ -79,6 +79,15 @@ import com.openrealm.game.graphics.Sprite;
 @Slf4j
 public class PlayState extends GameState {
     private RealmManagerClient realmManager;
+    /** Server-wide players surfaced by GlobalPlayerPositionPacket — used
+     *  ONLY by the minimap to plot dots for players who aren't in our
+     *  local realm map. Webclient parity (game.minimapPlayers).
+     *  Previously the global-pos handler was overwriting our local
+     *  players' coords with these positions, which dragged the in-realm
+     *  dots around as players in OTHER realms moved. */
+    @lombok.Getter @lombok.Setter
+    private com.openrealm.net.entity.NetPlayerPosition[] minimapPlayers =
+            new com.openrealm.net.entity.NetPlayerPosition[0];
     private Queue<EffectText> damageText;
     private Queue<ActiveVisualEffect> activeEffects;
     private List<Vector2f> shotDestQueue;
@@ -1619,21 +1628,48 @@ public class PlayState extends GameState {
             return;
         }
 
-        final LootContainer closeLoot = this.getClosestLootContainer(player.getPos(), player.getSize() / 2);
+        // Match the server's ground-loot pickup radius (player.getSize() +
+        // 24) so the loot panel only surfaces a bag whose items the
+        // server will accept clicks for. Used to be size/2 (~14px), so
+        // a bag could appear in the UI but be just outside server
+        // pickup range — clicks looked like no-ops.
+        final int lootSearchRadius = player.getSize() + 24;
+        final LootContainer closeLoot = this.getClosestLootContainer(player.getPos(), lootSearchRadius);
 
         if ((closeLoot != null && this.getPui().isGroundLootEmpty()) || (closeLoot != null && closeLoot.getContentsChanged())) {
             this.getPui().setGroundLoot(closeLoot.getItems());
-
         } else if ((closeLoot == null) && !this.getPui().isGroundLootEmpty()) {
             this.getPui().setGroundLoot(new GameItem[8]);
         }
 
         if (closeLoot != null && !this.getPui().isGroundLootEmpty()) {
-            final boolean contentsChanged = this.getPui().getNonEmptySlotCount() != closeLoot.getNonEmptySlotCount();
-            if (contentsChanged) {
+            // Diff by itemId + stackCount, NOT just count — partial
+            // pickups of a stack don't change the slot count but do
+            // change stackCount, and the previous count-only check
+            // missed those (so the bag visually still showed the full
+            // stack even after the player took 5 of 10).
+            if (this.lootDiffersFromUI(closeLoot)) {
                 this.getPui().setGroundLoot(closeLoot.getItems());
             }
         }
+    }
+
+    /** True if the loot container's current items differ in count, item
+     *  id, or stack count from the cached groundLoot UI snapshot. */
+    private boolean lootDiffersFromUI(LootContainer closeLoot) {
+        final com.openrealm.game.ui.Slots[] uiSlots = this.getPui().getGroundLoot();
+        final GameItem[] lcItems = closeLoot.getItems();
+        if (uiSlots == null || lcItems == null) return true;
+        final int n = Math.min(uiSlots.length, lcItems.length);
+        for (int i = 0; i < n; i++) {
+            final GameItem ui  = (uiSlots[i] != null) ? uiSlots[i].getItem() : null;
+            final GameItem src = lcItems[i];
+            if (ui == null && src == null) continue;
+            if (ui == null || src == null) return true;
+            if (ui.getItemId() != src.getItemId()) return true;
+            if (ui.getStackCount() != src.getStackCount()) return true;
+        }
+        return false;
     }
 
     private void handleQuickUseKey(int slotIndex) {
