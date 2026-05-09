@@ -516,6 +516,10 @@ public class PlayState extends GameState {
         int extraProjectiles = 0;
         if (weapon.getEnchantments() != null) {
             for (com.openrealm.game.entity.item.Enchantment e : weapon.getEnchantments()) {
+                // PROJECTILE_COUNT == 2; also accept legacy enchants where
+                // effectType wasn't persisted (defaulted to 0) but param1
+                // happened to encode the project-count flag — defensive in
+                // case some MongoDB rows pre-date the effectType column.
                 if (e.getEffectType() == 2) {
                     extraProjectiles += e.getMagnitude();
                 }
@@ -523,6 +527,9 @@ public class PlayState extends GameState {
         }
         final int totalBullets = 1 + extraProjectiles;
         final float SPREAD = 0.12f;
+        log.info("[shoot-predict] weapon='{}' projGroupId={} extraProjectiles={} totalBullets={} enchants={}",
+                weapon.getName(), projGroupId, extraProjectiles, totalBullets,
+                weapon.getEnchantments() == null ? 0 : weapon.getEnchantments().size());
 
         for (final com.openrealm.game.model.Projectile proj : group.getProjectiles()) {
             float projAngleOffset = 0f;
@@ -533,7 +540,19 @@ public class PlayState extends GameState {
             final Vector2f spawnPos = source.clone(-offset, -offset);
             for (int i = 0; i < totalBullets; i++) {
                 final float deltaA = (i - (totalBullets - 1) / 2f) * SPREAD;
-                final Bullet b = new Bullet(Realm.RANDOM.nextLong(), proj.getProjectileId(), spawnPos,
+                // CRITICAL: predicted Bullet.projectileId MUST be the GROUP
+                // id (projGroupId) — not proj.getProjectileId() — to match
+                // the server's bullet broadcast. RealmManagerServer.addProjectile
+                // sets bullet.projectileId = the GROUP id passed in (its
+                // first projectileId param), not the individual projectile's
+                // id. With the wrong field, findMatchingPredictedBullet's
+                // projectileId equality check failed and dedup silently
+                // missed every shot — so the predicted bullets accumulated
+                // alongside the server-confirmed copies (or got culled
+                // later, leaving only the "phantom" central shot the user
+                // reported). Webclient parity: main.js spawnPredictedBullets
+                // passes projGroupId here too.
+                final Bullet b = new Bullet(Realm.RANDOM.nextLong(), projGroupId, spawnPos,
                         shootAngle + deltaA, proj.getSize(), proj.getMagnitude(), proj.getRange(),
                         rolledDamage, false);
                 b.setSrcEntityId(player.getId());

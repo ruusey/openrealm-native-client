@@ -186,7 +186,13 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		item.setDescription(this.description);
 		item.setStats(IOService.mapModel(this.stats, Stats.class));
 		item.setDamage(IOService.mapModel(this.damage, Damage.class));
-		item.setEffect(IOService.mapModel(this.stats, Effect.class));
+		// Was mistakenly mapping `this.stats` to Effect.class (copy-paste
+		// of the line above). For trade-overlay partner items + any
+		// item that ships through asGameItem, this dropped the
+		// projectile/on-hit effect entirely (status effects, applyDamage
+		// etc) — and on the receiving side the item rendered as if it
+		// had no special behavior.
+		item.setEffect(IOService.mapModel(this.effect, Effect.class));
 		item.setConsumable(this.consumable);
 		item.setTier(this.tier);
 		item.setTargetSlot(this.targetSlot);
