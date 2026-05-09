@@ -112,7 +112,16 @@ public class Minimap {
         this.mapWidth = mapModel.getWidth();
         this.mapHeight = mapModel.getHeight();
         this.cachedMapId = mapId;
-        this.zoom = 1.0f;
+        // Default zoom: target ~64 tiles visible at any map size. For
+        // small maps (nexus, vault, dungeons) that's the whole map at
+        // zoom=1.0. For the 640x640 overworld it's zoom~0.1 — only the
+        // streaming-loaded region around the player shows, instead of
+        // a mostly-black 640-tile map at zoom=1.0 where the loaded
+        // chunk renders as a few pixels of color in the corner. Player
+        // can mouse-wheel zoom in/out from this baseline.
+        final float visibleTilesTarget = 64f;
+        final float maxDim = Math.max(this.mapWidth, this.mapHeight);
+        this.zoom = Math.min(1.0f, Math.max(0.1f, visibleTilesTarget / maxDim));
         // CRITICAL: this method runs on the network packet thread
         // (RealmManagerClient.processClientPackets) — NOT the LWJGL GL
         // thread. Calling dispose() on the Texture here issues

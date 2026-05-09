@@ -848,8 +848,20 @@ public class TileManager {
         // wallTiles so the 3D extrusion is applied uniformly across
         // the whole visible scene. Without this, walls drew as flat
         // textures past the fog circle (visible ring boundary).
-        for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {
-            for (int sy = syMin; sy < syMin + screenTilesY; sy++) {
+        //
+        // Also scan a 2-tile PADDING beyond the viewport edges so the
+        // adjacency check (wallSet.contains(neighbor)) sees off-screen
+        // wall neighbours and doesn't draw a phantom shadow band on
+        // edge walls just because their neighbour scrolled off-screen.
+        // The user reported 'walls flickering different shading as I
+        // move' — that was the adjacency map flipping at the screen
+        // boundary every time a neighbour entered/left the viewport.
+        // Padding-only walls aren't rendered themselves (they live
+        // outside the camera) but populate wallSet so the visible
+        // walls' adjacency stays stable.
+        final int padTiles = 2;
+        for (int sx = sxMin - padTiles; sx < sxMin + screenTilesX + padTiles; sx++) {
+            for (int sy = syMin - padTiles; sy < syMin + screenTilesY + padTiles; sy++) {
                 if (sx < 0 || sy < 0 || sx >= mapW || sy >= mapH) continue;
                 final Tile maybeWall = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
                 if (maybeWall == null || maybeWall.isVoid()) continue;
