@@ -398,6 +398,12 @@ public class PlayerUI {
             Button b = new Button(new Vector2f(x, y), SLOT_SIZE);
 
             b.onMouseUp(event -> {
+                // Always log entry so a missing log makes it obvious the
+                // click never reached the handler (button bounds wrong /
+                // input order issue) vs reached but blocked by a guard.
+                log.info("[loot-click] FIRED slot={} itemId={} trading={} dragging={} canSwap={}",
+                        actualIdx, item != null ? item.getItemId() : -1,
+                        this.isTrading, this.isDragging, this.canSwap());
                 if (this.isTrading) return;
                 if (this.isDragging) return;
                 this.activeTooltip = null;
@@ -406,11 +412,10 @@ public class PlayerUI {
                 // Mirror webclient onSlotClick: just send moveItem with
                 // target=4 and let the server's ground-loot branch route
                 // it via firstEmptyInvSlot() — covers BAG 1 + BAG 2,
-                // potions, and stack merging. The previous client-side
-                // firstNullIdx only scanned slots 4..11 (BAG 1) and
-                // silently swallowed clicks whenever BAG 1 was full.
+                // potions, and stack merging.
                 try {
                     this.playState.getRealmManager().moveItem((byte) 4, actualIdx + 20, false, false);
+                    log.info("[loot-click] moveItem sent (target=4 from={})", actualIdx + 20);
                 } catch (Exception e) {
                     log.warn("[loot-click] moveItem failed for slot {} item {}: {}",
                             actualIdx, item != null ? item.getItemId() : -1, e.getMessage());
@@ -437,15 +442,17 @@ public class PlayerUI {
             }
             Button b = new Button(new Vector2f(this.slotX(actualIdx), this.layoutEquipY), SLOT_SIZE);
 
+            // Equipment-slot right-click = drop the equipped item to
+            // ground. Using closure-captured actualIdx directly (was
+            // routing through getOverlapping which scanned only 0..11).
+            final int dropEquipIdx = actualIdx;
             b.onRightClick(event -> {
-                // Don't allow equipment swaps during trade
                 if (this.isTrading) return;
-                Slots dropped = this.getOverlapping(event);
-                if ((dropped != null) && this.canSwap()) {
-                    this.setActionTime();
-                    int dropIndex = this.getOverlapIdx(event);
-                    this.playState.getRealmManager().moveItem(-1, dropIndex, true, false);
-                }
+                if (!this.canSwap()) return;
+                this.setActionTime();
+                log.info("[equip-rclick-drop] slot={} itemId={}",
+                        dropEquipIdx, item != null ? item.getItemId() : -1);
+                this.playState.getRealmManager().moveItem(-1, dropEquipIdx, true, false);
             });
 
             this.inventory[actualIdx] = new Slots(b, item);
@@ -471,25 +478,33 @@ public class PlayerUI {
             Button b = new Button(new Vector2f(this.slotX(col), y), SLOT_SIZE);
 
             b.onRightClick(event -> {
+                // Right-click on inventory slot = drop the item to ground
+                // (or toggle trade selection while in a trade). The
+                // previous version routed through getOverlapping(event) /
+                // getOverlapIdx(event), both of which scanned ONLY slots
+                // 0..11 — so right-click in BAG 2 (slots 12..19)
+                // returned null and dropped silently. Using the
+                // closure-captured actualIdx directly is both simpler
+                // AND covers the full 20-slot inventory.
                 if (this.isTrading) {
-                    Slots dropped = this.getOverlapping(event);
-                    if ((dropped != null)) {
-                        dropped.setSelected(!dropped.isSelected());
-                        final UpdatePlayerTradeSelectionPacket updatedTrade = UpdatePlayerTradeSelectionPacket
-                                .fromSelection(this.getPlayState().getPlayer(), this);
+                    final Slots slot = (actualIdx < this.inventory.length) ? this.inventory[actualIdx] : null;
+                    if (slot != null && slot.getItem() != null) {
+                        slot.setSelected(!slot.isSelected());
                         try {
+                            final UpdatePlayerTradeSelectionPacket updatedTrade =
+                                    UpdatePlayerTradeSelectionPacket.fromSelection(
+                                            this.getPlayState().getPlayer(), this);
                             this.playState.getRealmManager().getClient().sendRemote(updatedTrade);
                         } catch (Exception e) {
-                            e.printStackTrace();
+                            log.warn("[trade-toggle] update failed: {}", e.getMessage());
                         }
                     }
                 } else {
-                    Slots dropped = this.getOverlapping(event);
-                    if ((dropped != null) && this.canSwap()) {
-                        this.setActionTime();
-                        int idx = this.getOverlapIdx(event);
-                        this.playState.getRealmManager().moveItem(-1, idx, true, false);
-                    }
+                    if (!this.canSwap()) return;
+                    this.setActionTime();
+                    log.info("[inv-rclick-drop] slot={} itemId={}",
+                            actualIdx, item != null ? item.getItemId() : -1);
+                    this.playState.getRealmManager().moveItem(-1, actualIdx, true, false);
                 }
             });
 
