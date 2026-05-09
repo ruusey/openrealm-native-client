@@ -809,8 +809,17 @@ public class TileManager {
         final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
         final int screenTilesX = (int) Math.ceil(worldViewW / ts) + 2;
         final int screenTilesY = (int) Math.ceil(worldViewH / ts) + 2;
-        final int sxMin = (int) (posNormalized.x - screenTilesX / 2);
-        final int syMin = (int) (posNormalized.y - screenTilesY / 2);
+        // Derive the scan origin from the actual camera viewport (the
+        // world-space coord of the screen's top-left corner) rather than
+        // a player-centered window. The HUD panel on the right shifts
+        // map.x left by ~hudPanelWorldW/2, so a symmetric posNormalized-
+        // centered scan misses the rightmost ~3 visible tiles. Walls in
+        // that strip stayed out of wallTiles (and out of wallSet for
+        // adjacency) until the player moved close enough that the
+        // symmetric window covered them — visually that read as walls
+        // "popping" their 3D shadow only when you walked toward them.
+        final int sxMin = (int) Math.floor(Vector2f.worldX / ts);
+        final int syMin = (int) Math.floor(Vector2f.worldY / ts);
         final float radiusSqInner = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
         batch.setColor(FOG_BRIGHTNESS, FOG_BRIGHTNESS, FOG_BRIGHTNESS, 1f);
         for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {

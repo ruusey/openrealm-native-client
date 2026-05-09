@@ -321,11 +321,23 @@ public class PlayState extends GameState {
             // Pass-through-enemies projectiles skip the cull and keep flying.
             final Map<Long, Bullet> bullets = clientRealm.getBullets();
             final Map<Long, Enemy>  enemies = clientRealm.getEnemies();
+            final long localId = this.playerId;
             if (!bullets.isEmpty() && !enemies.isEmpty()) {
                 for (final Bullet b : bullets.values()) {
                     if (b == null || b.getPos() == null) continue;
                     if (b.isConsumedClient()) continue;
-                    if (!b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE)) continue;
+                    // Was filtering only PLAYER_PROJECTILE-flagged bullets,
+                    // which dropped many weapon projectiles whose data ships
+                    // with flags: [] (daggers etc). Those weren't culled
+                    // visually on enemy contact and pierced through until
+                    // the server's UnloadPacket landed a tick later. Now
+                    // also accept any bullet whose srcEntityId is the
+                    // local player — predicted bullets carry that, and
+                    // findMatchingPredictedBullet preserves it through the
+                    // dedup ID adoption — so a non-flagged dagger from
+                    // the local player still hit-culls correctly.
+                    final boolean isOwnBullet = (localId != -1L && b.getSrcEntityId() == localId);
+                    if (!b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE) && !isOwnBullet) continue;
                     if (b.hasFlag(ProjectileFlag.PASS_THROUGH_ENEMIES)) continue;
                     final float bSize = b.getSize() > 0 ? b.getSize() : 4f;
                     final float br = bSize * GlobalConstants.HIT_RADIUS_FACTOR;
