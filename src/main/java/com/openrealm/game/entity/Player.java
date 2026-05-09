@@ -191,6 +191,15 @@ public class Player extends Entity {
 		this.mana = classModel.getBaseStats().getMp();
 
 		this.stats = classModel.getBaseStats().clone();
+		// Same Lombok-strips-inline-init dance as the no-arg ctor: without
+		// these, the local player's renderX/Y starts at 0 (Java default)
+		// instead of NaN, so getEffectiveRenderX returns 0 on the very
+		// first render frame before PlayState's lerp pipeline writes a
+		// real value. The minimap reads getEffectiveRenderX → 0, plots
+		// the local dot at world (0, 0) → top-left corner of the
+		// overworld minimap until the player presses a movement key.
+		this.renderX = Float.NaN;
+		this.renderY = Float.NaN;
 	}
 
 	public void applyStats(CharacterStatsDto stats) {

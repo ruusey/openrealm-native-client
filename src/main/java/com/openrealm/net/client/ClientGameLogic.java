@@ -332,6 +332,20 @@ public class ClientGameLogic {
 						final Vector2f spawn = mapModel.getCenter();
 						local.getPos().x = spawn.x;
 						local.getPos().y = spawn.y;
+						// CRITICAL: also reset the LERPED render position.
+						// The minimap (and any other code that reads
+						// getEffectiveRenderX) keys off renderX, not pos.x.
+						// Without this reset, the dot stayed at the previous
+						// realm's tile coords after a portal transition —
+						// e.g. nexus center (~tile 8) lingered as the
+						// overworld dot's position, putting it in the
+						// top-left corner of the overworld minimap until
+						// the player issued a movement input that ran the
+						// PlayState lerp pipeline. Setting renderX = NaN
+						// makes getEffectiveRenderX fall back to pos.x for
+						// the next render frame, which IS the freshly-set
+						// spawn pos.
+						local.setRenderPos(Float.NaN, Float.NaN);
 						cli.getState().resetInterpAnchor(spawn.x, spawn.y);
 					}
 				} catch (Exception ignored) { /* best effort — server pos will follow */ }
