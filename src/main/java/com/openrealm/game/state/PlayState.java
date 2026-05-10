@@ -2305,7 +2305,11 @@ public class PlayState extends GameState {
         shapes.end();
     }
 
-    /** Render a chunky poison vial arc from player to target position (800ms flight) */
+    /** Render a chunky vial/grenade arc from caster to target position.
+     *  Default palette is green (assassin poison vial, tiers 0-6). When the
+     *  packet's tier is >= 10 we draw red — used by the Inferno Demon grenade
+     *  so we can re-use the same parabolic-lob renderer without inventing a
+     *  parallel effect type. */
     private void renderPoisonThrow(ShapeRenderer shapes, ActiveVisualEffect vfx, float t, float wx, float wy) {
         final float x1 = vfx.getPosX() - wx;
         final float y1 = vfx.getPosY() - wy;
@@ -2317,11 +2321,31 @@ public class PlayState extends GameState {
         final float dist = (float) Math.sqrt(dx * dx + dy * dy);
         if (dist < 1f) return;
 
+        // Red-grenade palette gated on a tier sentinel — keeps assassin tiers
+        // 0-6 (and the untiered Soulrot Vial at tier 0) on the green look.
+        final boolean redGrenade = vfx.getTier() >= 10;
+
+        final float trailR = redGrenade ? 0.95f : 0.20f;
+        final float trailG = redGrenade ? 0.15f : 0.65f;
+        final float trailB = redGrenade ? 0.10f : 0.15f;
+        final float dripR  = redGrenade ? 0.85f : 0.15f;
+        final float dripG  = redGrenade ? 0.10f : 0.60f;
+        final float dripB  = redGrenade ? 0.05f : 0.10f;
+        final float glowR  = redGrenade ? 1.00f : 0.20f;
+        final float glowG  = redGrenade ? 0.20f : 0.70f;
+        final float glowB  = redGrenade ? 0.10f : 0.10f;
+        final float bodyR  = redGrenade ? 1.00f : 0.30f;
+        final float bodyG  = redGrenade ? 0.30f : 0.90f;
+        final float bodyB  = redGrenade ? 0.05f : 0.20f;
+        final float coreR  = redGrenade ? 1.00f : 0.70f;
+        final float coreG  = redGrenade ? 0.85f : 1.00f;
+        final float coreB  = redGrenade ? 0.30f : 0.50f;
+
         // Tall parabolic arc — 50% of throw distance as peak height
         int steps = 24;
         float arcHeight = dist * 0.5f;
 
-        // Vial position along arc (t goes 0->1 over the 800ms duration)
+        // Vial position along arc (t goes 0->1 over the duration)
         float vialFrac = Math.min(t, 1.0f);
 
         // Compute arc positions
@@ -2335,43 +2359,43 @@ public class PlayState extends GameState {
 
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // Thick green trail behind the vial
+        // Thick trail behind the vial / grenade
         for (int i = 0; i < steps; i++) {
             float f = (float) (i + 1) / steps;
             if (f > vialFrac) break;
             // Trail fades from thin at start to thick near vial
             float thickness = 3.0f + 5.0f * (f / Math.max(vialFrac, 0.01f));
             float trailAlpha = 0.15f + 0.4f * (f / Math.max(vialFrac, 0.01f));
-            shapes.setColor(0.2f, 0.65f, 0.15f, trailAlpha);
+            shapes.setColor(trailR, trailG, trailB, trailAlpha);
             shapes.rectLine(arcX[i], arcY[i], arcX[i + 1], arcY[i + 1], thickness);
         }
 
-        // Dripping particles along the trail
+        // Dripping / sparking particles along the trail
         for (int i = 0; i < 6; i++) {
             float pf = vialFrac * (0.3f + 0.7f * i / 6.0f);
             int idx = Math.min((int) (pf * steps), steps);
             float dripY = arcY[idx] + (t * 30.0f * (i + 1) / 6.0f);  // drip downward over time
             float dripAlpha = Math.max(0, 0.5f - t * 0.6f);
             if (dripAlpha > 0) {
-                shapes.setColor(0.15f, 0.6f, 0.1f, dripAlpha);
+                shapes.setColor(dripR, dripG, dripB, dripAlpha);
                 shapes.rect(arcX[idx] - 2, dripY - 1, 4, 3 + i);
             }
         }
 
-        // Fat vial blob
+        // Fat vial / grenade blob
         if (vialFrac < 1.0f) {
             int vialIdx = Math.min((int) (vialFrac * steps), steps);
             float vx = arcX[vialIdx];
             float vy = arcY[vialIdx];
 
             // Outer glow
-            shapes.setColor(0.2f, 0.7f, 0.1f, 0.4f);
+            shapes.setColor(glowR, glowG, glowB, 0.4f);
             drawCircle(shapes, vx, vy, 12f, 10);
-            // Main vial body
-            shapes.setColor(0.3f, 0.9f, 0.2f, 0.9f);
+            // Main body
+            shapes.setColor(bodyR, bodyG, bodyB, 0.9f);
             drawCircle(shapes, vx, vy, 8f, 10);
             // Bright core / highlight
-            shapes.setColor(0.7f, 1.0f, 0.5f, 0.8f);
+            shapes.setColor(coreR, coreG, coreB, 0.8f);
             drawCircle(shapes, vx - 2, vy - 2, 3.5f, 8);
         }
 
