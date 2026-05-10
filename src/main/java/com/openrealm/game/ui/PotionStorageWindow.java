@@ -82,11 +82,17 @@ public class PotionStorageWindow {
     public GameItem[] getItems() { return this.items; }
 
     private static GameItem fromNet(NetGameItem net) {
-        if (net == null || net.getItemId() == 0) return null;
+        // Empty slots arrive as `new NetGameItem()` with default fields:
+        // itemId=0, uid="", name="". CANNOT key off itemId because Potion
+        // of Defense is legitimately itemId 0 — uid is empty for empties
+        // and randomly generated for real items, so it's the correct
+        // discriminator here.
+        if (net == null) return null;
+        if (net.getUid() == null || net.getUid().isEmpty()) return null;
         final GameItem template = GameDataManager.GAME_ITEMS.get(net.getItemId());
         if (template == null) return null;
         final GameItem clone = template.clone();
-        if (net.getUid() != null && !net.getUid().isEmpty()) clone.setUid(net.getUid());
+        clone.setUid(net.getUid());
         if (net.getStackCount() > 0) clone.setStackCount(net.getStackCount());
         return clone;
     }
@@ -100,8 +106,17 @@ public class PotionStorageWindow {
         // Storage-internal drag: press starts on a non-empty cell, release
         // routes the move. Inventory→storage drops are handled by PlayerUI's
         // executeDrop -> tryAcceptDrop, so we don't intercept those here.
+        //
+        // Guard: if PlayerUI is mid-inventory-drag (user is dragging an item
+        // FROM the inventory bag), don't latch onto a storage cell that
+        // happens to sit under the cursor. Without this guard, an inventory
+        // drag whose first frame lands on a non-empty storage cell would
+        // accidentally start a storage→storage drag at the same time.
+        final boolean invDragActive = this.playState != null
+                && this.playState.getPui() != null
+                && this.playState.getPui().isDragging();
         final boolean down = Gdx.input.isButtonPressed(Input.Buttons.LEFT);
-        if (down && !this.mouseDownPrev && this.dragStorageIdx < 0) {
+        if (down && !this.mouseDownPrev && this.dragStorageIdx < 0 && !invDragActive) {
             final int hit = hitTestStorage(Gdx.input.getX(), Gdx.input.getY());
             if (hit >= 0 && this.items[hit] != null) {
                 this.dragStorageIdx = hit;
