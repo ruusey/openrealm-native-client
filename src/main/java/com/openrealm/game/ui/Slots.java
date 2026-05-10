@@ -115,8 +115,23 @@ public class Slots {
         if (!this.getItem().isStackable()) return;
         final int count = this.getItem().getStackCount();
         if (count <= 1) return;
+        // Match the webclient's .item-stack badge — gold "×N" with a black
+        // outline so the count is readable against any sprite. The legacy
+        // "x" was plain white with no outline and disappeared into light
+        // sprites (essences, potions). Fake an outline by drawing the
+        // string four times offset 1px in each diagonal, then the gold
+        // text on top.
+        final String text = "×" + count;
+        final float x = pos.x + SLOT_PX - 18;
+        final float y = pos.y + SLOT_PX - 4;
+        font.setColor(Color.BLACK);
+        font.draw(batch, text, x - 1, y - 1);
+        font.draw(batch, text, x + 1, y - 1);
+        font.draw(batch, text, x - 1, y + 1);
+        font.draw(batch, text, x + 1, y + 1);
+        font.setColor(1f, 0.847f, 0.42f, 1f); // #ffd86b matches the webclient
+        font.draw(batch, text, x, y);
         font.setColor(Color.WHITE);
-        font.draw(batch, "x" + count, pos.x + SLOT_PX - 18, pos.y + SLOT_PX - 4);
     }
 
     /** @deprecated Use renderBackground() + renderItem() for batched rendering */
