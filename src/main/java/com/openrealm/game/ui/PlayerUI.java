@@ -29,6 +29,7 @@ import com.openrealm.net.entity.NetInventorySelection;
 import com.openrealm.net.entity.NetTradeSelection;
 import com.openrealm.net.messaging.CommandType;
 import com.openrealm.net.messaging.ServerCommandMessage;
+import com.openrealm.net.server.packet.PotionStorageMovePacket;
 import com.openrealm.net.server.packet.CommandPacket;
 import com.openrealm.net.server.packet.TextPacket;
 import com.openrealm.util.KeyHandler;
@@ -557,6 +558,33 @@ public class PlayerUI {
                 } else {
                     if (!this.canSwap()) return;
                     this.setActionTime();
+                    // Quick-store: if the potion-storage modal is open AND the
+                    // item is storage-eligible (stackable || category=='gem'),
+                    // route right-click to the auto-place flow instead of
+                    // drop-to-ground. Server figures out the destination
+                    // (first mergeable stack, else first empty slot) so the
+                    // user can mass-stash with a flurry of right-clicks
+                    // without dragging. Mirrors the webclient onSlotRightClick
+                    // branch.
+                    if (this.potionStorageWindow != null
+                            && this.potionStorageWindow.isVisible()
+                            && item != null
+                            && (item.isStackable() || "gem".equals(item.getCategory()))) {
+                        try {
+                            final long pid = this.playState.getPlayer().getId();
+                            // toIdx=-1 = auto-place sentinel; server picks
+                            // first mergeable stack, else first empty slot.
+                            final PotionStorageMovePacket pkt = new PotionStorageMovePacket(
+                                    pid, PotionStorageMovePacket.SIDE_INV, actualIdx,
+                                    PotionStorageMovePacket.SIDE_STORAGE, -1);
+                            this.playState.getRealmManager().getClient().getOutboundPacketQueue().add(pkt);
+                            log.info("[inv-rclick-quickstore] slot={} itemId={}",
+                                    actualIdx, item.getItemId());
+                        } catch (Exception e) {
+                            log.warn("[inv-rclick-quickstore] failed: {}", e.getMessage());
+                        }
+                        return;
+                    }
                     log.info("[inv-rclick-drop] slot={} itemId={}",
                             actualIdx, item != null ? item.getItemId() : -1);
                     this.playState.getRealmManager().moveItem(-1, actualIdx, true, false);
