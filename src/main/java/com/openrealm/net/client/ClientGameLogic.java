@@ -347,6 +347,13 @@ public class ClientGameLogic {
 						// spawn pos.
 						local.setRenderPos(Float.NaN, Float.NaN);
 						cli.getState().resetInterpAnchor(spawn.x, spawn.y);
+						// Drop the rollback-prediction input buffer + any
+						// pending visual smoothing offset. A fresh map's
+						// physics doesn't share state with the previous
+						// realm, so replaying stale inputs would teleport
+						// the player off the spawn point on the first
+						// PlayerPosAck after the transition.
+						cli.getState().clearPendingInputs();
 					}
 				} catch (Exception ignored) { /* best effort — server pos will follow */ }
 			}
@@ -374,18 +381,19 @@ public class ClientGameLogic {
 	public static void handlePlayerPosAckClient(RealmManagerClient cli, Packet packet) {
 		try {
 			final PlayerPosAckPacket ack = (PlayerPosAckPacket) packet;
-			final Player local = cli.getRealm().getPlayer(cli.getCurrentPlayerId());
-			if (local == null || local.getPos() == null) return;
-			local.getPos().x = ack.getPosX();
-			local.getPos().y = ack.getPosY();
-			local.setLastProcessedInputSeq(ack.getSeq());
-			// Re-anchor the sub-tick interpolation so the next render
-			// frame's lerp starts from the SNAPPED position. Without this,
-			// a PosAck arriving mid-tick leaves interpFromX pointing at
-			// the pre-snap position; the camera lerps from old -> new and
-			// shows a 1-2 px hop every server tick.
+			// Route through PlayState's rollback-prediction reconciler
+			// instead of hard-snapping pos here. The reconciler drops
+			// confirmed inputs from the buffer, replays the remaining
+			// unacked ones from the server pos, and absorbs any small
+			// divergence into a decaying visual smoothing offset —
+			// matching the webclient's Game.handlePosAck (game.js#840).
+			// The previous implementation snapped pos to the ack pos
+			// directly, which under high latency rubber-banded the
+			// player back by (latency × speed) pixels every server
+			// tick because predictions made between the player's
+			// local input and the ack's arrival were thrown away.
 			if (cli.getState() != null) {
-				cli.getState().resetInterpAnchor(ack.getPosX(), ack.getPosY());
+				cli.getState().reconcileLocalPlayerPos(ack.getSeq(), ack.getPosX(), ack.getPosY());
 			}
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed PlayerPosAck handler. Reason: {}", e.getMessage());

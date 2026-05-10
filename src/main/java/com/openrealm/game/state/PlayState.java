@@ -133,6 +133,41 @@ public class PlayState extends GameState {
     // a fresh GlyphLayout (one per visible player per frame).
     private final GlyphLayout nameLayoutScratch = new GlyphLayout();
 
+    /**
+     * Server-reconciliation input buffer. Mirrors the webclient's
+     * {@code _pendingInputs} array (game.js#handlePosAck): every client
+     * sim-tick we predict the next pos locally AND push a {@link PendingInput}
+     * record here, then on PlayerPosAckPacket we drop confirmed inputs,
+     * snap to the server pos, and replay the rest. Bounded to 128 entries
+     * (~2 s of inputs at 64 Hz) so a stuck connection can't grow it.
+     *
+     * Thread-safety: pushed from the GL/input thread, read+mutated under
+     * {@link #reconcileLocalPlayerPos} which is {@code synchronized} on
+     * PlayState so it can't race the input-loop drain.
+     */
+    private final java.util.ArrayDeque<PendingInput> pendingInputs = new java.util.ArrayDeque<>(128);
+
+    /** One sim-tick worth of input + the per-tick step magnitude that
+     *  was active when the input was sent. Captured at send-time so the
+     *  reconciler replay is exactly what the client originally simulated
+     *  (spd stat / SPEEDY effect could otherwise change between send and
+     *  ack). */
+    private static final class PendingInput {
+        final int seq;
+        final float vx, vy, pxPerTick;
+        PendingInput(int seq, float vx, float vy, float pxPerTick) {
+            this.seq = seq; this.vx = vx; this.vy = vy; this.pxPerTick = pxPerTick;
+        }
+    }
+
+    /** Visual-only smoothing offset applied to the local player's render
+     *  position when reconciliation finds a small mismatch (collision /
+     *  slow-tile divergence). The logical pos is snapped to the replay
+     *  result for accurate next-tick collisions, while the visual diff
+     *  decays toward zero each frame so the user doesn't see a hop. */
+    private float smoothingOffsetX = 0f;
+    private float smoothingOffsetY = 0f;
+
     public PlayState(GameStateManager gsm, Camera cam) {
         super(gsm);
         PlayState.map = new Vector2f();
@@ -475,6 +510,119 @@ public class PlayState extends GameState {
         }
     }
 
+    /**
+     * Server-reconciliation entry point — call from the network thread on
+     * PlayerPosAckPacket arrival. Mirrors the webclient's
+     * {@code Game.handlePosAck} (game.js#840):
+     *
+     * <ol>
+     *   <li>Drop all pending inputs whose seq ≤ the acked seq (the server
+     *       has confirmed those).</li>
+     *   <li>Save the current locally-predicted pos.</li>
+     *   <li>Snap pos to the server's authoritative pos at acked seq.</li>
+     *   <li>Replay the remaining pending inputs through {@link #movePlayer}
+     *       so we reproduce the same collision-aware physics the original
+     *       prediction did.</li>
+     *   <li>Compare the replayed pos to the saved pos:
+     *     <ul>
+     *       <li>err > 64 px : hard teleport (realm transition / kick)</li>
+     *       <li>err > 2 px  : keep the replayed pos as logical (correct
+     *           collisions next tick), absorb the visual diff into a
+     *           smoothing offset that decays over ~50 ms</li>
+     *       <li>err ≤ 2 px  : agree — revert to the saved pos so there's
+     *           zero visible change (the common case at any ping when
+     *           client + server physics line up)</li>
+     *     </ul>
+     *   </li>
+     * </ol>
+     *
+     * Without this, every PlayerPosAck hard-snapped pos to a position
+     * that was {@code (latency × speed)} pixels behind the predicted
+     * state, producing the visible rubber-banding the user reported on
+     * high-latency clients.
+     *
+     * Synchronized so it can't race the input loop's pending-input drain.
+     */
+    public synchronized void reconcileLocalPlayerPos(int ackSeq, float ackPosX, float ackPosY) {
+        final Player local = this.realmManager.getRealm().getPlayer(this.playerId);
+        if (local == null || local.getPos() == null) return;
+
+        // Step 1: drop confirmed inputs.
+        synchronized (this.pendingInputs) {
+            while (!this.pendingInputs.isEmpty() && this.pendingInputs.peekFirst().seq <= ackSeq) {
+                this.pendingInputs.pollFirst();
+            }
+        }
+
+        // Step 2: save the predicted pos.
+        final float savedX = local.getPos().x;
+        final float savedY = local.getPos().y;
+
+        // Step 3: snap to server-authoritative pos.
+        local.getPos().x = ackPosX;
+        local.getPos().y = ackPosY;
+
+        // Step 4: replay remaining unacked inputs.
+        synchronized (this.pendingInputs) {
+            for (final PendingInput input : this.pendingInputs) {
+                local.setDx(input.vx * input.pxPerTick);
+                local.setDy(input.vy * input.pxPerTick);
+                this.movePlayer(local);
+            }
+        }
+
+        // Step 5: classify the prediction error.
+        final float replayX = local.getPos().x;
+        final float replayY = local.getPos().y;
+        final float errX = replayX - savedX;
+        final float errY = replayY - savedY;
+        final float errSq = errX * errX + errY * errY;
+
+        if (errSq > 64f * 64f) {
+            // Hard teleport — keep replayed pos, drop any pending smoothing
+            // offset so the visual jumps with the logical pos.
+            this.smoothingOffsetX = 0f;
+            this.smoothingOffsetY = 0f;
+        } else if (errSq > 4f /* 2 px */) {
+            // Genuine mismatch (collision / slow-tile divergence). Logical
+            // pos stays at the replayed result so the next tick's collision
+            // checks are correct, but the visible diff is absorbed into a
+            // smoothing offset that the render path decays out over ~50 ms.
+            this.smoothingOffsetX += savedX - replayX;
+            this.smoothingOffsetY += savedY - replayY;
+            // Cap the smoothing offset so a long burst of corrections
+            // can't accumulate into a visible rubber-band.
+            final float magSq = this.smoothingOffsetX * this.smoothingOffsetX
+                    + this.smoothingOffsetY * this.smoothingOffsetY;
+            if (magSq > 36f /* 6 px cap */) {
+                final float mag = (float) Math.sqrt(magSq);
+                final float scale = 6f / mag;
+                this.smoothingOffsetX *= scale;
+                this.smoothingOffsetY *= scale;
+            }
+        } else {
+            // Agreement — revert to the saved pos so there's zero visible
+            // change. This is the common case when ping is stable and
+            // physics lines up; without it the render would briefly show
+            // the saved pos shifted by sub-pixel rounding noise.
+            local.getPos().x = savedX;
+            local.getPos().y = savedY;
+        }
+
+        local.setLastProcessedInputSeq(ackSeq);
+    }
+
+    /** Drop any pending inputs queued for reconciliation. Called on realm
+     *  transitions / character swap so a stale buffer can't replay through
+     *  a fresh map. */
+    public synchronized void clearPendingInputs() {
+        synchronized (this.pendingInputs) {
+            this.pendingInputs.clear();
+        }
+        this.smoothingOffsetX = 0f;
+        this.smoothingOffsetY = 0f;
+    }
+
     public synchronized void addProjectile(int projectileGroupId, int projectileId, Vector2f src, Vector2f dest, short size, float magnitude,
             float range, short damage, boolean isEnemy, List<Short> flags) {
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
@@ -658,18 +806,18 @@ public class PlayState extends GameState {
                 // lurch even when both endpoints are correct, because dt has
                 // moved on before the lerp catches up.
                 // ============================================================
-                // EXPERIMENT B: client tick rate bumped 64 -> 120Hz.
-                // At 60Hz vsync the old 64Hz tick produced ~1.067 ticks
-                // per frame — most frames executed 1 tick (interp lagged
-                // by 1 tick, frac near 0) and ~every 16th frame ran 2
-                // ticks (frac snapped backward). 120Hz gives a steady
-                // 2 ticks/frame at 60fps and 1 tick/frame at 120fps —
-                // either way the per-frame tick count is consistent
-                // so the lerp / extrapolation is steady. Per-second
-                // velocity is unchanged because pxPerTick scales by
-                // 1/TICK_RATE. PlayerMovePacket only fires on direction
-                // change so wire bandwidth doesn't increase.
-                final float TICK_RATE = 120f;
+                // 64 Hz client tick — exact server parity. v1.0.48 had this
+                // at 120 Hz to get a steady 2-ticks-per-frame at 60 fps
+                // vsync, but that broke server reconciliation: each client
+                // tick simulated 1/120 s of motion while the server applied
+                // 1/64 s ticks, so replaying buffered inputs after a
+                // PlayerPosAck produced positions that diverged from the
+                // server's. The webclient runs at 64 Hz and absorbs the
+                // ~1.067 ticks-per-frame jitter via input replay; doing the
+                // same here keeps the rollback math exact. Visual smoothness
+                // still comes from the existing extrapolated render formula
+                // (renderX = pos + frac × lastTickStep).
+                final float TICK_RATE = 64f;
                 final float TICK_DT = 1f / TICK_RATE;
                 float frameDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
                 this.moveAccumulator += frameDt;
@@ -695,6 +843,15 @@ public class PlayState extends GameState {
                 int ticks = 0;
                 while (this.moveAccumulator >= TICK_DT) {
                     this.moveAccumulator -= TICK_DT;
+                    // Allocate a fresh input seq for this tick. Mirrors the
+                    // webclient's per-tick seq increment (main.js#handleInput
+                    // game._inputSeq++). Each tick gets a unique seq so the
+                    // server's PlayerPosAck can ack exactly one of them and
+                    // the client knows precisely how many remaining inputs
+                    // to replay.
+                    player.setLastInputSeq(player.getLastInputSeq() + 1);
+                    final int seq = player.getLastInputSeq();
+
                     // Apply one tick of movement with collision check. We
                     // set dx/dy on the player and let movePlayer (the
                     // shared collision-aware integrator) advance pos.x/y
@@ -702,6 +859,34 @@ public class PlayState extends GameState {
                     player.setDx(vx * pxPerTick);
                     player.setDy(vy * pxPerTick);
                     this.movePlayer(player);
+
+                    // Buffer this input for reconciliation replay. Capture
+                    // pxPerTick so the replay uses the EXACT step magnitude
+                    // that was applied originally — spd stat or SPEEDY effect
+                    // can change between now and ack arrival, and we want
+                    // the replay to reproduce what the simulation actually
+                    // did, not what it would do today.
+                    synchronized (this.pendingInputs) {
+                        this.pendingInputs.addLast(new PendingInput(seq, vx, vy, pxPerTick));
+                        while (this.pendingInputs.size() > 128) {
+                            this.pendingInputs.pollFirst();
+                        }
+                    }
+
+                    // Send the input to the server every tick (was: only on
+                    // direction change). Per-tick send + per-tick seq is
+                    // what makes rollback prediction work — the server's
+                    // ack carries the seq it last processed, and the client
+                    // matches that to its buffer to replay only the inputs
+                    // the server hasn't seen yet. ~64 packets/sec × 21 bytes
+                    // = ~1.3 KB/s per player, same as the webclient.
+                    try {
+                        PlayerMovePacket packet = PlayerMovePacket.from(player, seq, vx, vy);
+                        this.realmManager.getClient().sendRemote(packet);
+                    } catch (Exception e) {
+                        PlayState.log.error("Failed to create player move packet. Reason: {}", e);
+                    }
+
                     ticks++;
                 }
 
@@ -735,20 +920,14 @@ public class PlayState extends GameState {
                     lastDirectionTempMap.put(Cardinality.NONE, true);
                 }
 
-                // Send PlayerMovePacket only when direction changes (server
-                // already tracks the last-known direction and reuses it
-                // tick-to-tick).
+                // (PlayerMovePacket is now sent inside the tick-drain loop
+                // above, once per simulated tick — required for proper
+                // server reconciliation. lastDirectionMap is no longer
+                // load-bearing for network purposes; left in place for any
+                // local consumers that still read it.)
                 if (this.lastDirectionMap == null) {
                     this.lastDirectionMap = lastDirectionTempMap;
-                }
-                if (!this.lastDirectionMap.equals(lastDirectionTempMap)) {
-                    try {
-                        player.setLastInputSeq(player.getLastInputSeq() + 1);
-                        PlayerMovePacket packet = PlayerMovePacket.from(player, player.getLastInputSeq(), vx, vy);
-                        this.realmManager.getClient().sendRemote(packet);
-                    } catch (Exception e) {
-                        PlayState.log.error("Failed to create player move packet. Reason: {}", e);
-                    }
+                } else if (!this.lastDirectionMap.equals(lastDirectionTempMap)) {
                     this.lastDirectionMap = lastDirectionTempMap;
                 }
 
@@ -769,6 +948,23 @@ public class PlayState extends GameState {
                 final float interpFrac = Math.max(0f, Math.min(1f, this.moveAccumulator / TICK_DT));
                 float renderX = player.getPos().x + this.lastTickStepX * interpFrac;
                 float renderY = player.getPos().y + this.lastTickStepY * interpFrac;
+
+                // Decay any reconciliation smoothing offset toward zero each
+                // frame, then apply it to the rendered position. The logical
+                // pos was snapped to the server's authoritative replay result
+                // (accurate collisions next tick), but the visual lag of the
+                // diff is decayed out over a few frames — mirrors the
+                // webclient's _smoothX/_smoothY in handlePosAck.
+                if (this.smoothingOffsetX != 0f || this.smoothingOffsetY != 0f) {
+                    final float decay = (float) Math.exp(-frameDt / 0.07f); // ~50ms half-life
+                    this.smoothingOffsetX *= decay;
+                    this.smoothingOffsetY *= decay;
+                    if (Math.abs(this.smoothingOffsetX) < 0.05f) this.smoothingOffsetX = 0f;
+                    if (Math.abs(this.smoothingOffsetY) < 0.05f) this.smoothingOffsetY = 0f;
+                    renderX += this.smoothingOffsetX;
+                    renderY += this.smoothingOffsetY;
+                }
+
                 player.setRenderPos(renderX, renderY);
 
                 // Camera follows the lerped player position with
