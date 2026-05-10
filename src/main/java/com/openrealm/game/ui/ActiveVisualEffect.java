@@ -25,6 +25,10 @@ public class ActiveVisualEffect {
     private float targetPosY;
     /** Total duration in milliseconds */
     private short duration;
+    /** Mirrors CreateEffectPacket.tier — recolor sentinel for renderers that
+     *  reuse one effect type across multiple palettes (e.g. assassin tiers
+     *  0-6 stay green, boss-grenade tier=10 paints red). */
+    private byte tier;
     /** Time elapsed in milliseconds */
     @Builder.Default
     private float elapsed = 0f;
@@ -40,6 +44,7 @@ public class ActiveVisualEffect {
                 .targetPosX(packet.getTargetPosX())
                 .targetPosY(packet.getTargetPosY())
                 .duration(packet.getDuration())
+                .tier(packet.getTier())
                 .build();
     }
 
