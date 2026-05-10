@@ -2097,6 +2097,34 @@ public class PlayState extends GameState {
             renderWaterFountain(shapes, vfx, cx, cy, maxRadius);
             return;
         }
+
+        // Boss-grenade warning / impact (Enemy 26). Tier >= 10 is the
+        // sentinel the boss script uses to ask for a *much* more visible
+        // ring than the default CURSE_RADIUS — the standard renderer's
+        // 35% fill reads as faint over the spiral arms + the ground tiles.
+        // This path snaps to full radius, paints a 55%-opacity red disc,
+        // and pulses the outline so the player can read the danger zone
+        // through bullet clutter.
+        if (vfx.getTier() >= 10) {
+            final float bossAlpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
+
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(1.0f, 0.05f, 0.05f, bossAlpha * 0.55f);
+            drawCircle(shapes, cx, cy, maxRadius, 36);
+            shapes.end();
+
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glLineWidth(5f);
+            final float urgency = 0.85f + 0.15f * (float) Math.sin(t * Math.PI * 12);
+            shapes.setColor(1.0f, 0.2f, 0.2f, bossAlpha * urgency);
+            drawCircleOutline(shapes, cx, cy, maxRadius, 48);
+            shapes.setColor(1.0f, 0.45f, 0.35f, bossAlpha * 0.75f);
+            drawCircleOutline(shapes, cx, cy, maxRadius * 0.9f, 48);
+            drawCircleOutline(shapes, cx, cy, maxRadius * 1.1f, 48);
+            shapes.end();
+            return;
+        }
+
         // Ring expands fast then holds
         final float currentRadius = maxRadius * Math.min(t * 3.0f, 1.0f);
         // Stay fully visible for 70% of duration, then fade
