@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
@@ -30,6 +32,7 @@ import com.openrealm.net.entity.NetTradeSelection;
 import com.openrealm.net.messaging.CommandType;
 import com.openrealm.net.messaging.ServerCommandMessage;
 import com.openrealm.net.server.packet.PotionStorageMovePacket;
+import com.openrealm.net.server.packet.SplitStackPacket;
 import com.openrealm.net.server.packet.CommandPacket;
 import com.openrealm.net.server.packet.TextPacket;
 import com.openrealm.util.KeyHandler;
@@ -558,6 +561,27 @@ public class PlayerUI {
                 } else {
                     if (!this.canSwap()) return;
                     this.setActionTime();
+                    // Shift+right-click on a stackable item with stackCount>1:
+                    // ask the server to split the stack. Source keeps ceil(N/2),
+                    // floor(N/2) lands in the first empty backpack slot. Server
+                    // rejects if the inventory is full so we never silently lose
+                    // half a stack. Checked BEFORE quick-store so a stackable
+                    // gem (none today, but defensively) can still be split
+                    // when held and otherwise auto-stored.
+                    final boolean shiftHeld = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+                            || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
+                    if (shiftHeld && item != null && item.isStackable() && item.getStackCount() > 1) {
+                        try {
+                            final long pid = this.playState.getPlayer().getId();
+                            final SplitStackPacket pkt = new SplitStackPacket(pid, actualIdx);
+                            this.playState.getRealmManager().getClient().getOutboundPacketQueue().add(pkt);
+                            log.info("[inv-rclick-split] slot={} itemId={} stack={}",
+                                    actualIdx, item.getItemId(), item.getStackCount());
+                        } catch (Exception e) {
+                            log.warn("[inv-rclick-split] failed: {}", e.getMessage());
+                        }
+                        return;
+                    }
                     // Quick-store: if the potion-storage modal is open AND the
                     // item is storage-eligible (stackable || category=='gem'),
                     // route right-click to the auto-place flow instead of
