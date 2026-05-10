@@ -2109,7 +2109,7 @@ public class PlayState extends GameState {
             final float bossAlpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
             shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(1.0f, 0.05f, 0.05f, bossAlpha * 0.55f);
+            shapes.setColor(1.0f, 0.05f, 0.05f, bossAlpha * 0.85f);
             drawCircle(shapes, cx, cy, maxRadius, 36);
             shapes.end();
 
