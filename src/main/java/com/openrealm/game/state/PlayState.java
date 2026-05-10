@@ -1624,10 +1624,18 @@ public class PlayState extends GameState {
         // _drawPlayerHpMp (~line 1280): two stacked 4px bars below the
         // sprite — green HP, blue MP — with a darker background. Drawn
         // before the name text so the bars sit cleanly underneath.
+        //
+        // Anchor on getEffectiveRenderX/Y (same source the sprite +
+        // nameplate use) NOT the raw pos.getWorldVar(). The sprite
+        // extrapolates between ticks (renderX = pos + frac × lastTickStep)
+        // while the simulated pos snaps in tick-sized increments, so a
+        // bar tracking pos visibly oscillates against the smoothly-
+        // moving sprite. The same fix was applied to the nameplate
+        // text below; HP/MP bars and status icons were missed.
         for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
             final int s = rp.getSize() > 0 ? rp.getSize() : 32;
-            final float wx = rp.getPos().getWorldVar().x;
-            final float wy = rp.getPos().getWorldVar().y;
+            final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
+            final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
             final int barW = s;
             final int barH = 3;
             final int barGap = 1;
@@ -1661,8 +1669,10 @@ public class PlayState extends GameState {
             final Short[] effs = rp.getEffectIds();
             if (effs == null) continue;
             final int s = rp.getSize() > 0 ? rp.getSize() : 32;
-            final float wx = rp.getPos().getWorldVar().x;
-            final float wy = rp.getPos().getWorldVar().y;
+            // Same render-anchor as the HP/MP bars and nameplate above
+            // so status icons don't oscillate against the moving sprite.
+            final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
+            final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
             // ~16 px below the HP/MP/name stack: HP at wy-10, MP at
             // wy-6, name centered around wy-15. Iconize from wy-22 down
             // (smaller y = visually higher in this projection).
