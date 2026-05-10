@@ -61,8 +61,11 @@ import com.openrealm.util.PacketHandlerClient;
 import lombok.extern.slf4j.Slf4j;
 import com.openrealm.game.ui.FameStoreWindow;
 import com.openrealm.game.ui.ForgeWindow;
+import com.openrealm.game.ui.PotionStorageWindow;
 import com.openrealm.net.client.packet.OpenFameStorePacket;
 import com.openrealm.net.client.packet.OpenForgePacket;
+import com.openrealm.net.client.packet.OpenPotionStoragePacket;
+import com.openrealm.net.client.packet.PotionStorageUpdatePacket;
 import com.openrealm.net.server.ServerFameStoreHelper;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import java.util.ArrayList;
@@ -439,6 +442,31 @@ public class ClientGameLogic {
 			forge.show();
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenForge Packet. Reason: {}", e);
+		}
+	}
+
+	@PacketHandlerClient(OpenPotionStoragePacket.class)
+	public static void handleOpenPotionStorageClient(RealmManagerClient cli, Packet packet) {
+		try {
+			if (cli.getState() == null || cli.getState().getPui() == null) return;
+			final OpenPotionStoragePacket open = (OpenPotionStoragePacket) packet;
+			final PotionStorageWindow win = cli.getState().getPui().getPotionStorageWindow();
+			win.setRealmManager(cli);
+			win.setPlayState(cli.getState());
+			win.open(open.getItems());
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenPotionStorage Packet. Reason: {}", e);
+		}
+	}
+
+	@PacketHandlerClient(PotionStorageUpdatePacket.class)
+	public static void handlePotionStorageUpdateClient(RealmManagerClient cli, Packet packet) {
+		try {
+			if (cli.getState() == null || cli.getState().getPui() == null) return;
+			final PotionStorageUpdatePacket upd = (PotionStorageUpdatePacket) packet;
+			cli.getState().getPui().getPotionStorageWindow().refresh(upd.getItems());
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed to handle PotionStorageUpdate Packet. Reason: {}", e);
 		}
 	}
 

@@ -261,6 +261,69 @@
       "cellW": 27,
       "cellH": 27,
       "spacing": 1
+    },
+    {
+      "id": "panel.forge.container",
+      "x": 697,
+      "y": 121,
+      "w": 165,
+      "h": 129
+    },
+    {
+      "id": "panel.forge.label.item",
+      "x": 708,
+      "y": 151,
+      "w": 18,
+      "h": 16
+    },
+    {
+      "id": "panel.forge.label.cyrstal",
+      "x": 708,
+      "y": 179,
+      "w": 18,
+      "h": 16
+    },
+    {
+      "id": "panel.forge.label.essence",
+      "x": 708,
+      "y": 207,
+      "w": 18,
+      "h": 16
+    },
+    {
+      "id": "panel.forge.input.item",
+      "x": 724,
+      "y": 145,
+      "w": 36,
+      "h": 27
+    },
+    {
+      "id": "panel.forge.input.crystal",
+      "x": 725,
+      "y": 173,
+      "w": 35,
+      "h": 27
+    },
+    {
+      "id": "panel.forge.input.essence",
+      "x": 725,
+      "y": 201,
+      "w": 35,
+      "h": 27
+    },
+    {
+      "id": "panel.forge.output",
+      "x": 779,
+      "y": 163,
+      "w": 65,
+      "h": 46
+    },
+    {
+      "id": "panel.forge.status",
+      "x": 699,
+      "y": 122,
+      "w": 161,
+      "h": 15
     }
   ],
   "layouts": []

@@ -16,6 +16,8 @@ import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.state.PlayState;
+import com.openrealm.game.ui.atlas.UiAtlas;
+import com.openrealm.game.ui.atlas.UiComponent;
 import com.openrealm.net.realm.RealmManagerClient;
 import com.openrealm.net.server.packet.ForgeDisenchantPacket;
 import com.openrealm.net.server.packet.ForgeEnchantPacket;
@@ -128,247 +130,341 @@ public class ForgeWindow {
         this.mouseDownPrev = down;
     }
 
-    /** Layout constants — single source of truth so render() and
-     *  handleClick() can never disagree. All Y values are TOP-DOWN
-     *  (flipped ortho), since that's the projection the rest of the
-     *  HUD uses. */
-    private static final int DIALOG_W = 540;
-    private static final int DIALOG_H = 420;
-    private static final int BTN_H    = 28;
-    private static final int BTN_W    = 120;
-    private static final int BTN_GAP  = 16;
-    private static final int SLOT_SIZE = 48;
-    private static final int SLOT_PAD  = 8;
+    /** Atlas-driven per-frame layout. Single source of truth shared by
+     *  render() + handleClick() + slotRect() so they can never disagree.
+     *  All rects are flipped-ortho screen pixels, derived by translating
+     *  each child panel's atlas (x,y) into the container's local coord
+     *  space and multiplying by displayScale. The pixel canvas is sized
+     *  to fit panel.forge.output exactly so painted pixels land in the
+     *  same on-screen rect the user annotated. */
+    private static final class Layout {
+        int s;                                    // displayScale
+        // Container chrome (panel.forge.container)
+        int containerX, containerY, containerW, containerH;
+        // Status bar (panel.forge.status) — also hosts the action buttons.
+        int statusX, statusY, statusW, statusH;
+        // Three button rects packed inside the status bar.
+        int btnForgeX, btnRemoveX, btnCancelX, btnY, btnW, btnH;
+        // Input slot rects (panel.forge.input.{item,crystal,essence}).
+        int itemSlotX, itemSlotY, itemSlotW, itemSlotH;
+        int crystalSlotX, crystalSlotY, crystalSlotW, crystalSlotH;
+        int essenceSlotX, essenceSlotY, essenceSlotW, essenceSlotH;
+        // Label rects (panel.forge.label.*).
+        int labelItemX, labelItemY, labelItemW, labelItemH;
+        int labelCrystalX, labelCrystalY, labelCrystalW, labelCrystalH;
+        int labelEssenceX, labelEssenceY, labelEssenceW, labelEssenceH;
+        // Output region (panel.forge.output) and the painted canvas inside.
+        int outputX, outputY, outputW, outputH;
+        int canvasX, canvasY, canvasSize;
+    }
 
-    /** Compute the dialog rect once per frame so render+click share it. */
-    private int[] layout() {
-        final int w = OpenRealmGame.width;
-        final int h = OpenRealmGame.height;
-        final int x = (w - DIALOG_W) / 2;
-        final int y = (h - DIALOG_H) / 2;
-        return new int[]{ x, y };
+    /** Build a Layout from the atlas. Returns null when the atlas isn't
+     *  ready — callers should bail without drawing/handling clicks so we
+     *  never paint stale hardcoded geometry on top of the HUD. */
+    private Layout computeLayout() {
+        if (!UiAtlas.isReady()) return null;
+        final UiComponent cont   = UiAtlas.componentOf("panel.forge.container");
+        final UiComponent status = UiAtlas.componentOf("panel.forge.status");
+        final UiComponent inItem = UiAtlas.componentOf("panel.forge.input.item");
+        final UiComponent inCry  = UiAtlas.componentOf("panel.forge.input.crystal");
+        final UiComponent inEss  = UiAtlas.componentOf("panel.forge.input.essence");
+        final UiComponent lbItem = UiAtlas.componentOf("panel.forge.label.item");
+        // Note: canonical ui-components.json has the typo 'cyrstal' on the
+        // LABEL only (input.crystal is correctly spelled). Honor the typo
+        // verbatim — re-spelling here would 404 the lookup.
+        final UiComponent lbCry  = UiAtlas.componentOf("panel.forge.label.cyrstal");
+        final UiComponent lbEss  = UiAtlas.componentOf("panel.forge.label.essence");
+        final UiComponent output = UiAtlas.componentOf("panel.forge.output");
+        if (cont == null || status == null || inItem == null || inCry == null
+                || inEss == null || lbItem == null || lbCry == null
+                || lbEss == null || output == null) return null;
+
+        final int s = UiAtlas.getDisplayScale();
+        final Layout L = new Layout();
+        L.s = s;
+        L.containerW = cont.getW() * s;
+        L.containerH = cont.getH() * s;
+        L.containerX = (OpenRealmGame.width  - L.containerW) / 2;
+        L.containerY = (OpenRealmGame.height - L.containerH) / 2;
+
+        // Translate any atlas component to screen coords by:
+        //   screen = containerOrigin + (compSrc - containerSrc) * displayScale
+        // This keeps the rendered layout pixel-identical to the user's
+        // annotation no matter where the dialog is centered on screen.
+        final int cox = cont.getX();
+        final int coy = cont.getY();
+
+        L.statusX = L.containerX + (status.getX() - cox) * s;
+        L.statusY = L.containerY + (status.getY() - coy) * s;
+        L.statusW = status.getW() * s;
+        L.statusH = status.getH() * s;
+
+        L.itemSlotX = L.containerX + (inItem.getX() - cox) * s;
+        L.itemSlotY = L.containerY + (inItem.getY() - coy) * s;
+        L.itemSlotW = inItem.getW() * s;
+        L.itemSlotH = inItem.getH() * s;
+
+        L.crystalSlotX = L.containerX + (inCry.getX() - cox) * s;
+        L.crystalSlotY = L.containerY + (inCry.getY() - coy) * s;
+        L.crystalSlotW = inCry.getW() * s;
+        L.crystalSlotH = inCry.getH() * s;
+
+        L.essenceSlotX = L.containerX + (inEss.getX() - cox) * s;
+        L.essenceSlotY = L.containerY + (inEss.getY() - coy) * s;
+        L.essenceSlotW = inEss.getW() * s;
+        L.essenceSlotH = inEss.getH() * s;
+
+        L.labelItemX = L.containerX + (lbItem.getX() - cox) * s;
+        L.labelItemY = L.containerY + (lbItem.getY() - coy) * s;
+        L.labelItemW = lbItem.getW() * s;
+        L.labelItemH = lbItem.getH() * s;
+
+        L.labelCrystalX = L.containerX + (lbCry.getX() - cox) * s;
+        L.labelCrystalY = L.containerY + (lbCry.getY() - coy) * s;
+        L.labelCrystalW = lbCry.getW() * s;
+        L.labelCrystalH = lbCry.getH() * s;
+
+        L.labelEssenceX = L.containerX + (lbEss.getX() - cox) * s;
+        L.labelEssenceY = L.containerY + (lbEss.getY() - coy) * s;
+        L.labelEssenceW = lbEss.getW() * s;
+        L.labelEssenceH = lbEss.getH() * s;
+
+        L.outputX = L.containerX + (output.getX() - cox) * s;
+        L.outputY = L.containerY + (output.getY() - coy) * s;
+        L.outputW = output.getW() * s;
+        L.outputH = output.getH() * s;
+
+        // Action buttons live inside panel.forge.status (per user spec:
+        // "you can put the existing remove all, forge and cancel buttons
+        //  on the top component within the panel.forge.container called
+        //  panel.forge.status. ALl of the aciton buttons can go there").
+        // Lay them out as three equal-width regions inside the status bar.
+        // Vertical: occupy almost the full status height with 1px padding.
+        L.btnH = Math.max(14, L.statusH - 2);
+        L.btnY = L.statusY + (L.statusH - L.btnH) / 2;
+        // Reserve a sliver on the right of the status bar for a close ×
+        // affordance — kept implicit (the ESC / Cancel button is the
+        // primary close path), so all three buttons share the bar width.
+        L.btnW = (L.statusW - 6) / 3;
+        L.btnForgeX  = L.statusX + 2;
+        L.btnRemoveX = L.btnForgeX + L.btnW + 1;
+        L.btnCancelX = L.btnRemoveX + L.btnW + 1;
+
+        // Square paint canvas inscribed in the output region. Sprite-size
+        // grid math (gridDim) is computed at render time from the bound
+        // target item; we just precompute the canvas screen rect here so
+        // click hit-tests share the exact same pixel rect.
+        L.canvasSize = Math.min(L.outputW, L.outputH);
+        L.canvasX = L.outputX + (L.outputW - L.canvasSize) / 2;
+        L.canvasY = L.outputY + (L.outputH - L.canvasSize) / 2;
+        return L;
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (!this.visible) return;
+        final Layout L = computeLayout();
+        if (L == null) return; // atlas not ready — fail silently
 
-        final int w = OpenRealmGame.width;
-        final int h = OpenRealmGame.height;
-        final int[] L = layout();
-        final int x = L[0];
-        final int y = L[1];
-
+        // ------------------------------------------------------------------
+        // Backdrop dim — the only ShapeRenderer pass before the atlas blits.
+        // ------------------------------------------------------------------
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-
-        // Backdrop
         shapes.setColor(0f, 0f, 0f, 0.65f);
-        shapes.rect(0, 0, w, h);
-
-        // Dialog
-        shapes.setColor(0.10f, 0.10f, 0.12f, 0.97f);
-        shapes.rect(x, y, DIALOG_W, DIALOG_H);
-
-        // Header strip (top edge in flipped ortho = smaller y)
-        final int headerH = 32;
-        shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
-        shapes.rect(x, y, DIALOG_W, headerH);
-
-        // Buttons row sits BELOW the header (top of dialog), where the
-        // user's eye expects "primary actions" to live. Cancel is the
-        // last button so the layout reads left-to-right.
-        final int btnY = y + (headerH - BTN_H) / 2;
-        final int btnX = x + (DIALOG_W - (3 * BTN_W + 2 * BTN_GAP)) / 2;
-        for (int i = 0; i < 3; i++) {
-            shapes.setColor(0.22f, 0.22f, 0.28f, 1f);
-            shapes.rect(btnX + i * (BTN_W + BTN_GAP), btnY, BTN_W, BTN_H);
-        }
-
-        // Material slot strip (target / crystal / essence) just below
-        // the header so the player sees what they're working with.
-        final int slotX = x + 16;
-        final int slotY = y + headerH + 24;
-        for (int i = 0; i < 3; i++) {
-            shapes.setColor(0.18f, 0.18f, 0.22f, 1f);
-            shapes.rect(slotX + i * (SLOT_SIZE + SLOT_PAD), slotY, SLOT_SIZE, SLOT_SIZE);
-        }
-
-        // Pixel canvas: centered horizontally, anchored below the slots
-        // so the workspace is the visual focus of the dialog.
-        final int canvasSize = CANVAS_RENDER_SIZE; // 256
-        final int canvasX = x + (DIALOG_W - canvasSize) / 2;
-        final int canvasY = slotY + SLOT_SIZE + 28;
-        shapes.setColor(0.08f, 0.08f, 0.10f, 1f);
-        shapes.rect(canvasX - 2, canvasY - 2, canvasSize + 4, canvasSize + 4);
-        shapes.setColor(0.20f, 0.20f, 0.24f, 1f);
-        shapes.rect(canvasX, canvasY, canvasSize, canvasSize);
-
+        shapes.rect(0, 0, OpenRealmGame.width, OpenRealmGame.height);
         shapes.end();
         batch.begin();
 
-        // Resolve the actual GameItems sitting in each forge slot from
-        // the player's inventory. With these we can blit the item sprite
-        // into the slot square (visual) AND scale the target weapon up
-        // to fill the canvas as a paint background — the user's "where
-        // does this pixel go on my sword" question is impossible to
-        // answer without seeing the sword.
+        // ------------------------------------------------------------------
+        // Atlas chrome — every panel from the user's annotated sprite sheet.
+        // Order matters: container first (background), then status overlay,
+        // then label/input/output regions on top.
+        // ------------------------------------------------------------------
+        blitAtlas(batch, "panel.forge.container", L.containerX, L.containerY, L.containerW, L.containerH);
+        blitAtlas(batch, "panel.forge.status",    L.statusX,    L.statusY,    L.statusW,    L.statusH);
+        blitAtlas(batch, "panel.forge.label.item",    L.labelItemX,    L.labelItemY,    L.labelItemW,    L.labelItemH);
+        blitAtlas(batch, "panel.forge.label.cyrstal", L.labelCrystalX, L.labelCrystalY, L.labelCrystalW, L.labelCrystalH);
+        blitAtlas(batch, "panel.forge.label.essence", L.labelEssenceX, L.labelEssenceY, L.labelEssenceW, L.labelEssenceH);
+        blitAtlas(batch, "panel.forge.input.item",    L.itemSlotX,    L.itemSlotY,    L.itemSlotW,    L.itemSlotH);
+        blitAtlas(batch, "panel.forge.input.crystal", L.crystalSlotX, L.crystalSlotY, L.crystalSlotW, L.crystalSlotH);
+        blitAtlas(batch, "panel.forge.input.essence", L.essenceSlotX, L.essenceSlotY, L.essenceSlotW, L.essenceSlotH);
+        blitAtlas(batch, "panel.forge.output",        L.outputX,      L.outputY,      L.outputW,      L.outputH);
+
+        // ------------------------------------------------------------------
+        // Action buttons inside panel.forge.status — flat-fill rects via
+        // ShapeRenderer because the atlas itself doesn't carry button art
+        // for them. Hit-tests in handleClick() share these same rects.
+        // ------------------------------------------------------------------
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        drawButtonFill(shapes, L.btnForgeX,  L.btnY, L.btnW, L.btnH);
+        drawButtonFill(shapes, L.btnRemoveX, L.btnY, L.btnW, L.btnH);
+        drawButtonFill(shapes, L.btnCancelX, L.btnY, L.btnW, L.btnH);
+        shapes.end();
+        batch.begin();
+
+        // ------------------------------------------------------------------
+        // Slot contents — item sprites for whatever the player has bound.
+        // ------------------------------------------------------------------
         final GameItem targetItem  = inventoryItem(this.targetSlot);
         final GameItem crystalItem = inventoryItem(this.crystalSlot);
         final GameItem essenceItem = inventoryItem(this.essenceSlot);
+        drawItemCentered(batch, targetItem,  L.itemSlotX,    L.itemSlotY,    L.itemSlotW,    L.itemSlotH);
+        drawItemCentered(batch, crystalItem, L.crystalSlotX, L.crystalSlotY, L.crystalSlotW, L.crystalSlotH);
+        drawItemCentered(batch, essenceItem, L.essenceSlotX, L.essenceSlotY, L.essenceSlotW, L.essenceSlotH);
 
-        // Target weapon scaled to fill the canvas, so existing + new
-        // enchantment pixels visibly land on the sword/wand/etc. The
-        // grid cells map 1:1 to the item's sprite pixels (8×8 most of
-        // the time -> 32 device px per cell).
+        // ------------------------------------------------------------------
+        // Pixel canvas — square inscribed in panel.forge.output. The grid
+        // dimension follows the bound target item's spriteSize so painted
+        // pixels land on the SAME source pixel the server will store.
+        // ------------------------------------------------------------------
         final int gridDim;
         if (targetItem != null) {
             int sw = targetItem.getSpriteSize() > 0 ? targetItem.getSpriteSize() : 8;
-            // Cap at CANVAS_PIXELS so unusual sprite sizes still fit.
             gridDim = Math.min(CANVAS_PIXELS, Math.max(1, sw));
             final TextureRegion bg = GameSpriteManager.ITEM_SPRITES != null
                     ? GameSpriteManager.ITEM_SPRITES.get(targetItem.getItemId()) : null;
             if (bg != null) {
-                batch.draw(bg, canvasX, canvasY, canvasSize, canvasSize);
+                batch.draw(bg, L.canvasX, L.canvasY, L.canvasSize, L.canvasSize);
             }
         } else {
             gridDim = CANVAS_PIXELS;
         }
-        final float cellPx = (float) canvasSize / (float) gridDim;
+        final float cellPx = (float) L.canvasSize / (float) gridDim;
+        this.activeGridDim = gridDim;
 
+        // Existing + newly-staged enchantment pixels.
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-
-        // Item sprites inside the forge slots so the player can SEE
-        // which item they dropped where without parsing slot indices.
-        // Drawn through the batch, framed by the slot's fill rect.
-        shapes.end();
-        batch.begin();
-        drawItemInSlot(batch, targetItem,  slotX,                                 slotY);
-        drawItemInSlot(batch, crystalItem, slotX + (SLOT_SIZE + SLOT_PAD),        slotY);
-        drawItemInSlot(batch, essenceItem, slotX + 2 * (SLOT_SIZE + SLOT_PAD),    slotY);
-        batch.end();
-
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-
-        // Existing enchantments — flat stat-color square per pixel,
-        // sized to the dynamic cell so the dot lands on the SAME pixel
-        // the server stored. Gold outline behind so existing forge
-        // pixels read distinct from newly-staged ones.
         for (int[] px : this.existingEnchantments) {
-            float pxx = canvasX + px[0] * cellPx;
-            float pxy = canvasY + px[1] * cellPx;
+            float pxx = L.canvasX + px[0] * cellPx;
+            float pxy = L.canvasY + px[1] * cellPx;
             shapes.setColor(0.85f, 0.7f, 0.2f, 1f);
             shapes.rect(pxx - 1, pxy - 1, cellPx + 2, cellPx + 2);
             shapes.setColor(statColor(px[2]));
             shapes.rect(pxx, pxy, cellPx, cellPx);
         }
-
-        // Newly painted pixels in this session
         for (int[] px : this.paintedPixels) {
-            float pxx = canvasX + px[0] * cellPx;
-            float pxy = canvasY + px[1] * cellPx;
+            float pxx = L.canvasX + px[0] * cellPx;
+            float pxy = L.canvasY + px[1] * cellPx;
             shapes.setColor(statColor(px[2]));
             shapes.rect(pxx, pxy, cellPx, cellPx);
         }
-
-        // Faint grid lines so the player can see exactly which pixel
-        // they're about to click. Drawn in Line mode.
         shapes.end();
+        // Faint grid overlay so the user can see which sprite pixel
+        // they're about to click on.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(1f, 1f, 1f, 0.18f);
         for (int i = 0; i <= gridDim; i++) {
-            float gx = canvasX + i * cellPx;
-            shapes.line(gx, canvasY, gx, canvasY + canvasSize);
-            float gy = canvasY + i * cellPx;
-            shapes.line(canvasX, gy, canvasX + canvasSize, gy);
+            float gx = L.canvasX + i * cellPx;
+            shapes.line(gx, L.canvasY, gx, L.canvasY + L.canvasSize);
+            float gy = L.canvasY + i * cellPx;
+            shapes.line(L.canvasX, gy, L.canvasX + L.canvasSize, gy);
         }
         shapes.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
-        // Stash the active grid dim so handleClick can convert mouse-px
-        // back into the matching sprite pixel. Without this the click
-        // path was hardcoded to a 16×16 grid even when render switched
-        // to a smaller dim.
-        this.activeGridDim = gridDim;
 
-        // Title in the header bar.
+        // ------------------------------------------------------------------
+        // Text overlays — title, button labels, slot labels, status line.
+        // ------------------------------------------------------------------
         font.setColor(Color.WHITE);
-        font.draw(batch, "FORGE", x + 16, y + 22);
+        // Status bar title sits at the LEFT of the bar, before the buttons
+        // would normally start — but we packed buttons across the entire
+        // bar, so the title goes ABOVE the dialog, drawn small inside the
+        // status panel near the very top edge.
+        font.getData().setScale(0.85f);
+        font.draw(batch, "Forge",      L.btnForgeX  + 6, L.btnY + L.btnH - 6);
+        font.draw(batch, "Remove All", L.btnRemoveX + 6, L.btnY + L.btnH - 6);
+        font.draw(batch, "Cancel",     L.btnCancelX + 6, L.btnY + L.btnH - 6);
+        font.getData().setScale(1f);
 
-        // Button labels — text baseline sits ~8 px above the button's
-        // bottom edge in flipped ortho, so y = btnY + BTN_H - 8.
-        font.draw(batch, "Forge",      btnX + 36,                        btnY + BTN_H - 9);
-        font.draw(batch, "Remove All", btnX + (BTN_W + BTN_GAP) + 16,    btnY + BTN_H - 9);
-        font.draw(batch, "Cancel",     btnX + 2 * (BTN_W + BTN_GAP) + 36, btnY + BTN_H - 9);
+        // Slot labels — text overlay drawn on top of the panel.forge.label.*
+        // chrome so the user can read which slot is which.
+        font.setColor(0.95f, 0.85f, 0.55f, 1f);
+        font.getData().setScale(0.7f);
+        font.draw(batch, "Item",    L.labelItemX    + 2, L.labelItemY    + L.labelItemH    - 4);
+        font.draw(batch, "Crystal", L.labelCrystalX + 2, L.labelCrystalY + L.labelCrystalH - 4);
+        font.draw(batch, "Essence", L.labelEssenceX + 2, L.labelEssenceY + L.labelEssenceH - 4);
 
-        // Slot labels above the slots.
-        font.draw(batch, "Target",  slotX + 6,                                 slotY - 4);
-        font.draw(batch, "Crystal", slotX + SLOT_SIZE + SLOT_PAD + 4,          slotY - 4);
-        font.draw(batch, "Essence", slotX + 2 * (SLOT_SIZE + SLOT_PAD) + 4,    slotY - 4);
+        // Empty-slot hint — only when the slot is empty.
+        font.setColor(0.5f, 0.5f, 0.55f, 1f);
+        if (this.targetSlot  < 0) font.draw(batch, "drop item",
+                L.itemSlotX    + 4, L.itemSlotY    + L.itemSlotH    - 6);
+        if (this.crystalSlot < 0) font.draw(batch, "drop crystal/gem",
+                L.crystalSlotX + 4, L.crystalSlotY + L.crystalSlotH - 6);
+        if (this.essenceSlot < 0) font.draw(batch, "drop essence",
+                L.essenceSlotX + 4, L.essenceSlotY + L.essenceSlotH - 6);
+        font.getData().setScale(1f);
+        font.setColor(Color.WHITE);
 
-        // Slot empty marker — only drawn when the slot has nothing in
-        // it, since drawItemInSlot already painted the sprite for
-        // populated slots.
-        if (this.targetSlot < 0) font.draw(batch, "Drop item here",
-                slotX + 4, slotY + SLOT_SIZE / 2 + 4);
-        if (this.crystalSlot < 0) font.draw(batch, "Drop crystal",
-                slotX + SLOT_SIZE + SLOT_PAD + 4, slotY + SLOT_SIZE / 2 + 4);
-        if (this.essenceSlot < 0) font.draw(batch, "Drop essence",
-                slotX + 2 * (SLOT_SIZE + SLOT_PAD) + 4, slotY + SLOT_SIZE / 2 + 4);
-
-        // Status line below the canvas — N / 5 enchantments.
+        // Enchant counter just below the output region.
+        final int total = this.existingEnchantments.size() + this.paintedPixels.size();
         font.setColor(Color.LIGHT_GRAY);
-        int total = this.existingEnchantments.size() + this.paintedPixels.size();
         font.draw(batch, total + " / " + MAX_ENCHANTMENTS + " enchantments",
-                x + 16, canvasY + canvasSize + 24);
+                L.outputX, L.outputY + L.outputH + 14);
+        font.setColor(Color.WHITE);
+    }
+
+    /** Blit a UiAtlas region at the given screen rect, falling back to
+     *  a flat-fill placeholder if the region isn't bound (atlas missing
+     *  for that id). */
+    private static void blitAtlas(SpriteBatch batch, String id, int x, int y, int w, int h) {
+        final TextureRegion r = UiAtlas.region(id);
+        if (r != null) {
+            batch.draw(r, x, y, w, h);
+        }
+    }
+
+    /** Solid-fill button background. Kept private + uniform so all three
+     *  status-bar buttons read identical until/unless the atlas grows
+     *  dedicated button regions. */
+    private static void drawButtonFill(ShapeRenderer shapes, int x, int y, int w, int h) {
+        shapes.setColor(0.18f, 0.18f, 0.22f, 1f);
+        shapes.rect(x, y, w, h);
+    }
+
+    /** Center an item sprite inside an arbitrary rect with a small inset.
+     *  Slot dimensions vary because they come straight from the atlas. */
+    private static void drawItemCentered(SpriteBatch batch, GameItem item, int x, int y, int w, int h) {
+        if (item == null) return;
+        if (GameSpriteManager.ITEM_SPRITES == null) return;
+        final TextureRegion tr = GameSpriteManager.ITEM_SPRITES.get(item.getItemId());
+        if (tr == null) return;
+        final int pad = Math.max(2, Math.min(w, h) / 8);
+        batch.draw(tr, x + pad, y + pad, w - 2 * pad, h - 2 * pad);
     }
 
     private void handleClick(int mx, int my) {
-        final int[] L = layout();
-        final int x = L[0];
-        final int y = L[1];
+        final Layout L = computeLayout();
+        if (L == null) return;
 
-        // Buttons row (matches render exactly).
-        final int headerH = 32;
-        final int btnY = y + (headerH - BTN_H) / 2;
-        final int btnX = x + (DIALOG_W - (3 * BTN_W + 2 * BTN_GAP)) / 2;
-        if (my >= btnY && my <= btnY + BTN_H) {
-            if (mx >= btnX && mx <= btnX + BTN_W) {
-                this.sendForge();
-                return;
-            }
-            if (mx >= btnX + (BTN_W + BTN_GAP) && mx <= btnX + (BTN_W + BTN_GAP) + BTN_W) {
-                this.sendDisenchant();
-                return;
-            }
-            if (mx >= btnX + 2 * (BTN_W + BTN_GAP)
-                    && mx <= btnX + 2 * (BTN_W + BTN_GAP) + BTN_W) {
-                this.hide();
-                return;
-            }
+        // ------------------------------------------------------------------
+        // Action buttons inside panel.forge.status. Hit-rects come straight
+        // from the cached Layout so render() and click stay in lockstep.
+        // ------------------------------------------------------------------
+        if (my >= L.btnY && my < L.btnY + L.btnH) {
+            if (mx >= L.btnForgeX  && mx < L.btnForgeX  + L.btnW) { this.sendForge();      return; }
+            if (mx >= L.btnRemoveX && mx < L.btnRemoveX + L.btnW) { this.sendDisenchant(); return; }
+            if (mx >= L.btnCancelX && mx < L.btnCancelX + L.btnW) { this.hide();           return; }
         }
 
-        // Pixel canvas click -> paint (mirror render's layout).
-        final int slotY = y + headerH + 24;
-        final int canvasSize = CANVAS_RENDER_SIZE;
-        final int canvasX = x + (DIALOG_W - canvasSize) / 2;
-        final int canvasY = slotY + SLOT_SIZE + 28;
-        if (mx >= canvasX && mx < canvasX + canvasSize
-                && my >= canvasY && my < canvasY + canvasSize) {
-            // Convert mouse-pixel -> sprite-pixel using the SAME grid
-            // dim render() last drew. Hardcoding CANVAS_PIXELS=16 here
-            // would mis-locate every click whenever the target weapon
-            // is an 8×8 sprite (i.e. nearly every weapon).
+        // ------------------------------------------------------------------
+        // Pixel canvas click -> paint. The canvas rect is the inscribed
+        // square inside panel.forge.output; gridDim mirrors the value
+        // render() stamped into activeGridDim so click→pixel maps to the
+        // exact source-sprite coord the player saw on screen.
+        // ------------------------------------------------------------------
+        if (mx >= L.canvasX && mx < L.canvasX + L.canvasSize
+                && my >= L.canvasY && my < L.canvasY + L.canvasSize) {
             final int gd = Math.max(1, this.activeGridDim);
-            final float cellPx = (float) canvasSize / (float) gd;
-            int gx = (int) ((mx - canvasX) / cellPx);
-            int gy = (int) ((my - canvasY) / cellPx);
+            final float cellPx = (float) L.canvasSize / (float) gd;
+            int gx = (int) ((mx - L.canvasX) / cellPx);
+            int gy = (int) ((my - L.canvasY) / cellPx);
             if (gx < 0) gx = 0; if (gx >= gd) gx = gd - 1;
             if (gy < 0) gy = 0; if (gy >= gd) gy = gd - 1;
             if (this.crystalStatId < 0) {
@@ -379,8 +475,6 @@ public class ForgeWindow {
                 log.info("[FORGE] Item already has the maximum {} enchantments", MAX_ENCHANTMENTS);
                 return;
             }
-            // Disallow painting onto a pixel that's already enchanted (server
-            // would reject anyway, but the client gives instant feedback).
             for (int[] px : this.existingEnchantments) {
                 if (px[0] == gx && px[1] == gy) return;
             }
@@ -461,13 +555,14 @@ public class ForgeWindow {
 
     private int[] slotRect(int idx) {
         if (!this.visible) return null;
-        final int[] L = layout();
-        final int x = L[0];
-        final int y = L[1];
-        final int headerH = 32;
-        final int slotX = x + 16 + idx * (SLOT_SIZE + SLOT_PAD);
-        final int slotY = y + headerH + 24;
-        return new int[]{ slotX, slotY, SLOT_SIZE, SLOT_SIZE };
+        final Layout L = computeLayout();
+        if (L == null) return null;
+        switch (idx) {
+            case 0: return new int[]{ L.itemSlotX,    L.itemSlotY,    L.itemSlotW,    L.itemSlotH    };
+            case 1: return new int[]{ L.crystalSlotX, L.crystalSlotY, L.crystalSlotW, L.crystalSlotH };
+            case 2: return new int[]{ L.essenceSlotX, L.essenceSlotY, L.essenceSlotW, L.essenceSlotH };
+            default: return null;
+        }
     }
 
     /** Try to consume a drop at (mx, my) by binding the source inventory
@@ -515,19 +610,6 @@ public class ForgeWindow {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    /** Blit the item icon centered inside the slot square so the player
-     *  can visually confirm what they dropped. The 64×64 inventory
-     *  icons are too large for the 48-px slot, so we draw at 40 px
-     *  with a 4-px inset all around. */
-    private void drawItemInSlot(SpriteBatch batch, GameItem item, int sx, int sy) {
-        if (item == null) return;
-        if (GameSpriteManager.ITEM_SPRITES == null) return;
-        final TextureRegion tr = GameSpriteManager.ITEM_SPRITES.get(item.getItemId());
-        if (tr == null) return;
-        final int iconSize = SLOT_SIZE - 8;
-        batch.draw(tr, sx + 4, sy + 4, iconSize, iconSize);
     }
 
     /** Web client's stat-id -> tint color. */

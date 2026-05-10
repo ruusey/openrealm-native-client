@@ -168,6 +168,9 @@ public class PlayerUI {
     private final FameStoreWindow fameStoreWindow = new FameStoreWindow();
     private final OptionsWindow optionsWindow = new OptionsWindow();
     private final RealmTransitionState realmTransition = new RealmTransitionState();
+    // Potion-storage UI: 32-slot dialog opened by F-key on tile 328 in the
+    // vault. See PotionStorageWindow for layout + drag-drop wiring.
+    private final PotionStorageWindow potionStorageWindow = new PotionStorageWindow();
 
     // Right-sidebar layout, mirroring the webclient #hud column order:
     //   [name+lvl header] [fame badge] [square minimap] [HP/MP/XP bars]
@@ -1227,6 +1230,8 @@ public class PlayerUI {
         this.fameStoreWindow.render(batch, shapes, font);
         this.optionsWindow.update();
         this.optionsWindow.render(batch, shapes, font);
+        this.potionStorageWindow.update();
+        this.potionStorageWindow.render(batch, shapes, font);
 
         // Dev-stats overlay removed — the top-left corner now hosts the
         // minimap panel. PerfMetrics still ticks for any other consumers
@@ -2071,6 +2076,18 @@ public class PlayerUI {
             }
         }
 
+        // Potion-storage drop-zone takes priority when its window is up.
+        // Inventory→storage moves go through PotionStorageMovePacket, not
+        // the normal MoveItemPacket pipeline, because the storage state
+        // lives off-inventory on the server.
+        if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex <= 19) {
+            final int mx = com.badlogic.gdx.Gdx.input.getX();
+            final int my = com.badlogic.gdx.Gdx.input.getY();
+            if (this.potionStorageWindow.tryAcceptDrop(mx, my, fromIndex)) {
+                return;
+            }
+        }
+
         boolean fromIsGround = fromIndex >= 20 && fromIndex <= 27;
         boolean targetIsGround = targetIndex >= 20 && targetIndex <= 27;
         boolean fromIsEquip = fromIndex >= 0 && fromIndex <= 3;
@@ -2140,6 +2157,7 @@ public class PlayerUI {
             final String label;
             if ("forge".equalsIgnoreCase(type)) label = "PRESS F TO USE FORGE";
             else if ("fame_store".equalsIgnoreCase(type)) label = "PRESS F TO OPEN FAME SHOP";
+            else if ("potion_storage".equalsIgnoreCase(type)) label = "PRESS F TO OPEN POTION STORAGE";
             else label = "PRESS F TO INTERACT";
             this.renderHintBox(batch, shapes, font, label, 1);
         } catch (Exception ignored) { /* never block render on a UI hint */ }
