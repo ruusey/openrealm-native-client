@@ -74,3 +74,9 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          # Always mark this release "latest" on publish. Without this,
+          # GitHub's releases/latest endpoint picks by created_at — so
+          # if multiple tag pushes finish out of order (parallel CI),
+          # the latest-numbered tag isn't necessarily marked latest and
+          # UpdateChecker.java sees a stale version.
+          make_latest: 'true'
