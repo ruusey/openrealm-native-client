@@ -256,6 +256,16 @@ public class PotionStorageWindow {
         return -1;
     }
 
+    /** Public cell rect lookup for tooltip / external hit-tests. Returns
+     *  {x, y, w, h} for the given storage slot in flipped-ortho screen
+     *  coords, or null when the modal is hidden / atlas not ready. */
+    public int[] getCellRect(int slot) {
+        if (!this.visible || slot < 0 || slot >= SIZE) return null;
+        final Layout L = computeLayout();
+        if (L == null) return null;
+        return cellRectFor(slot, L);
+    }
+
     private int hitTestInventory(int mx, int my) {
         if (this.playState == null || this.playState.getPui() == null) return -1;
         final Slots[] inv = this.playState.getPui().getInventory();

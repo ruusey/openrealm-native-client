@@ -751,6 +751,26 @@ public class PlayerUI {
             }
         }
 
+        // Check potion-storage cells when the modal is open. getCellRect
+        // returns flipped-ortho screen coords matching the cells' rendered
+        // position so hover land-on works the same as inventory slots.
+        if (this.potionStorageWindow != null && this.potionStorageWindow.isVisible()) {
+            final GameItem[] storageItems = this.potionStorageWindow.getItems();
+            if (storageItems != null) {
+                for (int i = 0; i < storageItems.length; i++) {
+                    final GameItem stored = storageItems[i];
+                    if (stored == null) continue;
+                    final int[] r = this.potionStorageWindow.getCellRect(i);
+                    if (r != null && mx >= r[0] && mx < r[0] + r[2]
+                            && my >= r[1] && my < r[1] + r[3]) {
+                        this.activeTooltip = new ItemTooltip(stored,
+                                new Vector2f(tooltipX, 100), panelWidth, 0);
+                        return;
+                    }
+                }
+            }
+        }
+
         // Mouse not over any item slot
         this.activeTooltip = null;
     }

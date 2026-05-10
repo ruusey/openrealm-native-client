@@ -158,6 +158,15 @@ public class ForgeWindow {
         int canvasX, canvasY, canvasSize;
     }
 
+    /** Modal-only scale multiplier on top of UiAtlas.getDisplayScale().
+     *  The atlas was authored at displayScale=2 to fit comfortably as
+     *  in-game HUD chrome, but the forge dialog is a focused modal that
+     *  needs more screen real-estate for buttons + paint canvas. The
+     *  webclient lifts itself the same way via `--forge-scale: 2` on
+     *  #forge-panel. Match that here so both clients render at the same
+     *  effective size (4x the source atlas). */
+    private static final int MODAL_SCALE = 2;
+
     /** Build a Layout from the atlas. Returns null when the atlas isn't
      *  ready — callers should bail without drawing/handling clicks so we
      *  never paint stale hardcoded geometry on top of the HUD. */
@@ -179,7 +188,7 @@ public class ForgeWindow {
                 || inEss == null || lbItem == null || lbCry == null
                 || lbEss == null || output == null) return null;
 
-        final int s = UiAtlas.getDisplayScale();
+        final int s = UiAtlas.getDisplayScale() * MODAL_SCALE;
         final Layout L = new Layout();
         L.s = s;
         L.containerW = cont.getW() * s;
