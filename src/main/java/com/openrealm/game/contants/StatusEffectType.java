@@ -41,6 +41,10 @@ public enum StatusEffectType {
     BERSERK((short) 19),
     SLOWED((short) 21),
     ARMOR_BROKEN((short) 22),
+    TAUNT_TARGET((short) 23),
+    BRACED((short) 24),
+    PROTECTED((short) 25),
+    PHALANX_DOME((short) 26),
 
     // === Projectile Behavior Flags (prefer ProjectileFlag enum) ===
     PLAYER_PROJECTILE((short) 10),

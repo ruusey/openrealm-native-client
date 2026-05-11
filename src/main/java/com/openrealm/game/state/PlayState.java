@@ -1135,13 +1135,15 @@ public class PlayState extends GameState {
             }
             boolean canQuickUse = (System.currentTimeMillis() - this.lastQuickUseTick) > QUICK_USE_COOLDOWN_MS;
             if (canQuickUse) {
-                // Shift held → address slots 12..19 (second half of the 16-slot
-                // grid). Plain 1-8 → slots 4..11 (first half). Mirrors the
-                // webclient's bag-tab-replacement scheme since the sprite HUD
-                // shows all 16 inventory cells at once.
+                // Shift held → address slots 13..20 (second half of the 16-slot
+                // grid). Plain 1-8 → slots 5..12 (first half). Phase 1B grew
+                // equipment from 4 → 5 slots, so backpack starts at 5 now
+                // (not 4). Without this update, plain-1 read inv[4] (the ring
+                // EQUIP slot) and nothing in the bag was reachable via hotkey,
+                // which is what broke shift+# for gauntlets/boots specifically.
                 final boolean shiftHeld = com.badlogic.gdx.Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.SHIFT_LEFT)
                         || com.badlogic.gdx.Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.SHIFT_RIGHT);
-                final int base = shiftHeld ? 12 : 4;
+                final int base = shiftHeld ? 13 : 5;
                 boolean used = false;
                 if (key.one.clicked) { this.handleQuickUseKey(base + 0); used = true; }
                 else if (key.two.clicked)   { this.handleQuickUseKey(base + 1); used = true; }
