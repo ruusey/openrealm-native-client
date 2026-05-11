@@ -116,6 +116,22 @@ public class PotionStorageWindow {
                 && this.playState.getPui() != null
                 && this.playState.getPui().isDragging();
         final boolean down = Gdx.input.isButtonPressed(Input.Buttons.LEFT);
+        // Close × hit-test on press: clicking the X in the top-right
+        // corner hides the modal, matching the webclient's close button.
+        if (down && !this.mouseDownPrev && this.dragStorageIdx < 0 && !invDragActive) {
+            final Layout layoutForClose = computeLayout();
+            if (layoutForClose != null) {
+                final int[] xr = closeButtonRect(layoutForClose);
+                final int mx = Gdx.input.getX();
+                final int my = Gdx.input.getY();
+                if (mx >= xr[0] && mx < xr[0] + xr[2]
+                        && my >= xr[1] && my < xr[1] + xr[3]) {
+                    this.hide();
+                    this.mouseDownPrev = down;
+                    return;
+                }
+            }
+        }
         if (down && !this.mouseDownPrev && this.dragStorageIdx < 0 && !invDragActive) {
             final int hit = hitTestStorage(Gdx.input.getX(), Gdx.input.getY());
             if (hit >= 0 && this.items[hit] != null) {
@@ -256,6 +272,17 @@ public class PotionStorageWindow {
         return -1;
     }
 
+    /** Close-× button rect at the top-right of the header band. Sized to
+     *  fit comfortably inside the 28-px header above the grids. Returns
+     *  {x, y, w, h} in flipped-ortho screen coords. */
+    private int[] closeButtonRect(Layout L) {
+        final int w = 18;
+        final int h = 18;
+        final int x = L.dialogX + L.dialogW - w - 8;
+        final int y = L.dialogY + 4;
+        return new int[] { x, y, w, h };
+    }
+
     /** Public cell rect lookup for tooltip / external hit-tests. Returns
      *  {x, y, w, h} for the given storage slot in flipped-ortho screen
      *  coords, or null when the modal is hidden / atlas not ready. */
@@ -315,13 +342,17 @@ public class PotionStorageWindow {
             batch.begin();
         }
 
-        // Header text.
+        // Title in the header band — y=12 (was 20) so the baseline clears
+        // the grids that sit at L.dialogY + 28. At y=20 the descenders
+        // were ducking under the left grid's first cell.
         font.setColor(Color.WHITE);
-        font.draw(batch, "POTION STORAGE", L.dialogX + 14, L.dialogY + 20);
-        font.setColor(0.75f, 0.75f, 0.78f, 1f);
-        font.draw(batch, "Stackable items + gems only — drag to move",
-                L.dialogX + 14, L.dialogY + L.dialogH - 8);
-        font.setColor(Color.WHITE);
+        font.draw(batch, "POTION STORAGE", L.dialogX + 14, L.dialogY + 14);
+
+        // Close × at top-right corner. Hit-tested in update() via
+        // closeButtonRect(L). Rendered as a single character so font
+        // scaling matches the surrounding header text.
+        final int[] xr = closeButtonRect(L);
+        font.draw(batch, "x", xr[0] + 4, L.dialogY + 14);
 
         // Render the two grids: blit panel.hud.inv_only.grid chrome under
         // each, then per-cell content (item sprite + stack badge).

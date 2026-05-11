@@ -2219,10 +2219,18 @@ public class PlayerUI {
     /**
      * Forge / fame-store interaction prompt — same visual style as the
      * portal prompt but stacked above it. Surfaced because the F-key
-     * interaction is invisible without a UI hint.
+     * interaction is invisible without a UI hint. Suppressed while any
+     * interactive modal (forge, fame store, potion storage) is open,
+     * since the player is already inside the UI they would otherwise
+     * be prompted to enter.
      */
     private void renderInteractPrompt(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
+        // Hide prompt while the player is already in the relevant modal —
+        // "press F" is meaningless once they're inside.
+        if (this.forgeWindow != null && this.forgeWindow.isVisible()) return;
+        if (this.fameStoreWindow != null && this.fameStoreWindow.isVisible()) return;
+        if (this.potionStorageWindow != null && this.potionStorageWindow.isVisible()) return;
         try {
             final String type = this.playState.getNearbyInteractionType();
             if (type == null) return;
@@ -2267,13 +2275,13 @@ public class PlayerUI {
         batch.begin();
 
         font.setColor(0.95f, 0.85f, 0.45f, 1f);
-        // Vertically center the text: baseline at boxY + (boxH + textH)/2
-        // (matches the BAG-tab centering pattern). The previous formula
-        // pinned the text top to a fixed offset which left a visible
-        // gap below the baseline and looked awful.
+        // True vertical center: glyph baseline at boxY + boxH/2 + gl.height/2
+        // (cap height included), which puts the visual center of the
+        // capital glyphs at the exact box center. The previous formula
+        // with - 2f fudge had the text riding the bottom of the box.
         font.draw(batch, text,
                 boxX + (boxW - gl.width) / 2f,
-                boxY + (boxH + gl.height) / 2f - 2f);
+                boxY + boxH / 2f + gl.height / 2f);
         font.setColor(Color.WHITE);
     }
 
