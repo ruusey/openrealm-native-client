@@ -6,6 +6,7 @@ import java.util.Map;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.Stats;
+import com.openrealm.game.model.ability.AbilityTree;
 import com.openrealm.net.realm.Realm;
 
 import lombok.AllArgsConstructor;
@@ -22,6 +23,10 @@ public class CharacterClassModel {
     private Stats baseStats;
     private Stats maxStats;
     private Map<Integer, Integer> startingEquipment;
+    /** Phase 1B bridge: itemId of the class's bound ability (mirrors server). */
+    private int classAbilityId;
+    /** Phase 2A: 4-active + 1-passive kit reference (mirrors server). May be null. */
+    private AbilityTree abilityTree;
 
     public Stats getRandomLevelUpStats() {
         final ExperienceModel expModel = GameDataManager.EXPERIENCE_LVLS;

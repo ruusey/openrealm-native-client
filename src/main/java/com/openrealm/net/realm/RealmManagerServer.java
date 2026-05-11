@@ -1801,7 +1801,7 @@ public class RealmManagerServer implements Runnable {
 
 			for (final Projectile p : group.getProjectiles()) {
 				final short offset = (short) (p.getSize() / (short) 2);
-				short rolledDamage = player.getInventory()[1].getDamage().getInRange();
+				short rolledDamage = abilityItem.getDamage().getInRange();
 				rolledDamage += player.getComputedStats().getAtt();
 				if (p.getPositionMode() != ProjectilePositionMode.TARGET_PLAYER) {
 					source = dest;
@@ -1822,7 +1822,7 @@ public class RealmManagerServer implements Runnable {
 			for (final Projectile p : group.getProjectiles()) {
 
 				final short offset = (short) (p.getSize() / (short) 2);
-				short rolledDamage = player.getInventory()[1].getDamage().getInRange();
+				short rolledDamage = abilityItem.getDamage().getInRange();
 				rolledDamage += player.getComputedStats().getAtt();
 				Bullet ab2 = this.addProjectile(realmId, 0l, player.getId(), abilityItem.getDamage().getProjectileGroupId(),
 						p.getProjectileId(), dest.clone(-offset, -offset), Float.parseFloat(p.getAngle()), p.getSize(),
@@ -2565,18 +2565,20 @@ public class RealmManagerServer implements Runnable {
 	private void playerDeath(final Realm targetRealm, final Player player) {
 		try {
 			final String remoteAddrDeath = this.getRemoteAddressMapReversed().get(player.getId());
-			final boolean hasAmulet = player.getInventory()[3] != null
-					&& player.getInventory()[3].getItemId() == 48;
+			final boolean hasAmulet = player.getInventory()[4] != null
+					&& player.getInventory()[4].getItemId() == 48;
 
+			final int ringSlot = 4; // Phase 1B: ring moved from inv[3] to inv[4]
 			if (player.isHeadless() || player.isBot()) {
 				// Bots/headless: drop grave and remove immediately
 				if (hasAmulet) {
-					player.getInventory()[3] = null;
+					player.getInventory()[ringSlot] = null;
 					player.setHealth(1);
 				} else {
 					targetRealm.getExpiredPlayers().add(player.getId());
 					final LootContainer graveLoot = new LootContainer(LootTier.GRAVE,
-							player.getPos().clone(), player.getSlots(4, 12));
+							player.getPos().clone(),
+							player.getSlots(Player.EQUIPMENT_SLOT_COUNT, Player.EQUIPMENT_SLOT_COUNT + 8));
 					targetRealm.addLootContainer(graveLoot);
 					targetRealm.removePlayer(player);
 					this.clearPlayerState(player.getId());
@@ -2603,7 +2605,7 @@ public class RealmManagerServer implements Runnable {
 				TextPacket toBroadcast = TextPacket.create("SYSTEM", "",
 						player.getName() + "'s Amulet of Resurrection shatters!");
 				this.enqueueServerPacket(toBroadcast);
-				player.getInventory()[3] = null;
+				player.getInventory()[ringSlot] = null;
 				player.setHealth(player.getStats().getHp());
 				this.persistPlayerAsync(player);
 			} else {
@@ -2616,7 +2618,8 @@ public class RealmManagerServer implements Runnable {
 				// from the character-select screen don't pass bankFame so
 				// self-deletes still earn nothing.
 				final LootContainer graveLoot = new LootContainer(LootTier.GRAVE,
-						player.getPos().clone(), player.getSlots(4, 12));
+						player.getPos().clone(),
+						player.getSlots(Player.EQUIPMENT_SLOT_COUNT, Player.EQUIPMENT_SLOT_COUNT + 8));
 				targetRealm.addLootContainer(graveLoot);
 				final long earnedFame = GameDataManager.EXPERIENCE_LVLS.getBaseFame(player.getExperience());
 				final String charUuid = player.getCharacterUuid();

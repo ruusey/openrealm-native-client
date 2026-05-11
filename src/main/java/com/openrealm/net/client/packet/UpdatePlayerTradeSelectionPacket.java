@@ -23,7 +23,7 @@ public class UpdatePlayerTradeSelectionPacket extends Packet {
 	private NetInventorySelection selection;
 
 	public static UpdatePlayerTradeSelectionPacket fromSelection(Player player, PlayerUI ui) {
-		final Slots[] uiSlots = ui.getSlots(4, 12);
+		final Slots[] uiSlots = ui.getSlots(Player.EQUIPMENT_SLOT_COUNT, Player.EQUIPMENT_SLOT_COUNT + 8);
 		final Boolean[] selected = new Boolean[uiSlots.length];
 		for (int i = 0; i < uiSlots.length; i++) {
 			Slots slot = uiSlots[i];

@@ -24,6 +24,7 @@ import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.ItemTooltip;
+import com.openrealm.game.model.ability.Ability;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.game.state.RealmTransitionState;
 import com.openrealm.net.client.packet.UpdatePlayerTradeSelectionPacket;
@@ -242,15 +243,15 @@ public class PlayerUI {
         this.layoutNearbyY  = this.layoutPotionY + 56 + 14;
     }
 
-    /** Screen X for slot column 0..3 — divides the full usable HUD width
-     *  into 4 equal cells and centers the slot inside each cell, so the
-     *  4 slots span the panel with even gaps instead of clustering at
-     *  the left. Mirrors webclient #equipment-row CSS which uses
-     *  display:flex / justify-content:space-between. */
+    /** Screen X for slot column 0..{@link Player#EQUIPMENT_SLOT_COUNT}-1.
+     *  Divides the full usable HUD width into equal cells per equipment slot
+     *  and centers the slot inside each cell. Phase 1B bumped EQUIPMENT_SLOT_COUNT
+     *  from 4 to 5; this layout adapts automatically. */
     private int slotX(int col) {
+        final int slots = Player.EQUIPMENT_SLOT_COUNT;
         final int panelW = OpenRealmGame.width / 5;
         final int startX = OpenRealmGame.width - panelW;
-        final int rowW = 4 * SLOT_SIZE + 3 * SLOT_GAP;
+        final int rowW = slots * SLOT_SIZE + (slots - 1) * SLOT_GAP;
         final int rowStart = startX + (panelW - rowW) / 2;
         return rowStart + col * (SLOT_SIZE + SLOT_GAP);
     }
@@ -289,17 +290,16 @@ public class PlayerUI {
     }
 
     public void setEquipment(GameItem[] loot) {
-        this.inventory = new Slots[20];
+        this.inventory = new Slots[Player.INVENTORY_SIZE];
 
-        // Load all 20 slots (4 equipment + 16 inventory). Previously truncated
-        // to slots 4..11 because the legacy HUD uses bag tabs to view 4..11
-        // and 12..19 separately; the new sprite HUD shows all 16 in one 4×4
-        // grid (panel.hud.main.grid). Bounds-check loot.length for older
-        // servers that send a shorter payload.
-        final int equipEnd = Math.min(4, loot.length);
-        final int invEnd   = Math.min(20, loot.length);
+        // Load all 21 slots (5 equipment + 16 inventory). Phase 1B (combat
+        // rework) bumped equipment from 4 to 5 slots: weapon, armor,
+        // gauntlets, boots, ring. Backpack starts at index EQUIPMENT_SLOT_COUNT.
+        final int eq = Player.EQUIPMENT_SLOT_COUNT;
+        final int equipEnd = Math.min(eq, loot.length);
+        final int invEnd   = Math.min(Player.INVENTORY_SIZE, loot.length);
         GameItem[] equipmentArr = Arrays.copyOfRange(loot, 0, equipEnd);
-        GameItem[] inventoryArr = invEnd > 4 ? Arrays.copyOfRange(loot, 4, invEnd) : new GameItem[0];
+        GameItem[] inventoryArr = invEnd > eq ? Arrays.copyOfRange(loot, eq, invEnd) : new GameItem[0];
 
         this.buildEquipmentSlots(equipmentArr);
         this.buildInventorySlots(inventoryArr);
@@ -402,7 +402,7 @@ public class PlayerUI {
     }
 
     public void clearTradeSelections() {
-        Slots[] invSlots = this.getSlots(4, 12);
+        Slots[] invSlots = this.getSlots(Player.EQUIPMENT_SLOT_COUNT, Player.EQUIPMENT_SLOT_COUNT + 8);
         for (Slots slot : invSlots) {
             if (slot != null) {
                 slot.setSelected(false);
@@ -620,7 +620,9 @@ public class PlayerUI {
     }
 
     private int getOverlapIdx(Vector2f pos) {
-        Slots[] equipSlots = this.getSlots(4, 12);
+        // Hit-test the primary backpack page (8 slots starting after equipment).
+        final int base = Player.EQUIPMENT_SLOT_COUNT;
+        Slots[] equipSlots = this.getSlots(base, base + 8);
         int returnIdx = -1;
         for (int i = 0; i < equipSlots.length; i++) {
             Slots s = equipSlots[i];
@@ -629,11 +631,11 @@ public class PlayerUI {
                 returnIdx = i;
             }
         }
-        return returnIdx + 4;
+        return returnIdx + base;
     }
 
     private Slots getOverlapping(Vector2f pos) {
-        Slots[] equipSlots = this.getSlots(0, 12);
+        Slots[] equipSlots = this.getSlots(0, Player.EQUIPMENT_SLOT_COUNT + 8);
         for (Slots s : equipSlots) {
             if ((s == null) || (s.getButton() == null)) continue;
             if (s.getButton().getBounds().inside((int) pos.x, (int) pos.y))
@@ -964,7 +966,7 @@ public class PlayerUI {
         // Web-parity inventory: 4 equipment + 8 BAG 1 + 8 BAG 2 = 20 slots.
         // Only the currently-active bag's 8 slots are rendered, the other
         // bag is hidden behind its tab.
-        Slots[] equips = this.getSlots(0, 4);
+        Slots[] equips = this.getSlots(0, Player.EQUIPMENT_SLOT_COUNT);
         final int bagBase = (this.activeBag == 0) ? 4 : 12;
         Slots[] inv1 = this.getSlots(bagBase,     bagBase + 4);
         Slots[] inv2 = this.getSlots(bagBase + 4, bagBase + 8);
@@ -1890,7 +1892,7 @@ public class PlayerUI {
         // Equipment slots 0-3. Server's stripped UpdatePacket
         // (UpdatePacket.fromPlayerWithoutInventory) ships these for
         // remote players; null until the first broadcast lands.
-        final GameItem[] equips = p.getSlots(0, 4);
+        final GameItem[] equips = p.getSlots(0, Player.EQUIPMENT_SLOT_COUNT);
 
         // Vertical layout (top→down inside the tooltip):
         //   nameRow   16   "Name [role]"
@@ -2485,9 +2487,10 @@ public class PlayerUI {
             batch.setColor(prev);
         }
 
-        // ---- Pass 3: equipment slots (panel.hud.equipment_with_stats.0..3)
+        // ---- Pass 3: equipment slots (panel.hud.equipment_with_stats.0..4)
         //              + inventory grid (panel.hud.inv_only.grid). ----
-        for (int i = 0; i < 4; i++) {
+        // Phase 1B: 5 equipment slots (weapon, armor, gauntlets, boots, ring).
+        for (int i = 0; i < Player.EQUIPMENT_SLOT_COUNT; i++) {
             final UiComponent eq = UiAtlas.componentOf("panel.hud.equipment_with_stats." + i);
             if (eq == null) continue;
             final float ex = equipStatsX + (eq.getX() - cEquipStats.getX()) * s;
@@ -2497,26 +2500,39 @@ public class PlayerUI {
                     ex, ey, eq.getW() * s, eq.getH() * s);
         }
         final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
+        // Backpack starts at EQUIPMENT_SLOT_COUNT (5) after Phase 1B — used to
+        // be 4. Without this shift, the first backpack cell overwrote slot 4
+        // (ring) and the ring slot button hung at its initial slotX()/
+        // layoutEquipY position, ending up floating mid-screen.
+        final int backpackBase = Player.EQUIPMENT_SLOT_COUNT;
         for (int i = 0; i < cells.length; i++) {
             final int[] cell = cells[i];
             final float cx = invOnlyX + (cell[0] - cInvOnly.getX()) * s;
             final float cy = invOnlyY + (cell[1] - cInvOnly.getY()) * s;
-            this.repositionSlotButton(this.inventory, 4 + i, cx, cy);
-            this.drawHudItemIcon(batch, this.getInventoryItem(4 + i),
+            this.repositionSlotButton(this.inventory, backpackBase + i, cx, cy);
+            this.drawHudItemIcon(batch, this.getInventoryItem(backpackBase + i),
                     cx, cy, cell[2] * s, cell[3] * s);
         }
 
-        // Equipment hotbar (bottom-center) — 1×4 mirroring inventory[0..3].
-        // Same backing Slots so hit-testing on either spot edits the same item;
-        // we don't re-position the Button here (the equip-ring above already
-        // owns each slot's pos). We just draw the icon a second time.
+        // Phase 2C: bottom-center hotbar (panel.hud.equipment) now renders
+        // ABILITY icons instead of equipment. Cells 0..3 map to hotbar slots
+        // 0..3 (keys 1..4). Sprite is sourced from the ported ability's
+        // legacyItemId so we can paint without a separate ability-icon atlas
+        // (Phase 2D / art pass replaces these with dedicated icons).
         final int[][] hotbarCells = UiAtlas.gridCells("panel.hud.equipment.grid");
+        final Player localPlayer = (this.playState != null) ? this.playState.getPlayer() : null;
         for (int i = 0; i < hotbarCells.length && i < 4; i++) {
             final int[] cell = hotbarCells[i];
             final float cx = hotbarX + (cell[0] - cHotbar.getX()) * s;
             final float cy = hotbarY + (cell[1] - cHotbar.getY()) * s;
-            this.drawHudItemIcon(batch, this.getInventoryItem(i),
-                    cx, cy, cell[2] * s, cell[3] * s);
+            GameItem icon = null;
+            if (localPlayer != null) {
+                final Ability ab = localPlayer.getActiveAbility(i);
+                if (ab != null && ab.getLegacyItemId() > 0) {
+                    icon = GameDataManager.GAME_ITEMS.get(ab.getLegacyItemId());
+                }
+            }
+            this.drawHudItemIcon(batch, icon, cx, cy, cell[2] * s, cell[3] * s);
         }
 
         // Cache loot panel coords so buildGroundLootSlotButton can

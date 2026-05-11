@@ -43,7 +43,9 @@ public class EffectText {
             color = Color.GREEN;
             break;
         case ARMOR_BREAK:
-            color = Color.BLUE;
+            // Bright, saturated blue for armor-piercing/armor-broken hits.
+            // Color.BLUE (0,0,255) is too dark to read on dungeon floors.
+            color = new Color(0.30f, 0.55f, 1f, 1f);
             break;
         case ENVIRONMENT:
             color = Color.BLUE;

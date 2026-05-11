@@ -1253,9 +1253,10 @@ public class PlayState extends GameState {
             // the mana bar snaps back when UpdatePacket arrives. Mirrors
             // the webclient tryUseAbility cost gate. Optimistic decrement
             // keeps the gate honest within a round-trip.
+            // Phase 1B: ability is now class-bound (no longer slot 1).
             int abilityCost = 0;
             try {
-                final GameItem ability = player.getSlot(1);
+                final GameItem ability = player.getAbility();
                 if (ability != null && ability.getEffect() != null) {
                     abilityCost = ability.getEffect().getMpCost();
                 }

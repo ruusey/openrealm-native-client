@@ -24,6 +24,8 @@ import com.openrealm.game.graphics.SpriteRecolorCache;
 import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.CharacterClassModel;
+import com.openrealm.game.model.ability.Ability;
+import com.openrealm.game.model.ability.PassiveAbility;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.net.client.packet.UpdatePacket;
 import com.openrealm.net.core.IOService;
@@ -103,6 +105,17 @@ public class Player extends Entity {
 	@Builder.Default
 	private transient long cachedAccountFame = 0L;
 
+	// Phase 2A runtime state (mirrors server-side Player). Hotbar bindings
+	// inherit from CharacterClassModel.abilityTree.defaultHotbar on spawn;
+	// runtime mutations come from HotbarSwapPacket. Transient — re-seeds on
+	// login until Phase 2B persists them.
+	@Builder.Default
+	private transient long[] abilityCooldowns = new long[4];
+	@Builder.Default
+	private transient CastState currentCast = null;
+	@Builder.Default
+	private transient int[] hotbarBindings = new int[]{0, 0, 0, 0};
+
 	// Visual interpolation override. The simulation position (this.pos) advances
 	// in 1/64 s tick steps; rendering THAT directly at 144 FPS produces a
 	// per-tick "lurch" because the camera (lerped) and the sprite (postTick)
@@ -148,7 +161,8 @@ public class Player extends Entity {
 			String accountUuid, String characterUuid, long experience, Stats stats, boolean headless, boolean bot,
 			String chatRole, int lastInputSeq, int lastProcessedInputSeq, float currentVx, float currentVy,
 			Queue<float[]> inputQueue, int hpPotions, int mpPotions, int dyeId, long cachedAccountFame,
-			float renderX, float renderY) {
+			float renderX, float renderY,
+			long[] abilityCooldowns, CastState currentCast, int[] hotbarBindings) {
 		super(0, null, 0);
 		this.inventory = inventory;
 		this.lastStatsTime = lastStatsTime;
@@ -172,6 +186,10 @@ public class Player extends Entity {
 		this.cachedAccountFame = cachedAccountFame;
 		this.renderX = renderX;
 		this.renderY = renderY;
+		// Phase 2A — nullsafe defaults so existing Builder callers still get a usable Player.
+		this.abilityCooldowns = abilityCooldowns != null ? abilityCooldowns : new long[4];
+		this.currentCast = currentCast;
+		this.hotbarBindings = hotbarBindings != null ? hotbarBindings : new int[]{0, 0, 0, 0};
 	}
 
 	public Player(long id, Vector2f origin, int size, CharacterClass characterClass) {
@@ -191,6 +209,14 @@ public class Player extends Entity {
 		this.mana = classModel.getBaseStats().getMp();
 
 		this.stats = classModel.getBaseStats().clone();
+		// Phase 2A: seed hotbar from class default. Mirrors server logic.
+		if (this.hotbarBindings == null) this.hotbarBindings = new int[]{0, 0, 0, 0};
+		if (classModel.getAbilityTree() != null && classModel.getAbilityTree().getDefaultHotbar() != null) {
+			final int[] src = classModel.getAbilityTree().getDefaultHotbar();
+			for (int i = 0; i < this.hotbarBindings.length && i < src.length; i++) {
+				this.hotbarBindings[i] = src[i];
+			}
+		}
 		// Same Lombok-strips-inline-init dance as the no-arg ctor: without
 		// these, the local player's renderX/Y starts at 0 (Java default)
 		// instead of NaN, so getEffectiveRenderX returns 0 on the very
@@ -239,12 +265,20 @@ public class Player extends Entity {
 				.dyeId(Integer.valueOf(this.dyeId)).build();
 	}
 
+	// Equipment slot layout (Phase 1B combat rework):
+	//   0=weapon, 1=armor, 2=gauntlets, 3=boots, 4=ring
+	// Backpack: indices [EQUIPMENT_SLOT_COUNT .. inventory.length-1].
+	// Must match server-side com.openrealm.game.entity.Player.
+	public static final int EQUIPMENT_SLOT_COUNT = 5;
+	public static final int BACKPACK_SIZE = 16;
+	public static final int INVENTORY_SIZE = EQUIPMENT_SLOT_COUNT + BACKPACK_SIZE; // 21
+
 	private void resetInventory() {
-		this.inventory = new GameItem[20];
+		this.inventory = new GameItem[INVENTORY_SIZE];
 	}
 
 	public int firstEmptyInvSlot() {
-		for (int i = 4; i < this.inventory.length; i++) {
+		for (int i = EQUIPMENT_SLOT_COUNT; i < this.inventory.length; i++) {
 			if (this.inventory[i] == null)
 				return i;
 		}
@@ -294,10 +328,48 @@ public class Player extends Entity {
 		return weapon == null ? -1 : weapon.getDamage().getProjectileGroupId();
 	}
 
+	/**
+	 * Phase 1B: ability is now class-bound, not equipped. Look up via
+	 * CharacterClassModel.classAbilityId — Phase 2 replaces this with the
+	 * full ability tree.
+	 */
 	public GameItem getAbility() {
-		GameItem weapon = this.getSlot(1);
-		return weapon;
+		final CharacterClassModel cls = GameDataManager.CHARACTER_CLASSES.get(this.classId);
+		if (cls == null) return null;
+		final int abilityId = cls.getClassAbilityId();
+		if (abilityId <= 0) return null;
+		return GameDataManager.GAME_ITEMS.get(abilityId);
 	}
+
+	/** Phase 2A: hotbar-slot active ability lookup (mirrors server). */
+	public Ability getActiveAbility(int slot) {
+		final int id = this.getHotbarId(slot);
+		if (id <= 0 || GameDataManager.ABILITIES == null) return null;
+		return GameDataManager.ABILITIES.get(id);
+	}
+
+	/** Passive bound to a hotbar slot, if any. */
+	public PassiveAbility getSlottedPassive(int slot) {
+		final int id = this.getHotbarId(slot);
+		if (id <= 0 || GameDataManager.PASSIVES == null) return null;
+		return GameDataManager.PASSIVES.get(id);
+	}
+
+	/** The class's always-on passive (not bindable, separate from the hotbar). */
+	public PassiveAbility getClassPassive() {
+		final CharacterClassModel cls = GameDataManager.CHARACTER_CLASSES.get(this.classId);
+		if (cls == null || cls.getAbilityTree() == null) return null;
+		final int id = cls.getAbilityTree().getPassive();
+		if (id <= 0 || GameDataManager.PASSIVES == null) return null;
+		return GameDataManager.PASSIVES.get(id);
+	}
+
+	public int getHotbarId(int slot) {
+		if (this.hotbarBindings == null || slot < 0 || slot >= this.hotbarBindings.length) return 0;
+		return this.hotbarBindings[slot];
+	}
+
+	public boolean isCasting() { return this.currentCast != null; }
 
 	@Override
 	public void update(double time) {
@@ -341,7 +413,7 @@ public class Player extends Entity {
 		if (this.stats == null)
 			return new Stats();
 		Stats stats = this.stats.clone();
-		GameItem[] equipment = this.getSlots(0, 4);
+		GameItem[] equipment = this.getSlots(0, EQUIPMENT_SLOT_COUNT);
 		for (GameItem item : equipment) {
 			if (item != null) {
 				stats = stats.concat(item.getStats());
@@ -882,7 +954,7 @@ public class Player extends Entity {
 	}
 
 	public GameItem[] selectGameItems(Boolean[] selectedIdx) {
-		GameItem[] inv = this.getSlots(4, 12);
+		GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + 8);
 		if (selectedIdx.length != inv.length) {
 			System.err.println("SELECT GAME ITEM IDX SIZES NOT EQUAL");
 			return null;
@@ -900,12 +972,12 @@ public class Player extends Entity {
 	}
 
 	public NetGameItemRef[] getInventoryAsNetGameItemRefs() {
-		final GameItem[] inv = this.getSlots(4, 12);
+		final GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + 8);
 		final List<NetGameItemRef> results = new ArrayList<>();
 		for (int i = 0; i < inv.length; i++) {
 			if (inv[i] == null)
 				continue;
-			results.add(inv[i].asNetGameItemRef(i + 4));
+			results.add(inv[i].asNetGameItemRef(i + EQUIPMENT_SLOT_COUNT));
 		}
 		return results.toArray(new NetGameItemRef[0]);
 
@@ -921,7 +993,7 @@ public class Player extends Entity {
 			// stacks consistent with how loot pickups behave.
 			if (item.isStackable()) {
 				int remaining = item.getStackCount();
-				for (int i = 4; i < this.inventory.length && remaining > 0; i++) {
+				for (int i = EQUIPMENT_SLOT_COUNT; i < this.inventory.length && remaining > 0; i++) {
 					final GameItem existing = this.inventory[i];
 					if (existing == null) continue;
 					if (existing.getItemId() != item.getItemId()) continue;
@@ -948,7 +1020,7 @@ public class Player extends Entity {
 	}
 
 	public void removeItems(GameItem[] items) {
-		final GameItem[] inv = this.getSlots(4, 12);
+		final GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + 8);
 
 		for (int i = 0; i < inv.length; i++) {
 			GameItem invItem = inv[i];
@@ -956,7 +1028,7 @@ public class Player extends Entity {
 				continue;
 			for (GameItem toRemove : items) {
 				if (invItem.getUid() != null && invItem.getUid().equals(toRemove.getUid())) {
-					this.inventory[i + 4] = null;
+					this.inventory[i + EQUIPMENT_SLOT_COUNT] = null;
 					break;
 				}
 			}
