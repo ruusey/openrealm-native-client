@@ -60,6 +60,17 @@ public class UpdatePacket extends Packet {
 	// change via NetPlayer in LoadPacket on next re-load.
 	@SerializableField(order = 9, type = SerializableInt.class)
 	private int dyeId;
+	// Phase 2D mirror of server: SP pool + per-slot invested counts.
+	@SerializableField(order = 10, type = SerializableInt.class)
+	private int availableSkillPoints;
+	@SerializableField(order = 11, type = SerializableByte.class)
+	private byte investedSlot0;
+	@SerializableField(order = 12, type = SerializableByte.class)
+	private byte investedSlot1;
+	@SerializableField(order = 13, type = SerializableByte.class)
+	private byte investedSlot2;
+	@SerializableField(order = 14, type = SerializableByte.class)
+	private byte investedSlot3;
 
 	public static final NetGameItem[] EMPTY_INVENTORY = new NetGameItem[0];
 

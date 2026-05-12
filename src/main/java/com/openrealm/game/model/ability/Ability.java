@@ -53,6 +53,12 @@ public class Ability {
      */
     private int baseDamage;
 
+    /** Phase 2D — max invested skill points (5 default, 3 for ults). */
+    private int maxSkillPoints = 5;
+
+    /** Phase 2D — flat ms shaved off baseCooldownMs per invested skill point. */
+    private int cdReductionPerPointMs = 0;
+
     /** Convenience: nullsafe effects. */
     public List<AbilityEffect> effectList() {
         return this.effects == null ? new ArrayList<>() : this.effects;
