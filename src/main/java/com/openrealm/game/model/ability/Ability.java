@@ -43,7 +43,12 @@ public class Ability {
      * was generated from. Used by the client to fetch a sprite (since we
      * don't have dedicated ability iconography yet). Optional / 0 = unknown.
      */
-    private int legacyItemId;
+    /** Standard sprite-from-sheet fields (same convention as items/enemies/tiles). */
+    private String spriteKey;
+    private int row;
+    private int col;
+    private int spriteSize;
+    private int spriteHeight;
 
     /**
      * Phase 3: when > 0, server uses this as the bullet's base damage instead

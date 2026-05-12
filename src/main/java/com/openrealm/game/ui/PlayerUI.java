@@ -19,6 +19,7 @@ import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
+import com.openrealm.game.graphics.Sprite;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.Stats;
@@ -2514,25 +2515,17 @@ public class PlayerUI {
                     cx, cy, cell[2] * s, cell[3] * s);
         }
 
-        // Phase 2C: bottom-center hotbar (panel.hud.equipment) now renders
-        // ABILITY icons instead of equipment. Cells 0..3 map to hotbar slots
-        // 0..3 (keys 1..4). Sprite is sourced from the ported ability's
-        // legacyItemId so we can paint without a separate ability-icon atlas
-        // (Phase 2D / art pass replaces these with dedicated icons).
+        // Bottom-center hotbar (panel.hud.equipment) renders ABILITY icons
+        // from the ability's own sprite fields (spriteKey/row/col), matching
+        // every other data type.
         final int[][] hotbarCells = UiAtlas.gridCells("panel.hud.equipment.grid");
         final Player localPlayer = (this.playState != null) ? this.playState.getPlayer() : null;
         for (int i = 0; i < hotbarCells.length && i < 4; i++) {
             final int[] cell = hotbarCells[i];
             final float cx = hotbarX + (cell[0] - cHotbar.getX()) * s;
             final float cy = hotbarY + (cell[1] - cHotbar.getY()) * s;
-            GameItem icon = null;
-            if (localPlayer != null) {
-                final Ability ab = localPlayer.getActiveAbility(i);
-                if (ab != null && ab.getLegacyItemId() > 0) {
-                    icon = GameDataManager.GAME_ITEMS.get(ab.getLegacyItemId());
-                }
-            }
-            this.drawHudItemIcon(batch, icon, cx, cy, cell[2] * s, cell[3] * s);
+            final Ability ab = (localPlayer != null) ? localPlayer.getActiveAbility(i) : null;
+            this.drawAbilityHudIcon(batch, ab, cx, cy, cell[2] * s, cell[3] * s);
         }
 
         // Cache loot panel coords so buildGroundLootSlotButton can
@@ -2950,5 +2943,23 @@ public class PlayerUI {
         // 8px source × iconScale(2) × displayScale(2) = 32px on screen.
         final float iconSize = 8f * UiAtlas.getIconScale() * UiAtlas.getDisplayScale();
         batch.draw(icon, x + (w - iconSize) / 2f, y + (h - iconSize) / 2f, iconSize, iconSize);
+    }
+
+    /**
+     * Draw an ability icon using the standard {@code spriteKey} / {@code row} /
+     * {@code col} fields on {@link Ability} — same convention as every other
+     * data type (items/enemies/tiles).
+     */
+    private void drawAbilityHudIcon(SpriteBatch batch, Ability ab,
+                                     float x, float y, float w, float h) {
+        if (ab == null || ab.getSpriteKey() == null || ab.getSpriteKey().isEmpty()) return;
+        final int spriteSize = ab.getSpriteSize() > 0 ? ab.getSpriteSize() : 8;
+        final Sprite spr = GameSpriteManager.loadSprite(ab.getCol(), ab.getRow(),
+                ab.getSpriteKey(), spriteSize);
+        if (spr == null || spr.getRegion() == null) return;
+        final float iconSize = spriteSize * UiAtlas.getIconScale() * UiAtlas.getDisplayScale();
+        batch.draw(spr.getRegion(),
+                x + (w - iconSize) / 2f, y + (h - iconSize) / 2f,
+                iconSize, iconSize);
     }
 }
