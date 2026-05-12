@@ -2,7 +2,7 @@
 
 ### Native Java desktop client for [OpenRealm](http://openrealm.net/) — built with LibGDX.
 
-### CreditS:
+### Credits:
 * [@Mingau244](https://github.com/Mingau244)
 * [@Aurusenth](https://github.com/Aurusenth)
 <div>
