@@ -2406,6 +2406,13 @@ public class PlayState extends GameState {
         case CreateEffectPacket.EFFECT_STORM_AURA:        r = 0.40f; g = 0.65f; b = 1.00f; break;
         case CreateEffectPacket.EFFECT_DEATH_PACT_AURA:   r = 0.55f; g = 0.10f; b = 0.50f; break;
         case CreateEffectPacket.EFFECT_BLADE_STORM:       r = 0.90f; g = 0.85f; b = 0.85f; break;
+        // Phase 3 (post-rework) bespoke effects — until the native renderer
+        // ports the procedural shape for each, paint a distinctive ring.
+        case CreateEffectPacket.EFFECT_REALITY_TEAR:      r = 0.55f; g = 0.20f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_PHANTOM_STRIKE:    r = 0.30f; g = 0.06f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_STASIS_LOCK:       r = 0.55f; g = 0.85f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_SANCTUARY_DOME:    r = 1.00f; g = 0.85f; b = 0.35f; break;
+        case CreateEffectPacket.EFFECT_VAMPIRIC_LATCH:    r = 0.85f; g = 0.10f; b = 0.30f; break;
         default:                                          r = 1.00f; g = 1.00f; b = 1.00f; break;
         }
 
