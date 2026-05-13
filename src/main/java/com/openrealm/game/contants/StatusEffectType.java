@@ -45,6 +45,21 @@ public enum StatusEffectType {
     BRACED((short) 24),
     PROTECTED((short) 25),
     PHALANX_DOME((short) 26),
+    /** Weakens outgoing damage by 35% for the duration. */
+    WEAKEN((short) 27),
+    /** Tunnel-vision debuff — client-side renderer clamps visible radius to
+     *  ~3 tiles around the local player while active. */
+    BLIND((short) 28),
+    /** Anti-debuff bubble — new debuff applications are silently dropped. */
+    WARDED((short) 29),
+    /** Mana regen amplifier — MP regen runs at 2× speed while active. */
+    MANA_FOUNT((short) 30),
+    /** Debuff amplifier — incoming debuff durations doubled. */
+    VULNERABLE((short) 31),
+    /** Movement lock — implicit SLOWED + dash/teleport ability veto. */
+    GROUNDED((short) 32),
+    /** Trickster passive marker — boosts loot-upgrade chance on kill. */
+    MARKED_FOR_LOOT((short) 33),
 
     // === Projectile Behavior Flags (prefer ProjectileFlag enum) ===
     PLAYER_PROJECTILE((short) 10),

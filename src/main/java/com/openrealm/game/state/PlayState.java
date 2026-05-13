@@ -1541,7 +1541,26 @@ public class PlayState extends GameState {
                     realmEnemies, realmBullets, realmPortals, gameObject.length);
         }
 
+        // BLIND status — clamp visible radius around the local player. Same
+        // semantics as the webclient: enemies, bullets, and other players
+        // outside ~3 tiles vanish from the local view. Server stays
+        // authoritative on positions; this is pure render-side cull so the
+        // player can't see what's about to hit them.
+        final Player localBlindPlayer = this.realmManager.getRealm().getPlayer(
+                this.realmManager.getCurrentPlayerId());
+        final boolean isBlind = localBlindPlayer != null
+                && localBlindPlayer.hasEffect(com.openrealm.game.contants.StatusEffectType.BLIND);
+        final float BLIND_RADIUS = 32f * 3f;
+        final float BLIND_RADIUS_SQ = BLIND_RADIUS * BLIND_RADIUS;
+        final float blindPx = isBlind ? localBlindPlayer.getPos().x : 0f;
+        final float blindPy = isBlind ? localBlindPlayer.getPos().y : 0f;
+        final long localBlindId = isBlind ? localBlindPlayer.getId() : 0L;
+
         for (Player p : this.realmManager.getRealm().getPlayers().values()) {
+            if (isBlind && p.getId() != localBlindId) {
+                final float dx = p.getPos().x - blindPx, dy = p.getPos().y - blindPy;
+                if (dx * dx + dy * dy > BLIND_RADIUS_SQ) continue;
+            }
             visibleEntities.add(p);
             p.updateAnimation();
         }
@@ -1549,6 +1568,10 @@ public class PlayState extends GameState {
         for (int i = 0; i < gameObject.length; i++) {
             if (gameObject[i] instanceof Enemy) {
                 Enemy e = (Enemy) gameObject[i];
+                if (isBlind) {
+                    final float dx = e.getPos().x - blindPx, dy = e.getPos().y - blindPy;
+                    if (dx * dx + dy * dy > BLIND_RADIUS_SQ) continue;
+                }
                 visibleEntities.add(e);
                 visibleEnemies.add(e);
             } else if (gameObject[i] instanceof Bullet) {
@@ -1558,6 +1581,12 @@ public class PlayState extends GameState {
                 // entry stays in the realm so the server's eventual
                 // UnloadPacket cleanly removes it.
                 if (b.isConsumedClient()) continue;
+                // BLIND cull — bullets outside the tunnel radius vanish.
+                // Local player's OWN bullets are exempt so they can still aim.
+                if (isBlind && b.getSrcEntityId() != localBlindId) {
+                    final float dx = b.getPos().x - blindPx, dy = b.getPos().y - blindPy;
+                    if (dx * dx + dy * dy > BLIND_RADIUS_SQ) continue;
+                }
                 visibleBullets.add(b);
             }
             // Players already added above, skip to avoid double-render

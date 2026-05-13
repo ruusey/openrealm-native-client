@@ -380,7 +380,7 @@ public class GameDataManager {
 		if (remote) {
 			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/abilities.json", null);
 		} else {
-			InputStream inputStream = openLocalData("abilities.json");
+			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/abilities.json");
 			if (inputStream == null) {
 				GameDataManager.log.info("Loading Abilities... DONE (no local file, empty table)");
 				return;
@@ -405,7 +405,7 @@ public class GameDataManager {
 		if (remote) {
 			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/passives.json", null);
 		} else {
-			InputStream inputStream = openLocalData("passives.json");
+			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/passives.json");
 			if (inputStream == null) {
 				GameDataManager.log.info("Loading Passives... DONE (no local file, empty table)");
 				return;

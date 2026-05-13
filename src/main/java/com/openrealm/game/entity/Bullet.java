@@ -358,9 +358,16 @@ public class Bullet extends GameObject  {
         final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId());
         final float angleOffset = Float.parseFloat(group.getAngleOffset());
 
-        // Convert angle to degrees for LibGDX (counter-clockwise positive)
+        // Convert angle to degrees for LibGDX (counter-clockwise positive).
+        // Spinning projectiles (shurikens) ignore the flight-angle and rotate
+        // by a continuous wall-clock-driven phase so they read as spinning
+        // blades regardless of flight direction.
         float rotationDeg;
-        if (angleOffset > 0.0f) {
+        if (group.isSpinning()) {
+            // ~6 rad/s — matches webclient renderer (Date.now() * 0.006).
+            final double phase = (System.currentTimeMillis() * 0.006) % (Math.PI * 2);
+            rotationDeg = (float) Math.toDegrees(phase);
+        } else if (angleOffset > 0.0f) {
             rotationDeg = (float) Math.toDegrees(-this.getAngle() + (this.tfAngle + angleOffset));
         } else {
             rotationDeg = (float) Math.toDegrees(-this.getAngle() + this.tfAngle);

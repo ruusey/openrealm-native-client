@@ -39,11 +39,10 @@ public class Ability {
     private List<String> tags = new ArrayList<>();
 
     /**
-     * Phase 2B port artifact: itemId of the legacy ability-item this Ability
-     * was generated from. Used by the client to fetch a sprite (since we
-     * don't have dedicated ability iconography yet). Optional / 0 = unknown.
+     * Sprite location, matching the convention used by every other data type
+     * (items, enemies, tiles): a sheet filename + a row/col into it, plus
+     * an optional per-cell size.
      */
-    /** Standard sprite-from-sheet fields (same convention as items/enemies/tiles). */
     private String spriteKey;
     private int row;
     private int col;

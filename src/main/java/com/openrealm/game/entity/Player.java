@@ -44,6 +44,7 @@ import com.openrealm.game.graphics.ShaderManager;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Slf4j
@@ -105,6 +106,20 @@ public class Player extends Entity {
 	@Builder.Default
 	private transient long cachedAccountFame = 0L;
 
+	// Visual interpolation override. The simulation position (this.pos) advances
+	// in 1/64 s tick steps; rendering THAT directly at 144 FPS produces a
+	// per-tick "lurch" because the camera (lerped) and the sprite (postTick)
+	// disagree by up to one tick distance every render frame between ticks.
+	// Web client mirrors this by exposing _renderX / _renderY and rendering
+	// both camera AND player at the same lerped value. Set NaN means "use
+	// pos.x / pos.y" (default for non-local players or before first tick).
+	// Declared BEFORE abilityCooldowns/currentCast/hotbarBindings so Lombok's
+	// generated ctor matches the explicit all-args ctor signature below.
+	@Builder.Default
+	private transient float renderX = Float.NaN;
+	@Builder.Default
+	private transient float renderY = Float.NaN;
+
 	// Phase 2A runtime state (mirrors server-side Player). Hotbar bindings
 	// inherit from CharacterClassModel.abilityTree.defaultHotbar on spawn;
 	// runtime mutations come from HotbarSwapPacket. Transient — re-seeds on
@@ -116,17 +131,14 @@ public class Player extends Entity {
 	@Builder.Default
 	private transient int[] hotbarBindings = new int[]{0, 0, 0, 0};
 
-	// Visual interpolation override. The simulation position (this.pos) advances
-	// in 1/64 s tick steps; rendering THAT directly at 144 FPS produces a
-	// per-tick "lurch" because the camera (lerped) and the sprite (postTick)
-	// disagree by up to one tick distance every render frame between ticks.
-	// Web client mirrors this by exposing _renderX / _renderY and rendering
-	// both camera AND player at the same lerped value. Set NaN means "use
-	// pos.x / pos.y" (default for non-local players or before first tick).
+	// Phase 2D — skill-point pool + per-ability investment. Earned 1 per 2
+	// levels from L2 to L20 (10 total). Caps per ability come from
+	// Ability.maxSkillPoints (5 for non-ults, 3 for ults). Persisted via
+	// CharacterStatsDto.
 	@Builder.Default
-	private transient float renderX = Float.NaN;
+	private int availableSkillPoints = 0;
 	@Builder.Default
-	private transient float renderY = Float.NaN;
+	private Map<Integer, Integer> abilitySkillPoints = new HashMap<>();
 
 	public void setRenderPos(float rx, float ry) {
 		this.renderX = rx;
@@ -162,7 +174,8 @@ public class Player extends Entity {
 			String chatRole, int lastInputSeq, int lastProcessedInputSeq, float currentVx, float currentVy,
 			Queue<float[]> inputQueue, int hpPotions, int mpPotions, int dyeId, long cachedAccountFame,
 			float renderX, float renderY,
-			long[] abilityCooldowns, CastState currentCast, int[] hotbarBindings) {
+			long[] abilityCooldowns, CastState currentCast, int[] hotbarBindings,
+			int availableSkillPoints, Map<Integer, Integer> abilitySkillPoints) {
 		super(0, null, 0);
 		this.inventory = inventory;
 		this.lastStatsTime = lastStatsTime;
@@ -190,6 +203,9 @@ public class Player extends Entity {
 		this.abilityCooldowns = abilityCooldowns != null ? abilityCooldowns : new long[4];
 		this.currentCast = currentCast;
 		this.hotbarBindings = hotbarBindings != null ? hotbarBindings : new int[]{0, 0, 0, 0};
+		// Phase 2D — skill point pool + investment map.
+		this.availableSkillPoints = availableSkillPoints;
+		this.abilitySkillPoints = abilitySkillPoints != null ? abilitySkillPoints : new HashMap<>();
 	}
 
 	public Player(long id, Vector2f origin, int size, CharacterClass characterClass) {
@@ -243,6 +259,11 @@ public class Player extends Entity {
 		if (stats.getHpPotions() != null) this.hpPotions = stats.getHpPotions();
 		if (stats.getMpPotions() != null) this.mpPotions = stats.getMpPotions();
 		if (stats.getDyeId() != null) this.dyeId = stats.getDyeId();
+		// Phase 2D — restore skill-point pool + per-ability investment map.
+		this.availableSkillPoints = stats.getAvailableSkillPoints() != null
+				? stats.getAvailableSkillPoints() : 0;
+		this.abilitySkillPoints = stats.getAbilitySkillPoints() != null
+				? new HashMap<>(stats.getAbilitySkillPoints()) : new HashMap<>();
 	}
 
 	public Set<GameItemRefDto> serializeItems() {
@@ -262,7 +283,57 @@ public class Player extends Entity {
 				.att(Integer.valueOf((int) this.stats.getAtt())).spd(Integer.valueOf((int) this.stats.getSpd()))
 				.dex(Integer.valueOf((int) this.stats.getDex())).vit(Integer.valueOf((int) this.stats.getVit()))
 				.wis(Integer.valueOf((int) this.stats.getWis())).hpPotions(this.hpPotions).mpPotions(this.mpPotions)
-				.dyeId(Integer.valueOf(this.dyeId)).build();
+				.dyeId(Integer.valueOf(this.dyeId))
+				.availableSkillPoints(Integer.valueOf(this.availableSkillPoints))
+				.abilitySkillPoints(this.abilitySkillPoints != null
+						? new HashMap<>(this.abilitySkillPoints) : new HashMap<>())
+				.build();
+	}
+
+	// ===== Phase 2D — skill point helpers =====================================
+
+	/** Invested level for the given abilityId (0 if none invested). */
+	public int getSkillLevel(int abilityId) {
+		if (this.abilitySkillPoints == null) return 0;
+		final Integer v = this.abilitySkillPoints.get(abilityId);
+		return v == null ? 0 : v;
+	}
+
+	/**
+	 * Try to invest one skill point into {@code abilityId}. Returns true on
+	 * success. Fails if no points available, the ability id is unknown, or
+	 * the per-ability cap is already met. Client-side mirror — the server
+	 * is authoritative; this just keeps the local Player consistent until
+	 * the InvestSkillPointPacket round-trip lands.
+	 */
+	public boolean investSkillPoint(int abilityId) {
+		if (this.availableSkillPoints <= 0) return false;
+		final Ability ab = GameDataManager.ABILITIES == null ? null
+				: GameDataManager.ABILITIES.get(abilityId);
+		if (ab == null) return false;
+		final int cap = ab.getMaxSkillPoints() <= 0 ? 5 : ab.getMaxSkillPoints();
+		if (this.abilitySkillPoints == null) this.abilitySkillPoints = new HashMap<>();
+		final int current = this.abilitySkillPoints.getOrDefault(abilityId, 0);
+		if (current >= cap) return false;
+		this.abilitySkillPoints.put(abilityId, current + 1);
+		this.availableSkillPoints--;
+		return true;
+	}
+
+	/**
+	 * Award skill points earned by reaching levels in (prevLevel, newLevel].
+	 * Rule: 1 point per even level from L2 through L20. Caps total earnable
+	 * at 10. Returns the number of points actually granted.
+	 */
+	public int awardSkillPointsForLevels(int prevLevel, int newLevel) {
+		int granted = 0;
+		for (int lvl = Math.max(prevLevel + 1, 2); lvl <= newLevel && lvl <= 20; lvl++) {
+			if ((lvl & 1) == 0) {  // even level
+				this.availableSkillPoints++;
+				granted++;
+			}
+		}
+		return granted;
 	}
 
 	// Equipment slot layout (Phase 1B combat rework):
@@ -825,6 +896,11 @@ public class Player extends Entity {
 			// Restore health and mana to new max after all stat increases
 			this.setHealth(this.stats.getHp());
 			this.setMana(this.stats.getMp());
+			// Phase 2D — award skill points for every even level reached in
+			// (currentLevel, newLevel]. Server is authoritative; this is a
+			// local mirror so the HUD pip count tracks the level-up in real
+			// time before the next stats sync lands.
+			this.awardSkillPointsForLevels(currentLevel, newLevel);
 		}
 		this.setExperience(newExperience);
 		return levelsGained;
