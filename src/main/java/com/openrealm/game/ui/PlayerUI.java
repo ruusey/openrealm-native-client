@@ -1679,7 +1679,13 @@ public class PlayerUI {
     private void renderNearbyPlayers(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, int startX, int panelWidth) {
         this.refreshNearbyPlayerButtons(startX, panelWidth);
 
-        int headerY = this.layoutNearbyY;
+        // Phase 4 — Party section sits ABOVE the nearby list when the
+        // player is in a party. Returns the Y consumed so the nearby
+        // header drops below it. Mirrors webclient _renderPartySection in
+        // trade.js (party panel above "Players nearby").
+        int partyConsumed = this.renderPartyMembers(batch, shapes, font, startX, panelWidth);
+
+        int headerY = this.layoutNearbyY + partyConsumed;
         font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent (matches name + level)
         font.draw(batch, "Nearby players", startX, headerY);
         font.setColor(Color.WHITE);
@@ -1722,6 +1728,75 @@ public class PlayerUI {
                     y + (entryHeight + 10) / 2);
         }
         font.setColor(Color.WHITE);
+    }
+
+    /**
+     * Render the party-members section above the nearby-players list.
+     * Mirrors webclient trade.js _renderPartySection: gold-tinted member
+     * rows with class icon, name, and stacked HP/MP mini-bars. Returns the
+     * pixel height consumed so the caller can offset the nearby section
+     * below us. Returns 0 when the player isn't in a party.
+     */
+    private int renderPartyMembers(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
+                                    int startX, int panelWidth) {
+        if (this.playState == null) return 0;
+        final long partyId = this.playState.getPartyId();
+        final com.openrealm.net.entity.NetPartyMember[] members = this.playState.getPartyMembers();
+        if (partyId == 0L || members == null || members.length == 0) return 0;
+
+        final long localId = this.playState.getPlayer() != null
+                ? this.playState.getPlayer().getId() : 0L;
+        // Build display list — skip self so the panel matches webclient.
+        java.util.List<com.openrealm.net.entity.NetPartyMember> toDraw = new java.util.ArrayList<>();
+        for (com.openrealm.net.entity.NetPartyMember m : members) {
+            if (m != null && m.getPlayerId() != localId) toDraw.add(m);
+        }
+
+        final int rowH = 32;
+        final int iconSize = 24;
+        final int rowGap = 2;
+        int headerY = this.layoutNearbyY;
+        font.setColor(1.00f, 0.85f, 0.36f, 1f); // gold accent
+        font.draw(batch, "Party  " + members.length + "/4", startX, headerY);
+        font.setColor(Color.WHITE);
+        int y = headerY + 12;
+        for (com.openrealm.net.entity.NetPartyMember m : toDraw) {
+            // Class icon — same lookup the nearby panel uses.
+            TextureRegion icon = this.getClassIcon(m.getClassId());
+            if (icon != null) {
+                batch.draw(icon, startX, y + (rowH - iconSize) / 2f, iconSize, iconSize);
+            }
+            // Gold-tinted name (truncate to 14 chars to match webclient).
+            String name = m.getName() != null ? m.getName() : "?";
+            if (name.length() > 14) name = name.substring(0, 14);
+            font.setColor(1.00f, 0.94f, 0.62f, 1f);
+            font.draw(batch, name, startX + iconSize + 6, y + 11);
+            font.setColor(Color.WHITE);
+            // HP + MP mini bars right under the name.
+            final float hpPct = m.getMaxHealth() > 0
+                    ? Math.max(0f, Math.min(1f, m.getHealth() / (float) m.getMaxHealth())) : 0f;
+            final float mpPct = m.getMaxMana() > 0
+                    ? Math.max(0f, Math.min(1f, m.getMana() / (float) m.getMaxMana())) : 0f;
+            final int barX = startX + iconSize + 6;
+            final int barW = panelWidth - (iconSize + 6) - 4;
+            final int hpY = y + 14;
+            final int mpY = hpY + 5;
+            // Switch into shape pass for the bars, then back to batch.
+            batch.end();
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.10f, 0.06f, 0.06f, 0.88f);
+            shapes.rect(barX, hpY, barW, 4);
+            shapes.setColor(0.78f, 0.06f, 0.19f, 0.95f);
+            shapes.rect(barX, hpY, barW * hpPct, 4);
+            shapes.setColor(0.06f, 0.06f, 0.12f, 0.88f);
+            shapes.rect(barX, mpY, barW, 3);
+            shapes.setColor(0.31f, 0.44f, 1.00f, 0.95f);
+            shapes.rect(barX, mpY, barW * mpPct, 3);
+            shapes.end();
+            batch.begin();
+            y += rowH + rowGap;
+        }
+        return Math.max(0, y - headerY + 8);
     }
 
     /** Cached chat-role nameplate colors used by the hover tooltip, mirrors
@@ -2517,16 +2592,28 @@ public class PlayerUI {
 
         // Bottom-center hotbar (panel.hud.equipment) renders ABILITY icons
         // from the ability's own sprite fields (spriteKey/row/col), matching
-        // every other data type.
+        // every other data type. Cooldown overlay + SP pips drawn in a
+        // post-pass below (shape renderer needs to switch out of batch).
         final int[][] hotbarCells = UiAtlas.gridCells("panel.hud.equipment.grid");
         final Player localPlayer = (this.playState != null) ? this.playState.getPlayer() : null;
+        // Per-slot cell coords captured so the post-pass can paint cooldown
+        // overlays + SP pips without re-computing the layout.
+        final float[][] hotbarCellPx = new float[4][4]; // [slot] = {x, y, w, h}
         for (int i = 0; i < hotbarCells.length && i < 4; i++) {
             final int[] cell = hotbarCells[i];
             final float cx = hotbarX + (cell[0] - cHotbar.getX()) * s;
             final float cy = hotbarY + (cell[1] - cHotbar.getY()) * s;
+            final float cw = cell[2] * s;
+            final float ch = cell[3] * s;
+            hotbarCellPx[i][0] = cx;
+            hotbarCellPx[i][1] = cy;
+            hotbarCellPx[i][2] = cw;
+            hotbarCellPx[i][3] = ch;
             final Ability ab = (localPlayer != null) ? localPlayer.getActiveAbility(i) : null;
-            this.drawAbilityHudIcon(batch, ab, cx, cy, cell[2] * s, cell[3] * s);
+            this.drawAbilityHudIcon(batch, ab, cx, cy, cw, ch);
         }
+        // Stash for the cooldown/SP overlay pass below (drawn after batch.end()).
+        this._lastHotbarCellPx = hotbarCellPx;
 
         // Cache loot panel coords so buildGroundLootSlotButton can
         // spawn freshly-built Buttons directly at the sprite-HUD
@@ -2580,6 +2667,11 @@ public class PlayerUI {
         if (this.hp != null) this.hp.renderShapes(shapes);
         if (this.mp != null) this.mp.renderShapes(shapes);
         if (this.xp != null) this.xp.renderShapes(shapes);
+        // Hotbar cooldown overlay + SP pip column — drawn after the HP/MP
+        // bars but before batch.begin() so the dark fade sits ON TOP of
+        // the ability icons painted earlier in the batch pass. Mirrors
+        // ui-widgets.updateAbilityBar in the webclient.
+        this.renderAbilityHotbarOverlays(shapes, localPlayer);
         shapes.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
@@ -2961,5 +3053,60 @@ public class PlayerUI {
         batch.draw(spr.getRegion(),
                 x + (w - iconSize) / 2f, y + (h - iconSize) / 2f,
                 iconSize, iconSize);
+    }
+
+    /** Cached pixel rects for the 4 hotbar slots, set during the sprite pass
+     *  and consumed by {@link #renderAbilityHotbarOverlays}. Avoids re-running
+     *  the atlas math twice per frame. */
+    private float[][] _lastHotbarCellPx;
+
+    /**
+     * Paint cooldown fill + SP pip column on top of each ability icon.
+     * Mirror of webclient ui-widgets.updateAbilityBar. Driven by the
+     * player's {@code abilityCooldowns} and {@code abilitySkillPoints}
+     * — both are local mirrors that match the server.
+     */
+    private void renderAbilityHotbarOverlays(ShapeRenderer shapes, Player localPlayer) {
+        if (localPlayer == null || _lastHotbarCellPx == null) return;
+        final long now = System.currentTimeMillis();
+        final long[] cds = localPlayer.getAbilityCooldowns();
+        for (int slot = 0; slot < 4; slot++) {
+            final float[] cell = _lastHotbarCellPx[slot];
+            if (cell == null) continue;
+            final float cx = cell[0], cy = cell[1], cw = cell[2], ch = cell[3];
+            final Ability ab = localPlayer.getActiveAbility(slot);
+            if (ab == null) continue;
+            // Cooldown overlay — dark fill from the TOP of the cell as the
+            // CD ticks down. Webclient uses the same "drain from top" idiom
+            // (height-based fill that shrinks over time).
+            if (cds != null && slot < cds.length && cds[slot] > now) {
+                final long base = ab.getBaseCooldownMs();
+                if (base > 0) {
+                    final long remain = Math.min(cds[slot] - now, base);
+                    final float frac = Math.max(0f, Math.min(1f, remain / (float) base));
+                    shapes.setColor(0f, 0f, 0f, 0.62f);
+                    shapes.rect(cx, cy + ch * (1f - frac), cw, ch * frac);
+                }
+            }
+            // SP pip column — vertical row of orange-or-grey 4px squares
+            // along the right edge of the cell. One pip per maxSkillPoints,
+            // filled up to invested level. Mirrors web "ability-sp-pipcol".
+            final int maxSp = ab.getMaxSkillPoints() <= 0 ? 5 : ab.getMaxSkillPoints();
+            final int invested = localPlayer.getSkillLevel(ab.getId());
+            if (maxSp > 0) {
+                final float pipW = 3.5f;
+                final float pipH = Math.max(2.5f, ch / (maxSp + 1.5f));
+                final float pipX = cx + cw - pipW - 2f;
+                for (int p = 0; p < maxSp; p++) {
+                    final float py = cy + 2f + p * (pipH + 1f);
+                    if (p < invested) {
+                        shapes.setColor(1.0f, 0.65f, 0.18f, 0.95f); // amber filled
+                    } else {
+                        shapes.setColor(0.18f, 0.16f, 0.13f, 0.75f); // dim empty
+                    }
+                    shapes.rect(pipX, py, pipW, pipH);
+                }
+            }
+        }
     }
 }

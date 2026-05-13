@@ -90,6 +90,14 @@ public class PlayState extends GameState {
             new com.openrealm.net.entity.NetPlayerPosition[0];
     private Queue<EffectText> damageText;
     private Queue<ActiveVisualEffect> activeEffects;
+    // Phase 4 — party state mirror of webclient game.partyId / partyMembers.
+    // Latest snapshot from PartyUpdatePacket. partyId == 0 means "not in
+    // a party"; the UI hides the panel in that case.
+    @lombok.Getter @lombok.Setter
+    private long partyId = 0L;
+    @lombok.Getter @lombok.Setter
+    private com.openrealm.net.entity.NetPartyMember[] partyMembers =
+            new com.openrealm.net.entity.NetPartyMember[0];
     private List<Vector2f> shotDestQueue;
     private PlayerAccountDto account;
     private Camera cam;
@@ -1248,6 +1256,48 @@ public class PlayState extends GameState {
             // shots and for ~350ms after the last one.
             player.triggerAttackAnimation();
         }
+        // Phase 2C/2D — number-key hotbar mapping. Keys 1..4 fire the four
+        // hotbar slots at the cursor; Shift+1..4 invests a skill point
+        // into the bound ability (server enforces cap + pool). Mirrors
+        // webclient main.js Digit1..Digit4 handlers. We send the packet
+        // BEFORE the right-click branch below so the dedicated slot key
+        // wins over the legacy "right-click fires slot 0" path.
+        {
+            final boolean shiftSp = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+                    || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
+            final int[] digitKeys = { Input.Keys.NUM_1, Input.Keys.NUM_2, Input.Keys.NUM_3, Input.Keys.NUM_4 };
+            for (int slot = 0; slot < 4; slot++) {
+                if (!Gdx.input.isKeyJustPressed(digitKeys[slot])) continue;
+                if (this.pui != null && this.pui.isHoveringInventory(mouse.getX())) continue;
+                if (shiftSp) {
+                    try {
+                        com.openrealm.net.server.packet.InvestSkillPointPacket pkt =
+                                new com.openrealm.net.server.packet.InvestSkillPointPacket(
+                                        this.getPlayer().getId(), (byte) slot);
+                        this.realmManager.getClient().sendRemote(pkt);
+                        // Optimistic local mirror so the SP pip column updates
+                        // immediately — server-authoritative state lands on
+                        // the next sync.
+                        final com.openrealm.game.model.ability.Ability ab = this.getPlayer().getActiveAbility(slot);
+                        if (ab != null) this.getPlayer().investSkillPoint(ab.getId());
+                    } catch (Exception e) {
+                        PlayState.log.error("Failed to send InvestSkillPoint packet. Reason: {}", e);
+                    }
+                } else if (canUseAbility) {
+                    try {
+                        Vector2f pos = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
+                        pos.addX(PlayState.map.x);
+                        pos.addY(PlayState.map.y);
+                        UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
+                        this.realmManager.getClient().sendRemote(useAbility);
+                        this.lastAbilityTick = System.currentTimeMillis();
+                    } catch (Exception e) {
+                        PlayState.log.error("Failed to send UseAbility packet for slot {}. Reason: {}", slot, e);
+                    }
+                }
+            }
+        }
+
         if ((mouse.isPressed(3)) && canUseAbility && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))) {
             // Client-side mana gate. Server enforces this too, but without
             // a local check the player can spam-click and watch predicted
@@ -1730,6 +1780,11 @@ public class PlayState extends GameState {
 
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
+        // Pass 5b: Ninja shuriken visuals — BLADE_ORBIT + BLADE_BLENDER both
+        // need REAL shuriken sprites (not shape primitives) to match the
+        // item icons. Drawn inside the open batch so they Z-sort with
+        // entities + nameplate text below.
+        this.renderShurikenEffects(batch);
 
         // Player nameplates — rendered with the world-camera batch so the
         // text anchors to the entity. Font is dropped to 0.5x so the
@@ -2091,6 +2146,19 @@ public class PlayState extends GameState {
         new StatusEffectIconDef(StatusEffectType.POISONED.effectId,     0x40CC40),
         new StatusEffectIconDef(StatusEffectType.CURSED.effectId,       0xAA2255),
         new StatusEffectIconDef(StatusEffectType.ARMOR_BROKEN.effectId, 0x7060CC),
+        // Phase 3 — class kit statuses added during the combat rework.
+        new StatusEffectIconDef(StatusEffectType.TAUNT_TARGET.effectId, 0xC8201F),
+        new StatusEffectIconDef(StatusEffectType.BRACED.effectId,       0x88AACC),
+        new StatusEffectIconDef(StatusEffectType.PROTECTED.effectId,    0xFFE070),
+        new StatusEffectIconDef(StatusEffectType.PHALANX_DOME.effectId, 0x6CCCFF),
+        // Phase 3 (post-rework) expanded debuff palette.
+        new StatusEffectIconDef(StatusEffectType.WEAKEN.effectId,       0x8A5A30),
+        new StatusEffectIconDef(StatusEffectType.BLIND.effectId,        0x1A1A1A),
+        new StatusEffectIconDef(StatusEffectType.WARDED.effectId,       0xC8C0FF),
+        new StatusEffectIconDef(StatusEffectType.MANA_FOUNT.effectId,   0x4080FF),
+        new StatusEffectIconDef(StatusEffectType.VULNERABLE.effectId,   0xCC4080),
+        new StatusEffectIconDef(StatusEffectType.GROUNDED.effectId,     0x806040),
+        new StatusEffectIconDef(StatusEffectType.MARKED_FOR_LOOT.effectId, 0xFFD840),
     };
 
     private static boolean hasEffectId(Short[] effs, short eid) {
@@ -2099,6 +2167,106 @@ public class PlayState extends GameState {
             if (s != null && s == eid) return true;
         }
         return false;
+    }
+
+    /**
+     * Cached shuriken texture regions, one per tier 0..5. Indexed by tier
+     * (col = 10 + tier on row 16 of openrealm-items.png). Lazily filled the
+     * first time a blade-orbit/blender effect renders. Frames are flipped
+     * once at load to match LibGDX's bottom-left origin convention; the
+     * SpriteBatch.draw calls below pass the un-flipped TextureRegion and
+     * rely on this baked-in orientation.
+     */
+    private TextureRegion[] _shurikenRegions;
+    private TextureRegion getShurikenRegion(int tier) {
+        if (_shurikenRegions == null) _shurikenRegions = new TextureRegion[6];
+        final int t = Math.max(0, Math.min(5, tier));
+        if (_shurikenRegions[t] != null) return _shurikenRegions[t];
+        try {
+            com.badlogic.gdx.graphics.Texture tex =
+                    GameSpriteManager.TEXTURE_CACHE.get("openrealm-items.png");
+            if (tex == null) return null;
+            final int sw = GlobalConstants.BASE_SPRITE_SIZE;
+            TextureRegion reg = new TextureRegion(tex, (10 + t) * sw, 16 * sw, sw, sw);
+            reg.flip(false, true);
+            _shurikenRegions[t] = reg;
+            return reg;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Ninja kit shuriken visuals — both effects use the same real shuriken
+     * sprite (tier 0..5 picks col 10..15 on row 16 of openrealm-items.png).
+     * Drawn inside an open SpriteBatch so we can use TextureRegion. Phase
+     * driven by wall-clock so consecutive refresh packets stay smooth.
+     */
+    private void renderShurikenEffects(SpriteBatch batch) {
+        if (this.activeEffects == null || this.activeEffects.isEmpty()) return;
+        final long now = System.currentTimeMillis();
+        final float wx = Vector2f.worldX;
+        final float wy = Vector2f.worldY;
+        // Persistent-refresh dedupe (matches webclient): only the newest
+        // packet per effect type actually renders. Newer = lower elapsed.
+        // Without this, multiple overlapping refresh packets paint blade
+        // groups at different rotation phases simultaneously and jitter.
+        ActiveVisualEffect newestOrbit = null, newestBlender = null;
+        for (ActiveVisualEffect vfx : this.activeEffects) {
+            final short type = vfx.getEffectType();
+            if (type == CreateEffectPacket.EFFECT_BLADE_ORBIT) {
+                if (newestOrbit == null || vfx.getElapsed() < newestOrbit.getElapsed()) newestOrbit = vfx;
+            } else if (type == CreateEffectPacket.EFFECT_BLADE_BLENDER) {
+                if (newestBlender == null || vfx.getElapsed() < newestBlender.getElapsed()) newestBlender = vfx;
+            }
+        }
+        if (newestOrbit != null) drawBladeOrbit(batch, newestOrbit, now, wx, wy);
+        if (newestBlender != null) drawBladeBlender(batch, newestBlender, now, wx, wy);
+    }
+
+    private void drawBladeOrbit(SpriteBatch batch, ActiveVisualEffect vfx,
+                                 long now, float worldX, float worldY) {
+        final TextureRegion tex = getShurikenRegion(vfx.getTier());
+        if (tex == null) return;
+        final float cx = vfx.getPosX() - worldX;
+        final float cy = vfx.getPosY() - worldY;
+        final float orbitR = Math.max(36f, vfx.getRadius());
+        final float sprSize = 22f;
+        final float orbitSpeed = 0.0028f;  // ~1 rev / 2.3s
+        final float spinSpeed  = 0.012f;   // ~2 rev/s self-spin
+        for (int i = 0; i < 4; i++) {
+            final float orbA = (i / 4f) * (float) Math.PI * 2f + now * orbitSpeed;
+            final float bx = cx + (float) Math.cos(orbA) * orbitR;
+            final float by = cy + (float) Math.sin(orbA) * orbitR;
+            final float rotDeg = (float) Math.toDegrees(now * spinSpeed + i * 0.7f);
+            batch.draw(tex, bx - sprSize / 2f, by - sprSize / 2f,
+                    sprSize / 2f, sprSize / 2f, sprSize, sprSize, 1f, 1f, rotDeg);
+        }
+    }
+
+    private void drawBladeBlender(SpriteBatch batch, ActiveVisualEffect vfx,
+                                   long now, float worldX, float worldY) {
+        final TextureRegion tex = getShurikenRegion(vfx.getTier());
+        if (tex == null) return;
+        final float cx = vfx.getPosX() - worldX;
+        final float cy = vfx.getPosY() - worldY;
+        final float radius = vfx.getRadius();
+        if (radius <= 0) return;
+        final float sprSize = 20f;
+        final int blades = 9;
+        final float spiralTurns = 1.4f;
+        final float rotPhase  = now * 0.0018f;
+        final float spinPhase = now * 0.010f;
+        for (int i = 0; i < blades; i++) {
+            final float tt = (i + 1) / (float)(blades + 1);
+            final float rr = radius * (0.15f + 0.85f * tt);
+            final float a  = rotPhase + tt * (float) Math.PI * 2f * spiralTurns;
+            final float bx = cx + (float) Math.cos(a) * rr;
+            final float by = cy + (float) Math.sin(a) * rr;
+            final float rotDeg = (float) Math.toDegrees(spinPhase + i * 0.9f);
+            batch.draw(tex, bx - sprSize / 2f, by - sprSize / 2f,
+                    sprSize / 2f, sprSize / 2f, sprSize, sprSize, 1f, 1f, rotDeg);
+        }
     }
 
     private void renderVisualEffects(ShapeRenderer shapes) {
@@ -2165,26 +2333,80 @@ public class PlayState extends GameState {
         // Stay fully visible for 70% of duration, then fade
         final float alpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
+        // SOUL_VORTEX (45) is a persistent vortex with bespoke art — render
+        // it specially so it doesn't get drawn as a generic ring on top of
+        // its actual visual. Falls through to the dedicated branch below.
+        if (type == CreateEffectPacket.EFFECT_SOUL_VORTEX) {
+            renderSoulVortex(shapes, vfx, cx, cy, maxRadius, t);
+            return;
+        }
+        // BLADE_ORBIT (46) and BLADE_BLENDER (47) are drawn separately in
+        // renderShurikenEffects() using real shuriken sprites + SpriteBatch.
+        // We early-return so the procedural ring path doesn't paint a
+        // generic disc behind them. BLADE_BLENDER still gets a faint ground
+        // halo though, drawn here for hazard-zone readability.
+        if (type == CreateEffectPacket.EFFECT_BLADE_ORBIT) return;
+        if (type == CreateEffectPacket.EFFECT_BLADE_BLENDER) {
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.06f, 0.03f, 0.03f, alpha * 0.45f);
+            drawCircle(shapes, cx, cy, maxRadius, 48);
+            shapes.end();
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(0.75f, 0.12f, 0.18f, alpha * 0.7f);
+            drawCircleOutline(shapes, cx, cy, maxRadius, 64);
+            shapes.end();
+            Gdx.gl.glLineWidth(1f);
+            return;
+        }
+        // Per-effect color palette. Mirrors the webclient renderer.js cases
+        // for parity at-a-glance — same hue as the webclient even if the
+        // shape detail is simplified to ring+particles here.
         float r, g, b;
         switch (type) {
-        case CreateEffectPacket.EFFECT_HEAL_RADIUS:
-            r = 0.1f; g = 1.0f; b = 0.2f;
-            break;
-        case CreateEffectPacket.EFFECT_VAMPIRISM:
-            r = 0.9f; g = 0.0f; b = 1.0f;
-            break;
-        case CreateEffectPacket.EFFECT_STASIS_FIELD:
-            r = 0.3f; g = 0.6f; b = 1.0f;
-            break;
-        case CreateEffectPacket.EFFECT_CURSE_RADIUS:
-            r = 0.8f; g = 0.0f; b = 0.15f;
-            break;
-        case CreateEffectPacket.EFFECT_POISON_SPLASH:
-            r = 0.2f; g = 0.8f; b = 0.2f;
-            break;
-        default:
-            r = 1.0f; g = 1.0f; b = 1.0f;
-            break;
+        case CreateEffectPacket.EFFECT_HEAL_RADIUS:       r = 0.10f; g = 1.00f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_VAMPIRISM:         r = 0.90f; g = 0.00f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_STASIS_FIELD:      r = 0.30f; g = 0.60f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_CURSE_RADIUS:      r = 0.80f; g = 0.00f; b = 0.15f; break;
+        case CreateEffectPacket.EFFECT_POISON_SPLASH:     r = 0.20f; g = 0.80f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_TRAP_PLACED:       r = 0.85f; g = 0.55f; b = 0.10f; break;
+        case CreateEffectPacket.EFFECT_TRAP_TRIGGER:      r = 1.00f; g = 0.45f; b = 0.10f; break;
+        case CreateEffectPacket.EFFECT_SMOKE_POOF:        r = 0.55f; g = 0.55f; b = 0.60f; break;
+        case CreateEffectPacket.EFFECT_WIZARD_BURST:      r = 1.00f; g = 0.55f; b = 0.10f; break;
+        case CreateEffectPacket.EFFECT_KNIGHT_SHOCKWAVE:  r = 0.95f; g = 0.85f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_WARRIOR_BUFF:      r = 1.00f; g = 0.65f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_NINJA_DASH:        r = 0.40f; g = 0.85f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_PALADIN_SEAL:      r = 1.00f; g = 0.85f; b = 0.35f; break;
+        case CreateEffectPacket.EFFECT_SHIELD_DOME:       r = 0.50f; g = 0.80f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_TAUNT_ROAR:        r = 1.00f; g = 0.20f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_BRACE_STANCE:      r = 0.70f; g = 0.85f; b = 0.95f; break;
+        case CreateEffectPacket.EFFECT_FROST_NOVA:        r = 0.60f; g = 0.90f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_BLINK_GLYPH:       r = 0.75f; g = 0.45f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_HUNTERS_RETICLE:   r = 1.00f; g = 0.30f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_POISON_CLOUD:      r = 0.38f; g = 0.78f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_LIFE_DRAIN:        r = 0.85f; g = 0.10f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_BONE_SPIKES:       r = 0.92f; g = 0.90f; b = 0.78f; break;
+        case CreateEffectPacket.EFFECT_LIGHTNING_STRIKE:  r = 1.00f; g = 0.95f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_MANA_BOLT:         r = 0.55f; g = 0.30f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_TIME_STOP:         r = 0.70f; g = 0.80f; b = 0.95f; break;
+        case CreateEffectPacket.EFFECT_BEAST_CLAWS:       r = 0.85f; g = 0.45f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_SMITE_FLASH:       r = 1.00f; g = 0.90f; b = 0.40f; break;
+        case CreateEffectPacket.EFFECT_DEATH_BLOSSOM:     r = 0.60f; g = 0.10f; b = 0.70f; break;
+        case CreateEffectPacket.EFFECT_INSPIRE_BLOOM:     r = 1.00f; g = 0.80f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_RECKLESS_SLASH:    r = 0.95f; g = 0.20f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_STAR_SHURIKEN:     r = 0.85f; g = 0.85f; b = 0.90f; break;
+        case CreateEffectPacket.EFFECT_SNARE_GEAR:        r = 0.75f; g = 0.65f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_COMBUSTION_TRAP:   r = 1.00f; g = 0.45f; b = 0.10f; break;
+        case CreateEffectPacket.EFFECT_WAR_CRY_WAVE:      r = 0.95f; g = 0.30f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_CALTROPS:          r = 0.70f; g = 0.70f; b = 0.75f; break;
+        case CreateEffectPacket.EFFECT_ARCANE_AURA:       r = 0.65f; g = 0.40f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_HASTE_WIND:        r = 0.60f; g = 0.95f; b = 0.80f; break;
+        case CreateEffectPacket.EFFECT_BANNER_RAISE:      r = 0.90f; g = 0.50f; b = 0.20f; break;
+        case CreateEffectPacket.EFFECT_RAMPAGE_AURA:      r = 1.00f; g = 0.25f; b = 0.10f; break;
+        case CreateEffectPacket.EFFECT_STORM_AURA:        r = 0.40f; g = 0.65f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_DEATH_PACT_AURA:   r = 0.55f; g = 0.10f; b = 0.50f; break;
+        case CreateEffectPacket.EFFECT_BLADE_STORM:       r = 0.90f; g = 0.85f; b = 0.85f; break;
+        default:                                          r = 1.00f; g = 1.00f; b = 1.00f; break;
         }
 
         // Filled translucent disc - much more visible
@@ -2463,6 +2685,75 @@ public class PlayState extends GameState {
         }
 
         shapes.end();
+    }
+
+    /**
+     * Necromancer Soul Harvest visual — persistent crimson/violet vortex
+     * with three inward-spiraling arms + drifting motes + bright core.
+     * Driven by wall-clock so consecutive refresh packets stay phase-
+     * continuous (no resetting on each server pulse).
+     */
+    private void renderSoulVortex(ShapeRenderer shapes, ActiveVisualEffect vfx,
+                                   float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // Ground halo + outer boundary ring
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.13f, 0.03f, 0.10f, alpha * 0.55f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.setColor(0.50f, 0.19f, 0.75f, alpha * 0.25f);
+        drawCircle(shapes, cx, cy, radius * 0.92f, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.75f, 0.06f, 0.25f, alpha * 0.9f);
+        drawCircleOutline(shapes, cx, cy, radius, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.50f, 0.19f, 0.75f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, radius * 0.78f, 64);
+        // Three inward spiraling arms — chained line segments rotated by
+        // wall-clock so the whole vortex churns.
+        final int arms = 3;
+        final int segs = 24;
+        final float rotSpeed = 0.006f;
+        for (int arm = 0; arm < arms; arm++) {
+            final float armOff = (arm / (float) arms) * (float) Math.PI * 2f;
+            shapes.setColor(1.0f, 0.5f, 1.0f, alpha * 0.95f);
+            float prevX = cx, prevY = cy;
+            for (int s = 0; s <= segs; s++) {
+                final float tt = s / (float) segs;
+                final float rr = radius * (1f - tt * 0.95f) + 2f;
+                final float a = armOff + tt * (float) Math.PI * 2.8f + now * rotSpeed;
+                final float px = cx + (float) Math.cos(a) * rr;
+                final float py = cy + (float) Math.sin(a) * rr;
+                if (s > 0) shapes.line(prevX, prevY, px, py);
+                prevX = px; prevY = py;
+            }
+        }
+        shapes.end();
+        // Drifting soul motes — orbiting wisps
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int motes = 14;
+        for (int i = 0; i < motes; i++) {
+            final float seed = i * 0.421f + 0.137f;
+            final float phase = ((now * 0.0012f + seed) % 1.0f);
+            final float moteA = (float) Math.sin(phase * Math.PI) * alpha;
+            if (moteA <= 0.05f) continue;
+            final float orbA = seed * (float) Math.PI * 2f + now * 0.004f + phase * 2f;
+            final float orbR = radius * (0.25f + 0.65f * phase);
+            final float mx = cx + (float) Math.cos(orbA) * orbR;
+            final float my = cy + (float) Math.sin(orbA) * orbR;
+            shapes.setColor(1.0f, 0.5f, 1.0f, moteA * 0.9f);
+            shapes.rect(mx - 2f, my - 2f, 4f, 4f);
+        }
+        // Bright core — the sink everything spirals into
+        shapes.setColor(0.75f, 0.06f, 0.25f, alpha * 0.8f);
+        drawCircle(shapes, cx, cy, 9f, 18);
+        shapes.setColor(1.0f, 0.5f, 1.0f, alpha);
+        drawCircle(shapes, cx, cy, 4f, 16);
+        shapes.end();
+        Gdx.gl.glLineWidth(1f);
     }
 
     /**

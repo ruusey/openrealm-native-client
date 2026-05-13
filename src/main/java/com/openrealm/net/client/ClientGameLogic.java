@@ -459,6 +459,20 @@ public class ClientGameLogic {
 		}
 	}
 
+	@PacketHandlerClient(com.openrealm.net.client.packet.PartyUpdatePacket.class)
+	public static void handlePartyUpdateClient(RealmManagerClient cli, Packet packet) {
+		try {
+			if (cli.getState() == null) return;
+			final com.openrealm.net.client.packet.PartyUpdatePacket upd =
+					(com.openrealm.net.client.packet.PartyUpdatePacket) packet;
+			cli.getState().setPartyId(upd.getPartyId());
+			cli.getState().setPartyMembers(upd.getMembers() == null
+					? new com.openrealm.net.entity.NetPartyMember[0] : upd.getMembers());
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed to handle PartyUpdate Packet. Reason: {}", e);
+		}
+	}
+
 	@PacketHandlerClient(PotionStorageUpdatePacket.class)
 	public static void handlePotionStorageUpdateClient(RealmManagerClient cli, Packet packet) {
 		try {
