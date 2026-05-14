@@ -76,10 +76,41 @@ public class CharacterSelectState extends GameState {
             { "Local",     "127.0.0.1" },
             { "Localhost", "localhost" }
     };
+    // Fallback name list — only consulted when GameDataManager hasn't loaded
+    // character-classes.json yet (transient race during cold-start). Every
+    // class that ships is sourced from JSON; adding a class is a data-only edit.
     private static final String[] CLASS_NAMES = {
             "Rogue","Archer","Wizard","Priest","Warrior","Knight","Paladin",
             "Assassin","Necromancer","Mystic","Trickster","Sorcerer","Huntress","Ninja"
     };
+
+    /**
+     * Sorted class ids the create-character picker should render. Driven by
+     * {@code GameDataManager.CHARACTER_CLASSES} so a new class in JSON shows
+     * up automatically. Falls back to {@code CLASS_NAMES} indices only when
+     * the data manager hasn't populated yet.
+     */
+    private int[] pickerClassIds() {
+        if (GameDataManager.CHARACTER_CLASSES == null || GameDataManager.CHARACTER_CLASSES.isEmpty()) {
+            int[] out = new int[CLASS_NAMES.length];
+            for (int i = 0; i < out.length; i++) out[i] = i;
+            return out;
+        }
+        return GameDataManager.CHARACTER_CLASSES.keySet().stream()
+                .filter(id -> id != null && id >= 0)
+                .sorted()
+                .mapToInt(Integer::intValue)
+                .toArray();
+    }
+
+    /** Resolve a class id to its display name, preferring the JSON definition. */
+    private String classNameFor(int classId) {
+        if (GameDataManager.CHARACTER_CLASSES != null) {
+            com.openrealm.game.model.CharacterClassModel m = GameDataManager.CHARACTER_CLASSES.get(classId);
+            if (m != null && m.getClassName() != null) return m.getClassName();
+        }
+        return classId >= 0 && classId < CLASS_NAMES.length ? CLASS_NAMES[classId] : ("Class " + classId);
+    }
     private static final SimpleDateFormat DEATH_FMT = new SimpleDateFormat("yyyy-MM-dd");
 
     private enum Tab { CHARACTERS, GRAVEYARD }
@@ -369,13 +400,14 @@ public class CharacterSelectState extends GameState {
         }
 
         // Class picker (4 cols x N rows)
-        for (int i = 0; i < CLASS_NAMES.length; i++) {
+        int[] pickerIdsHit = this.pickerClassIds();
+        for (int i = 0; i < pickerIdsHit.length; i++) {
             int col = i % 4;
             int row = i / 4;
             int x = L.pickerX + col * L.pickerCellW;
             int y = L.pickerY + row * L.pickerCellH;
             if (hit(mx, my, x, y, L.pickerCellW - 4, L.pickerCellH - 4)) {
-                this.selectedClassId = i;
+                this.selectedClassId = pickerIdsHit[i];
                 return;
             }
         }
@@ -490,13 +522,15 @@ public class CharacterSelectState extends GameState {
         // clearance that the 1.8x font doesn't overlap the first row.
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
         font.draw(batch, "CREATE CHARACTER", L.pickerX, L.pickerY - 32);
-        for (int i = 0; i < CLASS_NAMES.length; i++) {
+        int[] pickerIdsRender = this.pickerClassIds();
+        for (int i = 0; i < pickerIdsRender.length; i++) {
+            int classId = pickerIdsRender[i];
             int col = i % 4;
             int row = i / 4;
             int x = L.pickerX + col * L.pickerCellW;
             int y = L.pickerY + row * L.pickerCellH;
-            this.renderClassOption(batch, shapes, font, i, x, y, L.pickerCellW - 4, L.pickerCellH - 4,
-                    this.selectedClassId == i);
+            this.renderClassOption(batch, shapes, font, classId, x, y, L.pickerCellW - 4, L.pickerCellH - 4,
+                    this.selectedClassId == classId);
         }
 
         // Right column: account info, server, leaderboard, vault, logout, change password
@@ -709,8 +743,7 @@ public class CharacterSelectState extends GameState {
             } catch (Exception ignored) { }
         }
         font.setColor(selected ? Color.WHITE : new Color(0.85f, 0.80f, 0.70f, 1f));
-        String label = classId < CLASS_NAMES.length ? CLASS_NAMES[classId] : "Class " + classId;
-        font.draw(batch, label, x + 40, y + 20);
+        font.draw(batch, this.classNameFor(classId), x + 40, y + 20);
         font.setColor(Color.WHITE);
     }
 
