@@ -63,5 +63,8 @@ public class GlobalConstants {
     public static final float DAMAGE_SCALE_PER_LEVEL_AFTER_KNEE = 0.05f;   // +5% per diff level past knee
     public static final float DAMAGE_SCALE_CAP = 2.0f;                     // hard cap on the multiplier
 
-    public static final long SOCKET_READ_TIMEOUT = 15000;
+    // Generous to survive alt-tab on web (browsers throttle setInterval to
+    // ~1/min on backgrounded tabs, so a 15s read timeout would boot every
+    // tabbed-away player). Matches network.js heartbeat-design comment.
+    public static final long SOCKET_READ_TIMEOUT = 60000;
 }

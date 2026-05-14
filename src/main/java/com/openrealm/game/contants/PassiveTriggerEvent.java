@@ -12,6 +12,12 @@ public enum PassiveTriggerEvent {
     ON_PROJECTILE_HIT_SELF,
     /** Self fired a basic attack. Wizard's Arcane Surge. */
     ON_BASIC_ATTACK,
+    /** Self's basic-attack projectile struck an enemy. Differs from
+     *  ON_BASIC_ATTACK (which fires on the shot itself) — this fires per
+     *  impact, so multi-shot weapons get one trigger per pellet that lands.
+     *  Used by Assassin Lethal Wound, Ninja Armor Piercer, Heavy Oddball
+     *  Lucky Strikes (see passives.json on the data repo). */
+    ON_BULLET_HIT_ENEMY,
     /** Self cast any active ability. */
     ON_ABILITY_CAST,
     /** Self killed an enemy. */

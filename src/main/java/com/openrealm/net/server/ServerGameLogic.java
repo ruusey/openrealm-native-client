@@ -431,18 +431,6 @@ public class ServerGameLogic {
 		ServerGameLogic.log.debug("[SERVER] Recieved UseAbility Packet For Player {}", useAbilityPacket.getPlayerId());
 	}
 
-	@PacketHandlerServer(TextPacket.class)
-	public static void handleText0(RealmManagerServer mgr, Packet packet) {
-		final TextPacket textPacket = (TextPacket) packet;
-		final long fromPlayerId = mgr.getRemoteAddresses().get(textPacket.getSrcIp());
-		if (!validateCallingPlayer(mgr, packet, fromPlayerId)) {
-			return;
-		}
-		final Player player = mgr.searchRealmsForPlayer(fromPlayerId);
-		final Realm realm = mgr.findPlayerRealm(fromPlayerId);
-
-		log.info("Player {} says {} from Realm {}", player.getName(), textPacket.getMessage(), realm.getRealmId());
-	}
 
 	public static void handlePlayerShootServer(RealmManagerServer mgr, Packet packet) {
 		final PlayerShootPacket shootPacket = (PlayerShootPacket) packet;
@@ -459,7 +447,9 @@ public class ServerGameLogic {
 		boolean canShoot = false;
 		if (realm.getPlayerLastShotTime().get(player.getId()) != null) {
 			double dex = (int) ((6.5 * (player.getComputedStats().getDex() + 17.3)) / 75);
-			if (player.hasEffect(StatusEffectType.SPEEDY)) {
+			// BERSERK = +50% fire rate. SPEEDY no longer affects fire rate
+			// (movement-only). Mirror of the server-side change.
+			if (player.hasEffect(StatusEffectType.BERSERK)) {
 				dex = dex * 1.5;
 			}else if(player.hasEffect(StatusEffectType.DAZED)) {
 				dex = 1.0;
@@ -505,6 +495,7 @@ public class ServerGameLogic {
 		}
 	}
 
+	@PacketHandlerServer(TextPacket.class)
 	public static void handleTextServer(RealmManagerServer mgr, Packet packet) {
 		final TextPacket textPacket = (TextPacket) packet;
 		final long fromPlayerId = mgr.getRemoteAddresses().get(textPacket.getSrcIp());
@@ -514,15 +505,13 @@ public class ServerGameLogic {
 		final Player fromPlayer = mgr.searchRealmsForPlayer(fromPlayerId);
 		final Realm from = mgr.findPlayerRealm(fromPlayerId);
 		try {
-//            ServerGameLogic.log.info("[SERVER] Recieved Text Packet \nTO: {}\nFROM: {}\nMESSAGE: {}\nSrcIp: {}",
-//                    textPacket.getTo(), textPacket.getFrom(), textPacket.getMessage(), textPacket.getSrcIp());
-
+			log.info("Player {} says \"{}\" in Realm {}", fromPlayer.getName(),
+					textPacket.getMessage(), from != null ? from.getRealmId() : -1);
 			String chatTo = fromPlayer.getChatRole() != null ? fromPlayer.getChatRole() : "";
 			TextPacket toBroadcast = TextPacket.create(fromPlayer.getName(), chatTo, textPacket.getMessage());
 			mgr.enqueueServerPacket(toBroadcast);
-			ServerGameLogic.log.info("[SERVER] Broadcasted player chat message from {}", fromPlayer.getName());
 		} catch (Exception e) {
-			ServerGameLogic.log.error("Failed to send welcome message. Reason: {}", e);
+			ServerGameLogic.log.error("Failed to broadcast chat message. Reason: {}", e);
 		}
 	}
 	

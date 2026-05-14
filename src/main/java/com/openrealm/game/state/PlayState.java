@@ -1224,7 +1224,9 @@ public class PlayState extends GameState {
         }
 
         double dex = (int) ((6.5 * (this.getPlayer().getComputedStats().getDex() + 17.3)) / 75);
-		if (player.hasEffect(StatusEffectType.SPEEDY)) {
+		// Client-side fire-rate prediction. BERSERK boosts attack speed by 50%
+		// (was SPEEDY pre-split). SPEEDY is movement-only now.
+		if (player.hasEffect(StatusEffectType.BERSERK)) {
 			dex = dex * 1.5;
 		}
         boolean canShoot = (System.currentTimeMillis() - this.lastShotTick) > (1000 / dex + 10);
@@ -2193,6 +2195,10 @@ public class PlayState extends GameState {
         new StatusEffectIconDef(StatusEffectType.VULNERABLE.effectId,   0xCC4080),
         new StatusEffectIconDef(StatusEffectType.GROUNDED.effectId,     0x806040),
         new StatusEffectIconDef(StatusEffectType.MARKED_FOR_LOOT.effectId, 0xFFD840),
+        // Heavy Buffer "Guiding Light" aura — split into two icons so ATT
+        // and DEX each show as their own pip above the player's head.
+        new StatusEffectIconDef(StatusEffectType.EMPOWERED_ATT.effectId, 0xFFAA44),
+        new StatusEffectIconDef(StatusEffectType.EMPOWERED_DEX.effectId, 0xFFD060),
     };
 
     private static boolean hasEffectId(Short[] effs, short eid) {

@@ -54,7 +54,10 @@ public class ForgeWindow {
     public static final int CANVAS_PIXELS = 16;
     public static final int CANVAS_PIXEL_SIZE = 16;   // each grid cell is 16 device px
     public static final int CANVAS_RENDER_SIZE = CANVAS_PIXELS * CANVAS_PIXEL_SIZE; // 256 px
-    public static final int MAX_ENCHANTMENTS = 5;
+    // Upper sanity bound. The actual cap shown on screen and enforced when
+    // painting is rarity-driven (currentMaxEnchantments()) — Common = 1,
+    // Mythical = 6. Mirrors webclient slotsForItem() in forge.js.
+    public static final int MAX_ENCHANTMENTS = 6;
 
     private boolean visible = false;
 
@@ -414,7 +417,7 @@ public class ForgeWindow {
         // Enchant counter just below the output region.
         final int total = this.existingEnchantments.size() + this.paintedPixels.size();
         font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, total + " / " + MAX_ENCHANTMENTS + " enchantments",
+        font.draw(batch, total + " / " + currentMaxEnchantments() + " enchantments",
                 L.outputX, L.outputY + L.outputH + 14);
         font.setColor(Color.WHITE);
     }
@@ -480,8 +483,9 @@ public class ForgeWindow {
                 log.info("[FORGE] Cannot paint — no crystal selected");
                 return;
             }
-            if (this.existingEnchantments.size() + this.paintedPixels.size() >= MAX_ENCHANTMENTS) {
-                log.info("[FORGE] Item already has the maximum {} enchantments", MAX_ENCHANTMENTS);
+            final int cap = currentMaxEnchantments();
+            if (this.existingEnchantments.size() + this.paintedPixels.size() >= cap) {
+                log.info("[FORGE] Item already has the maximum {} enchantments", cap);
                 return;
             }
             for (int[] px : this.existingEnchantments) {
@@ -619,6 +623,15 @@ public class ForgeWindow {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** Rarity-driven enchantment cap of the item currently in the target slot.
+     *  Falls back to MAX_ENCHANTMENTS when no item is staged so the counter
+     *  still renders something sensible. Mirrors slotsForItem() in forge.js. */
+    private int currentMaxEnchantments() {
+        final GameItem target = inventoryItem(this.targetSlot);
+        if (target == null) return MAX_ENCHANTMENTS;
+        return target.getMaxEnchantments();
     }
 
     /** Web client's stat-id -> tint color. */

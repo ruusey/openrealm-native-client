@@ -52,7 +52,10 @@ public class ServerForgeHelper {
             0xFFF08C2C  // DEX orange
     };
 
-    public static final int MAX_ENCHANTMENTS_PER_ITEM = 5;
+    // Upper sanity bound. Actual per-item cap is rarity-driven via
+    // GameItem.getMaxEnchantments() (1..6, matches Rarity.gemSlots and the
+    // webclient's slotsForItem() in forge.js). Mythical items get 6 slots.
+    public static final int MAX_ENCHANTMENTS_PER_ITEM = 6;
     public static final int ENCHANT_ESSENCE_COST = 50;
     public static final int SHARDS_PER_CRYSTAL = 10;
     // HP and MP scale into the hundreds, so a +1 enchantment is essentially
@@ -206,11 +209,13 @@ public class ServerForgeHelper {
                     player.getId(), essence.getStackCount(), ENCHANT_ESSENCE_COST);
             return;
         }
-        // Enchantment cap
+        // Enchantment cap — rarity-driven. Common = 1 slot, Mythical = 6.
         List<Enchantment> existing = target.getEnchantments();
         if (existing == null) existing = new ArrayList<>();
-        if (existing.size() >= MAX_ENCHANTMENTS_PER_ITEM) {
-            log.warn("[Forge] Item {} already at enchantment cap", target.getName());
+        final int cap = target.getMaxEnchantments();
+        if (existing.size() >= cap) {
+            log.warn("[Forge] Item {} (rarity {}) already at enchantment cap {}",
+                    target.getName(), target.getRarity(), cap);
             return;
         }
         // Pixel must not already be enchanted

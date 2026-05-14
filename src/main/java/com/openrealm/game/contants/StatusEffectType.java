@@ -52,7 +52,13 @@ public enum StatusEffectType {
     /** Movement lock — implicit SLOWED + dash/teleport ability veto. */
     GROUNDED((short) 32),
     /** Trickster passive marker — boosts loot-upgrade chance on kill. */
-    MARKED_FOR_LOOT((short) 33);
+    MARKED_FOR_LOOT((short) 33),
+    /** Heavy Buffer "Guiding Light" aura — ATT half. Server-authoritative
+     *  magnitude (caster WIS/5). Paired with EMPOWERED_DEX. */
+    EMPOWERED_ATT((short) 34),
+    /** Heavy Buffer "Guiding Light" aura — DEX half. Always applied with
+     *  EMPOWERED_ATT so the player sees two distinct icons above their head. */
+    EMPOWERED_DEX((short) 35);
 
     public static Map<Short, StatusEffectType> map = new HashMap<>();
     static {
