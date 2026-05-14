@@ -98,6 +98,11 @@ public class PlayState extends GameState {
     @lombok.Getter @lombok.Setter
     private com.openrealm.net.entity.NetPartyMember[] partyMembers =
             new com.openrealm.net.entity.NetPartyMember[0];
+    /** Active cast bars by playerId — set by AbilityCastStartPacket handler,
+     *  rendered as a bottom→top fill overlay on each casting player's
+     *  sprite. Auto-cleared by the renderer when the cast completes. */
+    @lombok.Getter
+    private final java.util.Map<Long, long[]> activeCasts = new java.util.concurrent.ConcurrentHashMap<>();
     private List<Vector2f> shotDestQueue;
     private PlayerAccountDto account;
     private Camera cam;
@@ -1715,6 +1720,35 @@ public class PlayState extends GameState {
         // bar tracking pos visibly oscillates against the smoothly-
         // moving sprite. The same fix was applied to the nameplate
         // text below; HP/MP bars and status icons were missed.
+        // Cast overlay — opaque grey rectangle filling the casting player's
+        // sprite bottom→top as the cast advances. Visible on every player
+        // in the realm (including party members) so the caster has a clear
+        // commitment cue and observers can read who's mid-cast. Auto-clears
+        // when the cast duration elapses (no explicit cast-finish packet).
+        if (this.activeCasts != null && !this.activeCasts.isEmpty()) {
+            final long now = System.currentTimeMillis();
+            for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
+                final long[] cast = this.activeCasts.get(rp.getId());
+                if (cast == null || cast.length < 2) continue;
+                final long elapsedMs = now - cast[0];
+                final long durMs = cast[1];
+                if (durMs <= 0 || elapsedMs >= durMs) {
+                    this.activeCasts.remove(rp.getId());
+                    continue;
+                }
+                final float pct = Math.max(0f, Math.min(1f, elapsedMs / (float) durMs));
+                final int s = rp.getSize() > 0 ? rp.getSize() : 32;
+                final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
+                final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
+                // Sprite sits in roughly [wx, wx+s] × [wy, wy+s]. Fill from
+                // the bottom (wy+s, larger Y in libGDX Y-down screen coords)
+                // upward as pct increases — same direction as a tank UI
+                // cast bar. Translucent so the sprite is still readable.
+                final float fillH = s * pct;
+                shapes.setColor(0f, 0f, 0f, 0.55f);
+                shapes.rect(wx, wy + s - fillH, s, fillH);
+            }
+        }
         for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
             final int s = rp.getSize() > 0 ? rp.getSize() : 32;
             final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
@@ -2336,8 +2370,163 @@ public class PlayState extends GameState {
         // SOUL_VORTEX (45) is a persistent vortex with bespoke art — render
         // it specially so it doesn't get drawn as a generic ring on top of
         // its actual visual. Falls through to the dedicated branch below.
+        // Phase 4 bespoke effects — each dispatches to a self-contained
+        // renderer that manages its own shape begin/end. Mirrors the
+        // procedural rendering done in the webclient renderer.js.
+        if (type == CreateEffectPacket.EFFECT_REALITY_TEAR) {
+            renderRealityTear(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_PHANTOM_STRIKE) {
+            renderPhantomStrike(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_STASIS_LOCK) {
+            renderStasisLock(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_SANCTUARY_DOME) {
+            renderSanctuaryDome(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_VAMPIRIC_LATCH) {
+            renderVampiricLatch(shapes, cx, cy, maxRadius, t);
+            return;
+        }
         if (type == CreateEffectPacket.EFFECT_SOUL_VORTEX) {
             renderSoulVortex(shapes, vfx, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_SMOKE_POOF) {
+            renderSmokePoof(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_FROST_NOVA) {
+            renderFrostNova(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_HUNTERS_RETICLE) {
+            renderHuntersReticle(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_POISON_CLOUD) {
+            renderPoisonCloud(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_LIGHTNING_STRIKE) {
+            renderLightningStrike(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_SMITE_FLASH) {
+            renderSmiteFlash(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_BONE_SPIKES) {
+            renderBoneSpikes(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_MANA_BOLT) {
+            renderManaBolt(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_TIME_STOP) {
+            renderTimeStop(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_BEAST_CLAWS) {
+            renderBeastClaws(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_DEATH_BLOSSOM) {
+            renderDeathBlossom(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_INSPIRE_BLOOM) {
+            renderInspireBloom(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_RECKLESS_SLASH) {
+            renderRecklessSlash(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_STAR_SHURIKEN) {
+            renderStarShuriken(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_BLINK_GLYPH) {
+            renderBlinkGlyph(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_LIFE_DRAIN) {
+            renderLifeDrain(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_SNARE_GEAR) {
+            renderSnareGear(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_COMBUSTION_TRAP) {
+            renderCombustionTrap(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_WAR_CRY_WAVE) {
+            renderWarCryWave(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_CALTROPS) {
+            renderCaltrops(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_ARCANE_AURA) {
+            renderArcaneAura(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_HASTE_WIND) {
+            renderHasteWind(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_BANNER_RAISE) {
+            renderBannerRaise(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_RAMPAGE_AURA) {
+            renderRampageAura(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_STORM_AURA) {
+            renderStormAura(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_DEATH_PACT_AURA) {
+            renderDeathPactAura(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_BLADE_STORM) {
+            renderBladeStorm(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_TAUNT_ROAR) {
+            renderTauntRoar(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_BRACE_STANCE) {
+            renderBraceStance(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_SHIELD_DOME) {
+            renderShieldDome(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_WIZARD_BURST) {
+            renderWizardBurst(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_PALADIN_SEAL) {
+            renderPaladinSeal(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_WARRIOR_BUFF) {
+            renderWarriorBuff(shapes, cx, cy, maxRadius, t);
             return;
         }
         // BLADE_ORBIT (46) and BLADE_BLENDER (47) are drawn separately in
@@ -2485,6 +2674,14 @@ public class PlayState extends GameState {
             renderPoisonThrow(shapes, vfx, t, wx, wy);
             return;
         }
+        if (vfx.getEffectType() == CreateEffectPacket.EFFECT_KNIGHT_SHOCKWAVE) {
+            renderKnightShockwave(shapes, vfx, t, wx, wy);
+            return;
+        }
+        if (vfx.getEffectType() == CreateEffectPacket.EFFECT_NINJA_DASH) {
+            renderNinjaDash(shapes, vfx, t, wx, wy);
+            return;
+        }
         final float x1 = vfx.getPosX() - wx;
         final float y1 = vfx.getPosY() - wy;
         final float x2 = vfx.getTargetPosX() - wx;
@@ -2597,6 +2794,389 @@ public class PlayState extends GameState {
         shapes.end();
     }
 
+    /**
+     * Knight Phalanx Shockwave (shield-bash thrust) — directional shield
+     * bash with windup/thrust/slam phases. Ground-shadow streak along the
+     * dash axis, 6 force chevrons sweeping forward, slam burst at the
+     * forward endpoint, two staggered aftermath shockwaves, flash, debris
+     * particles, and forward-radiating ground cracks. Procedural port of
+     * renderer.js case 11 — directional via vfx.posX/Y → targetPosX/Y.
+     */
+    private void renderKnightShockwave(ShapeRenderer shapes, ActiveVisualEffect vfx, float t, float wx, float wy) {
+        final float sx = vfx.getPosX() - wx;
+        final float sy = vfx.getPosY() - wy;
+        final float tx = vfx.getTargetPosX() - wx;
+        final float ty = vfx.getTargetPosY() - wy;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+
+        float kdx = tx - sx, kdy = ty - sy;
+        final float kdist = (float) Math.sqrt(kdx * kdx + kdy * kdy);
+        final float dirX = kdist > 0.5f ? kdx / kdist : 1f;
+        final float dirY = kdist > 0.5f ? kdy / kdist : 0f;
+        final float perpX = -dirY, perpY = dirX;
+
+        final float REACH = Math.max(60f, Math.min(280f, kdist));
+        final float WINDUP_END = 0.12f;
+        final float THRUST_END = 0.50f;
+        final float SLAM_END = 0.70f;
+
+        // Use the gold palette from EFFECT_KNIGHT_SHOCKWAVE
+        final float tcR = 0.95f, tcG = 0.85f, tcB = 0.30f;
+
+        // ── Ground-shadow streak along the thrust axis ───────────────
+        final float streakStart = -40f;
+        final float streakEnd = REACH * Math.min(1.2f, t * 1.4f);
+        final float startX = sx + dirX * streakStart, startY = sy + dirY * streakStart;
+        final float endX = sx + dirX * streakEnd, endY = sy + dirY * streakEnd;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(tcR, tcG, tcB, alpha * 0.10f);
+        shapes.rectLine(startX, startY, endX, endY, 28f);
+        shapes.setColor(tcR, tcG, tcB, alpha * 0.22f);
+        shapes.rectLine(startX, startY, endX, endY, 16f);
+        shapes.setColor(0f, 0f, 0f, alpha * 0.45f);
+        shapes.rectLine(startX, startY, endX, endY, 6f);
+        shapes.end();
+
+        // ── Force chevrons sweeping forward ──────────────────────────
+        final int chevCount = 6;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < chevCount; i++) {
+            final float phaseOff = i * 0.045f;
+            float lt;
+            if (t < WINDUP_END) {
+                final float tt = t / WINDUP_END;
+                lt = -0.55f - 0.10f * tt - i * 0.08f;
+            } else if (t < THRUST_END) {
+                final float tt = Math.max(0f, Math.min(1f,
+                        (t - WINDUP_END - phaseOff) / (THRUST_END - WINDUP_END - phaseOff)));
+                final float eased = tt * tt * (3f - 2f * tt);
+                final float startLT = -0.55f - 0.10f - i * 0.08f;
+                final float endLT = 1.20f - i * 0.05f;
+                lt = startLT + (endLT - startLT) * eased;
+            } else {
+                lt = 1.20f - i * 0.05f;
+            }
+            final float cx = sx + dirX * REACH * lt;
+            final float cy = sy + dirY * REACH * lt;
+            final float ltClamped = Math.max(-0.7f, Math.min(1.3f, lt));
+            final float distFromCore = Math.max(0f, ltClamped - 1.0f);
+            final float aheadFade = 1f - distFromCore * 1.8f;
+            final float fade = alpha * Math.max(0.2f, aheadFade) * (1f - i * 0.06f);
+
+            final float arm = 22f - i * 2.2f;
+            final float tipFwd = arm * 0.55f;
+            final float tipX = cx + dirX * tipFwd;
+            final float tipY = cy + dirY * tipFwd;
+            final float back1X = cx + perpX * arm - dirX * arm * 0.4f;
+            final float back1Y = cy + perpY * arm - dirY * arm * 0.4f;
+            final float back2X = cx - perpX * arm - dirX * arm * 0.4f;
+            final float back2Y = cy - perpY * arm - dirY * arm * 0.4f;
+
+            Gdx.gl.glLineWidth(7f);
+            shapes.setColor(tcR, tcG, tcB, fade * 0.85f);
+            shapes.line(back1X, back1Y, tipX, tipY);
+            shapes.line(tipX, tipY, back2X, back2Y);
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(0f, 0f, 0f, fade * 0.6f);
+            shapes.line(back1X, back1Y, tipX, tipY);
+            shapes.line(tipX, tipY, back2X, back2Y);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, fade * 0.95f);
+            shapes.line(back1X, back1Y, tipX, tipY);
+            shapes.line(tipX, tipY, back2X, back2Y);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // ── Brace flash behind knight during wind-up ─────────────────
+        if (t < WINDUP_END) {
+            final float tt = t / WINDUP_END;
+            final float brakeA = alpha * (1f - tt) * 0.7f;
+            final float braceX = sx - dirX * 18f;
+            final float braceY = sy - dirY * 18f;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.33f, 0.20f, 0.13f, brakeA * 0.5f);
+            drawCircle(shapes, braceX, braceY, 14f + tt * 8f, 18);
+            shapes.setColor(tcR, tcG, tcB, brakeA * 0.4f);
+            drawCircle(shapes, braceX, braceY, 10f + tt * 6f, 16);
+            shapes.end();
+        }
+
+        // ── Slam impact + radial spokes + forward crack lines ────────
+        if (t >= WINDUP_END) {
+            final float slamProg = Math.max(0f, Math.min(1f, (t - WINDUP_END) / (SLAM_END - WINDUP_END)));
+            final float slamPeak = (THRUST_END - WINDUP_END) / (SLAM_END - WINDUP_END);
+            float slamA = slamProg <= slamPeak
+                    ? slamProg / slamPeak
+                    : Math.max(0f, 1f - (slamProg - slamPeak) / (1f - slamPeak));
+            slamA *= alpha;
+            if (slamA > 0.02f) {
+                final float slamX = sx + dirX * REACH;
+                final float slamY = sy + dirY * REACH;
+                shapes.begin(ShapeRenderer.ShapeType.Filled);
+                shapes.setColor(tcR, tcG, tcB, slamA * 0.55f);
+                drawCircle(shapes, slamX, slamY, 38f + slamA * 18f, 32);
+                shapes.setColor(1f, 1f, 1f, slamA * 0.95f);
+                drawCircle(shapes, slamX, slamY, 18f + slamA * 10f, 24);
+                shapes.setColor(tcR, tcG, tcB, slamA);
+                drawCircle(shapes, slamX, slamY, 8f, 14);
+                shapes.end();
+                // 12 radial spokes around the slam
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                Gdx.gl.glLineWidth(3f);
+                shapes.setColor(1f, 1f, 1f, slamA * 0.9f);
+                final int spokes = 12;
+                for (int i = 0; i < spokes; i++) {
+                    final float a = (i / (float) spokes) * (float) Math.PI * 2f;
+                    final float inner = 12f;
+                    final float outer = 28f + slamA * 22f;
+                    shapes.line(slamX + (float) Math.cos(a) * inner, slamY + (float) Math.sin(a) * inner,
+                                slamX + (float) Math.cos(a) * outer, slamY + (float) Math.sin(a) * outer);
+                }
+                // Forward-only crack lines
+                Gdx.gl.glLineWidth(4f);
+                shapes.setColor(tcR, tcG, tcB, slamA * 0.85f);
+                for (int i = -1; i <= 1; i++) {
+                    final float tilt = i * 0.45f;
+                    final float cTilt = (float) Math.cos(tilt), sTilt = (float) Math.sin(tilt);
+                    final float fX = dirX * cTilt - dirY * sTilt;
+                    final float fY = dirY * cTilt + dirX * sTilt;
+                    shapes.line(slamX, slamY,
+                                slamX + fX * (40f + slamA * 30f),
+                                slamY + fY * (40f + slamA * 30f));
+                }
+                Gdx.gl.glLineWidth(1f);
+                shapes.end();
+            }
+        }
+
+        // ── Aftermath shockwaves (two staggered rings) ───────────────
+        if (t >= THRUST_END) {
+            final float aftT = (t - THRUST_END) / (1.0f - THRUST_END);
+            final float slamX = sx + dirX * REACH;
+            final float slamY = sy + dirY * REACH;
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            final float r1 = 30f + aftT * 100f;
+            final float r1A = alpha * (1.0f - aftT) * 0.95f;
+            Gdx.gl.glLineWidth(7f);
+            shapes.setColor(tcR, tcG, tcB, r1A);
+            drawCircleOutline(shapes, slamX, slamY, r1, 48);
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(1f, 1f, 1f, r1A);
+            drawCircleOutline(shapes, slamX, slamY, r1 * 0.93f, 48);
+            if (aftT > 0.30f) {
+                final float aft2 = (aftT - 0.30f) / 0.70f;
+                final float r2 = 24f + aft2 * 78f;
+                final float r2A = alpha * (1.0f - aft2) * 0.70f;
+                Gdx.gl.glLineWidth(4f);
+                shapes.setColor(tcR, tcG, tcB, r2A);
+                drawCircleOutline(shapes, slamX, slamY, r2, 48);
+            }
+            Gdx.gl.glLineWidth(1f);
+            shapes.end();
+        }
+
+        // ── Slam-moment flash ────────────────────────────────────────
+        final float flashWindow = 0.20f;
+        final float flashCenter = THRUST_END;
+        final float fdist = Math.abs(t - flashCenter);
+        if (fdist < flashWindow) {
+            final float flashA = (1f - fdist / flashWindow) * alpha * 0.75f;
+            final float flashX = sx + dirX * REACH;
+            final float flashY = sy + dirY * REACH;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(1f, 1f, 1f, flashA);
+            drawCircle(shapes, flashX, flashY, 56f + (1f - fdist / flashWindow) * 24f, 36);
+            shapes.setColor(tcR, tcG, tcB, flashA * 0.55f);
+            drawCircle(shapes, flashX, flashY, 92f, 36);
+            shapes.end();
+        }
+
+        // ── Debris particles ─────────────────────────────────────────
+        if (t >= THRUST_END) {
+            final float debT = (t - THRUST_END) / (1.0f - THRUST_END);
+            final float slamX = sx + dirX * REACH;
+            final float slamY = sy + dirY * REACH;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            final int PARTICLES = 14;
+            for (int i = 0; i < PARTICLES; i++) {
+                final float baseAng = (float) Math.atan2(dirY, dirX);
+                final float spread = (i / (float) PARTICLES - 0.5f) * (float) Math.PI * 1.5f;
+                final float ang = baseAng + spread + (i * 1.3f) * 0.02f;
+                final float vScale = 0.7f + ((i * 0.193f) % 1f) * 0.6f;
+                final float reach = 70f + vScale * 60f;
+                final float tt = Math.min(1f, debT * 1.3f);
+                final float eased = 1f - (float) Math.pow(1f - tt, 3);
+                final float pdx = (float) Math.cos(ang) * reach * eased;
+                final float pdy = (float) Math.sin(ang) * reach * eased + eased * eased * 14f;
+                final float px = slamX + pdx;
+                final float py = slamY + pdy;
+                final float partA = alpha * (1f - eased) * 0.9f;
+                final float partR = 2.5f + (i % 3) * 1.5f;
+                if ((i & 1) == 0) {
+                    shapes.setColor(tcR, tcG, tcB, partA);
+                } else {
+                    shapes.setColor(0.42f, 0.27f, 0.14f, partA);
+                }
+                drawCircle(shapes, px, py, partR, 10);
+                if ((i & 1) == 0) {
+                    shapes.setColor(1f, 1f, 1f, partA * 0.6f);
+                    drawCircle(shapes, px - partR * 0.3f, py - partR * 0.3f, partR * 0.4f, 8);
+                }
+            }
+            shapes.end();
+        }
+    }
+
+    /**
+     * Ninja Dash — directional vortex of slicing blades along the dash path:
+     * dash spine (tier aura + black outline + white core), orbiting blade
+     * diamonds at varying perpendicular offsets, vanish puff at start,
+     * arrival flash + radial spokes at endpoint. Procedural port of
+     * renderer.js case 13. Directional via vfx.posX/Y → targetPosX/Y.
+     */
+    private void renderNinjaDash(ShapeRenderer shapes, ActiveVisualEffect vfx, float t, float wx, float wy) {
+        final float sx = vfx.getPosX() - wx;
+        final float sy = vfx.getPosY() - wy;
+        final float tx = vfx.getTargetPosX() - wx;
+        final float ty = vfx.getTargetPosY() - wy;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+
+        final float dx = tx - sx, dy = ty - sy;
+        final float dist = Math.max(1f, (float) Math.sqrt(dx * dx + dy * dy));
+        final float dirX = dx / dist, dirY = dy / dist;
+        final float perpX = -dirY, perpY = dirX;
+
+        // Cyan tier color from EFFECT_NINJA_DASH palette
+        final float tcR = 0.40f, tcG = 0.85f, tcB = 1.00f;
+
+        // ── 1. Dash spine ────────────────────────────────────────────
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(tcR, tcG, tcB, alpha * 0.10f);
+        shapes.rectLine(sx, sy, tx, ty, 20f);
+        shapes.setColor(tcR, tcG, tcB, alpha * 0.25f);
+        shapes.rectLine(sx, sy, tx, ty, 10f);
+        shapes.setColor(0f, 0f, 0f, alpha * 0.55f);
+        shapes.rectLine(sx, sy, tx, ty, 5f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.75f);
+        shapes.rectLine(sx, sy, tx, ty, 3f);
+        shapes.end();
+
+        // ── 2. Vortex of orbiting blades ─────────────────────────────
+        final int bladeCount = Math.max(14, (int) (dist / 14f));
+        final float ORBIT_AMP = 44f;
+        final float ORBIT_SPEED = 0.011f;
+        final float SPIN_SPEED = 0.016f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < bladeCount; i++) {
+            final float frac = (i + 0.5f) / (float) bladeCount;
+            final float appear = frac * 0.45f;
+            if (t < appear) continue;
+            final float local = (t - appear) / Math.max(0.001f, 1f - appear);
+            float bScale = 1.0f;
+            if (local < 0.15f) bScale = local / 0.15f;
+            else if (local > 0.75f) bScale = Math.max(0f, (1f - local) / 0.25f);
+            if (bScale <= 0f) continue;
+
+            final float cx = sx + dx * frac;
+            final float cy = sy + dy * frac;
+            final float sign = (i & 1) != 0 ? 1f : -1f;
+            final float orbitPhase = sign * (now * ORBIT_SPEED + i * 0.55f);
+            final float orbit = (float) Math.sin(orbitPhase) * ORBIT_AMP * bScale;
+            final float bx = cx + perpX * orbit;
+            final float by = cy + perpY * orbit;
+
+            final float spin = now * SPIN_SPEED + i * 0.4f;
+            final float cs = (float) Math.cos(spin), sn = (float) Math.sin(spin);
+
+            // Outer tier-coloured glow blade (diamond as two triangles)
+            final float gLen = 22f * bScale, gWid = 7f * bScale;
+            final float gx0 = bx + gLen * cs, gy0 = by + gLen * sn;
+            final float gx1 = bx - gWid * sn, gy1 = by + gWid * cs;
+            final float gx2 = bx - gLen * cs, gy2 = by - gLen * sn;
+            final float gx3 = bx + gWid * sn, gy3 = by - gWid * cs;
+            shapes.setColor(tcR, tcG, tcB, alpha * 0.32f * bScale);
+            shapes.triangle(gx0, gy0, gx1, gy1, gx2, gy2);
+            shapes.triangle(gx0, gy0, gx2, gy2, gx3, gy3);
+            // Steel core
+            final float cLen = 16f * bScale, cWid = 4f * bScale;
+            final float cx0 = bx + cLen * cs, cy0 = by + cLen * sn;
+            final float cx1 = bx - cWid * sn, cy1 = by + cWid * cs;
+            final float cx2 = bx - cLen * cs, cy2 = by - cLen * sn;
+            final float cx3 = bx + cWid * sn, cy3 = by - cWid * cs;
+            shapes.setColor(1f, 1f, 1f, alpha * 0.85f * bScale);
+            shapes.triangle(cx0, cy0, cx1, cy1, cx2, cy2);
+            shapes.triangle(cx0, cy0, cx2, cy2, cx3, cy3);
+        }
+        shapes.end();
+        // Motion trail per blade
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        for (int i = 0; i < bladeCount; i++) {
+            final float frac = (i + 0.5f) / (float) bladeCount;
+            final float appear = frac * 0.45f;
+            if (t < appear) continue;
+            final float local = (t - appear) / Math.max(0.001f, 1f - appear);
+            float bScale = 1.0f;
+            if (local < 0.15f) bScale = local / 0.15f;
+            else if (local > 0.75f) bScale = Math.max(0f, (1f - local) / 0.25f);
+            if (bScale <= 0f) continue;
+            final float cx = sx + dx * frac;
+            final float cy = sy + dy * frac;
+            final float sign = (i & 1) != 0 ? 1f : -1f;
+            final float orbitPhase = sign * (now * ORBIT_SPEED + i * 0.55f);
+            final float orbit = (float) Math.sin(orbitPhase) * ORBIT_AMP * bScale;
+            final float bx = cx + perpX * orbit;
+            final float by = cy + perpY * orbit;
+            final float spin = now * SPIN_SPEED + i * 0.4f;
+            final float cs = (float) Math.cos(spin), sn = (float) Math.sin(spin);
+            final float cLen = 16f * bScale;
+            final float trailLen = 14f * bScale;
+            shapes.setColor(tcR, tcG, tcB, alpha * 0.45f * bScale);
+            shapes.line(bx + cLen * cs, by + cLen * sn,
+                        bx + cLen * cs - dirX * trailLen,
+                        by + cLen * sn - dirY * trailLen);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // ── 3. Vanish puff at start ──────────────────────────────────
+        final float startPuffA = Math.max(0f, 1.0f - t * 1.6f);
+        if (startPuffA > 0f) {
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.5f, 0.5f, 0.5f, startPuffA * 0.6f);
+            drawCircle(shapes, sx, sy, 16f, 20);
+            shapes.setColor(tcR, tcG, tcB, startPuffA * 0.4f);
+            drawCircle(shapes, sx, sy, 26f, 24);
+            shapes.end();
+        }
+
+        // ── 4. Arrival flash + radial sparks at endpoint ─────────────
+        final float arriveA = t < 0.5f ? (1.0f - t / 0.5f) : 0f;
+        if (arriveA > 0f) {
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(1f, 1f, 1f, arriveA * 0.9f);
+            drawCircle(shapes, tx, ty, 12f + arriveA * 10f, 22);
+            shapes.setColor(tcR, tcG, tcB, arriveA * 0.6f);
+            drawCircle(shapes, tx, ty, 26f + arriveA * 14f, 28);
+            shapes.end();
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, arriveA * 0.9f);
+            final int spokes = 10;
+            for (int i = 0; i < spokes; i++) {
+                final float a = (i / (float) spokes) * (float) Math.PI * 2f + now * 0.005f;
+                final float inner = 8f;
+                final float outer = 22f + arriveA * 18f;
+                shapes.line(tx + (float) Math.cos(a) * inner, ty + (float) Math.sin(a) * inner,
+                            tx + (float) Math.cos(a) * outer, ty + (float) Math.sin(a) * outer);
+            }
+            Gdx.gl.glLineWidth(1f);
+            shapes.end();
+        }
+    }
+
     /** Render a chunky vial/grenade arc from caster to target position.
      *  Default palette is green (assassin poison vial, tiers 0-6). When the
      *  packet's tier is >= 10 we draw red — used by the Inferno Demon grenade
@@ -2691,6 +3271,2000 @@ public class PlayState extends GameState {
             drawCircle(shapes, vx - 2, vy - 2, 3.5f, 8);
         }
 
+        shapes.end();
+    }
+
+    /**
+     * Sorcerer Reality Tear — pitch-black void disc, violet inner glow,
+     * 6 jagged radial cracks rotating outward, 10 orbiting void shards.
+     * Procedural port of renderer.js case 48 for native LibGDX.
+     */
+    private void renderRealityTear(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // Disc + violet glow
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.04f, 0.00f, 0.06f, alpha);
+        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
+        shapes.setColor(0.50f, 0.19f, 1.00f, alpha * 0.35f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        // Radial cracks
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1.00f, 0.38f, 1.00f, alpha * 0.95f);
+        final int cracks = 6;
+        for (int i = 0; i < cracks; i++) {
+            final float a = (i / (float) cracks) * (float) Math.PI * 2f + now * 0.0012f;
+            final float innerR = radius * 0.5f;
+            final float outerR = radius * 1.15f;
+            final float midA = a + 0.15f;
+            final float midR = radius * 0.8f;
+            final float jx = cx + (float) Math.cos(a) * innerR;
+            final float jy = cy + (float) Math.sin(a) * innerR;
+            final float mx = cx + (float) Math.cos(midA) * midR;
+            final float my = cy + (float) Math.sin(midA) * midR;
+            final float ex = cx + (float) Math.cos(a) * outerR;
+            final float ey = cy + (float) Math.sin(a) * outerR;
+            shapes.line(jx, jy, mx, my);
+            shapes.line(mx, my, ex, ey);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.setColor(0.50f, 0.19f, 1.00f, alpha * 0.5f);
+        drawCircleOutline(shapes, cx, cy, radius * 0.85f, 64);
+        shapes.end();
+        // Orbiting shards + bright core
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int shards = 10;
+        for (int i = 0; i < shards; i++) {
+            final float seed = i * 0.473f;
+            final float orbA = seed * (float) Math.PI * 2f + now * 0.0035f;
+            final float orbR = radius * (0.4f + 0.55f * ((seed * 13f) % 1f));
+            final float px = cx + (float) Math.cos(orbA) * orbR;
+            final float py = cy + (float) Math.sin(orbA) * orbR;
+            shapes.setColor(1.00f, 0.38f, 1.00f, alpha * 0.9f);
+            drawCircle(shapes, px, py, 4f, 12);
+            shapes.setColor(0.04f, 0.00f, 0.06f, alpha);
+            drawCircle(shapes, px, py, 2.2f, 10);
+        }
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 4f, 16);
+        shapes.setColor(1.00f, 0.38f, 1.00f, alpha * 0.85f);
+        drawCircle(shapes, cx, cy, 9f, 18);
+        shapes.end();
+    }
+
+    /**
+     * Rogue Phantom Strike — initial shadow-flash on first 30% of life,
+     * then 6 radial bone-rib "hands" with knuckle joints + finger fans,
+     * crimson eye-glint skull at center.
+     */
+    private void renderPhantomStrike(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // Shadow flash
+        if (t < 0.30f) {
+            final float flashT = t / 0.30f;
+            final float fr = radius * (0.3f + flashT * 0.9f);
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glLineWidth(5f);
+            shapes.setColor(0.10f, 0.03f, 0.13f, (1 - flashT) * 0.95f);
+            drawCircleOutline(shapes, cx, cy, fr, 48);
+            shapes.end();
+            Gdx.gl.glLineWidth(1f);
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.63f, 0.06f, 0.19f, (1 - flashT) * 0.45f);
+            drawCircle(shapes, cx, cy, fr * 0.5f, 32);
+            shapes.end();
+        }
+        // 6 bone-rib hands
+        final int hands = 6;
+        final float handLen = radius * 0.9f;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.94f, 0.92f, 0.86f, alpha * 0.95f);
+        for (int i = 0; i < hands; i++) {
+            final float a = (i / (float) hands) * (float) Math.PI * 2f - (float) Math.PI / 2f + now * 0.0005f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float wx = cx + cosA * radius * 0.15f;
+            final float wy = cy + sinA * radius * 0.15f;
+            final float fx = cx + cosA * handLen;
+            final float fy = cy + sinA * handLen;
+            shapes.line(wx, wy, fx, fy);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(0.63f, 0.06f, 0.19f, alpha * 0.55f);
+            for (int f = -1; f <= 1; f++) {
+                final float fA = a + f * 0.18f;
+                shapes.line(fx, fy,
+                        cx + (float) Math.cos(fA) * (handLen + 8f),
+                        cy + (float) Math.sin(fA) * (handLen + 8f));
+            }
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(0.94f, 0.92f, 0.86f, alpha * 0.95f);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Knuckle joints + skull center
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.94f, 0.92f, 0.86f, alpha);
+        for (int i = 0; i < hands; i++) {
+            final float a = (i / (float) hands) * (float) Math.PI * 2f - (float) Math.PI / 2f + now * 0.0005f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            for (int k = 1; k <= 3; k++) {
+                final float jr = radius * 0.15f + k * (handLen - radius * 0.15f) / 4f;
+                drawCircle(shapes, cx + cosA * jr, cy + sinA * jr, 3f, 8);
+            }
+        }
+        shapes.setColor(0.10f, 0.03f, 0.13f, alpha);
+        drawCircle(shapes, cx, cy, 10f, 20);
+        shapes.setColor(0.63f, 0.06f, 0.19f, alpha);
+        drawCircle(shapes, cx - 3f, cy - 1f, 1.8f, 8);
+        drawCircle(shapes, cx + 3f, cy - 1f, 1.8f, 8);
+        shapes.end();
+    }
+
+    /**
+     * Sorcerer/Mystic Stasis Lock — frozen clock face: 12 hour-marks,
+     * slow-ticking hour + minute arms, 8 ice spikes around the perimeter,
+     * deep-blue ground halo.
+     */
+    private void renderStasisLock(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // Ground halo + outer ring + inner ring
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.06f, 0.13f, 0.25f, alpha * 0.5f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.setColor(0.50f, 0.75f, 1.00f, alpha * 0.25f);
+        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.88f, 0.96f, 1.00f, alpha * 0.95f);
+        drawCircleOutline(shapes, cx, cy, radius, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.50f, 0.75f, 1.00f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, radius * 0.85f, 64);
+        // 12 tick marks
+        for (int i = 0; i < 12; i++) {
+            final float a = (i / 12f) * (float) Math.PI * 2f - (float) Math.PI / 2f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float inner = i % 3 == 0 ? radius * 0.78f : radius * 0.83f;
+            shapes.line(cx + cosA * inner, cy + sinA * inner,
+                        cx + cosA * radius * 0.95f, cy + sinA * radius * 0.95f);
+        }
+        // Hour + minute hands (slow ticks)
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.88f, 0.96f, 1.00f, alpha);
+        final float minuteA = now * 0.0004f - (float) Math.PI / 2f;
+        shapes.line(cx, cy, cx + (float) Math.cos(minuteA) * radius * 0.65f,
+                            cy + (float) Math.sin(minuteA) * radius * 0.65f);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.50f, 0.75f, 1.00f, alpha);
+        final float hourA = now * 0.0001f - (float) Math.PI / 2f;
+        shapes.line(cx, cy, cx + (float) Math.cos(hourA) * radius * 0.4f,
+                            cy + (float) Math.sin(hourA) * radius * 0.4f);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Ice spikes around perimeter
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int spikes = 8;
+        for (int i = 0; i < spikes; i++) {
+            final float a = (i / (float) spikes) * (float) Math.PI * 2f + (float) Math.PI / spikes;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float tip = radius * 1.15f;
+            final float base = radius * 0.95f;
+            final float halfWidth = 6f;
+            final float pA = a + (float) Math.PI / 2f;
+            final float px = (float) Math.cos(pA), py = (float) Math.sin(pA);
+            shapes.setColor(0.88f, 0.96f, 1.00f, alpha);
+            shapes.triangle(
+                    cx + cosA * tip, cy + sinA * tip,
+                    cx + cosA * base + px * halfWidth, cy + sinA * base + py * halfWidth,
+                    cx + cosA * base - px * halfWidth, cy + sinA * base - py * halfWidth);
+        }
+        // Center hub
+        shapes.setColor(0.88f, 0.96f, 1.00f, alpha);
+        drawCircle(shapes, cx, cy, 4f, 16);
+        shapes.end();
+    }
+
+    /**
+     * Priest/Paladin Sanctuary Dome — translucent golden dome, 8 rising
+     * light pillars, central holy cross. Long visual life (5s) tied to
+     * the INVINCIBLE buff.
+     */
+    private void renderSanctuaryDome(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.90f ? 1.0f : 1.0f - (t - 0.90f) * 10f;
+        final long now = System.currentTimeMillis();
+        // Translucent dome
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.82f, 0.38f, alpha * 0.18f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(1.00f, 0.82f, 0.38f, alpha * 0.95f);
+        drawCircleOutline(shapes, cx, cy, radius, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1.00f, 0.94f, 0.63f, alpha * 0.8f);
+        drawCircleOutline(shapes, cx, cy, radius * 0.97f, 64);
+        drawCircleOutline(shapes, cx, cy, radius * 1.03f, 64);
+        shapes.end();
+        // 8 rising light pillars
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int pillars = 8;
+        for (int i = 0; i < pillars; i++) {
+            final float a = (i / (float) pillars) * (float) Math.PI * 2f + now * 0.0008f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float baseR = radius * 0.92f;
+            final float px = cx + cosA * baseR;
+            final float py = cy + sinA * baseR;
+            final float pHeight = radius * 0.42f * (0.7f + 0.3f * (float) Math.sin(now * 0.005f + i));
+            shapes.setColor(1.00f, 0.94f, 0.63f, alpha * 0.55f);
+            drawCircle(shapes, px, py - pHeight * 0.5f, 5f, 12);
+        }
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        for (int i = 0; i < pillars; i++) {
+            final float a = (i / (float) pillars) * (float) Math.PI * 2f + now * 0.0008f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float baseR = radius * 0.92f;
+            final float px = cx + cosA * baseR;
+            final float py = cy + sinA * baseR;
+            final float pHeight = radius * 0.42f * (0.7f + 0.3f * (float) Math.sin(now * 0.005f + i));
+            shapes.setColor(1.00f, 0.82f, 0.38f, alpha * 0.75f);
+            shapes.line(px, py, px, py - pHeight);
+        }
+        // Holy cross center
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(1.00f, 0.94f, 0.63f, alpha);
+        final float crossLen = radius * 0.35f;
+        shapes.line(cx - crossLen, cy, cx + crossLen, cy);
+        shapes.line(cx, cy - crossLen, cx, cy + crossLen);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1.00f, 0.82f, 0.38f, alpha * 0.85f);
+        shapes.line(cx - crossLen * 0.7f, cy - crossLen * 0.7f,
+                    cx + crossLen * 0.7f, cy + crossLen * 0.7f);
+        shapes.line(cx + crossLen * 0.7f, cy - crossLen * 0.7f,
+                    cx - crossLen * 0.7f, cy + crossLen * 0.7f);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Bright center pulse
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final float pulse = 0.55f + 0.35f * (float) Math.sin(now * 0.008f);
+        shapes.setColor(1f, 1f, 1f, alpha * pulse);
+        drawCircle(shapes, cx, cy, 6f, 18);
+        shapes.setColor(1.00f, 0.94f, 0.63f, alpha);
+        drawCircle(shapes, cx, cy, 3f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Necromancer Vampiric Latch — dark blood-red ground halo, 8 snaking
+     * tendrils that oscillate perpendicular to outward axis with pulsing
+     * mouth caps at the rim, central heart pulsing.
+     */
+    private void renderVampiricLatch(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // Ground halo
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.19f, 0.03f, 0.06f, alpha * 0.5f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.75f, 0.13f, 0.25f, alpha * 0.9f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        Gdx.gl.glLineWidth(1f);
+        // 8 snaking tendrils
+        final int tendrils = 8;
+        final int segs = 6;
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.75f, 0.13f, 0.25f, alpha * 0.95f);
+        for (int i = 0; i < tendrils; i++) {
+            final float a = (i / (float) tendrils) * (float) Math.PI * 2f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float perpX = (float) Math.cos(a + (float) Math.PI / 2f);
+            final float perpY = (float) Math.sin(a + (float) Math.PI / 2f);
+            final float phase = now * 0.004f + i;
+            float prevX = cx, prevY = cy;
+            for (int s = 1; s <= segs; s++) {
+                final float sT = s / (float) segs;
+                final float sR = radius * sT;
+                final float wave = (float) Math.sin(phase + sT * (float) Math.PI * 3f) * 6f * sT;
+                final float px = cx + cosA * sR + perpX * wave;
+                final float py = cy + sinA * sR + perpY * wave;
+                shapes.line(prevX, prevY, px, py);
+                prevX = px; prevY = py;
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Mouth caps + center heart
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < tendrils; i++) {
+            final float a = (i / (float) tendrils) * (float) Math.PI * 2f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float perpX = (float) Math.cos(a + (float) Math.PI / 2f);
+            final float perpY = (float) Math.sin(a + (float) Math.PI / 2f);
+            final float phase = now * 0.004f + i;
+            // End of last segment (s = segs)
+            final float wave = (float) Math.sin(phase + (float) Math.PI * 3f) * 6f;
+            final float ex = cx + cosA * radius + perpX * wave;
+            final float ey = cy + sinA * radius + perpY * wave;
+            shapes.setColor(1f, 0.5f, 0.63f, alpha);
+            drawCircle(shapes, ex, ey, 3.5f, 12);
+        }
+        // Central heart pulse
+        final float pulse = 0.7f + 0.3f * (float) Math.sin(now * 0.009f);
+        shapes.setColor(0.75f, 0.13f, 0.25f, alpha * pulse);
+        drawCircle(shapes, cx, cy, 8f, 18);
+        shapes.setColor(1f, 0.5f, 0.63f, alpha);
+        drawCircle(shapes, cx, cy, 4f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Rogue Smoke Poof — billowy three-tone puff cluster + brief dagger
+     * silhouettes during the first 35% of life + tier-tinted POP flash for
+     * the first 30% + warm ember flecks drifting outward and upward.
+     * Procedural port of renderer.js case 9.
+     */
+    private void renderSmokePoof(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float puffR = radius * (0.6f + t * 1.4f);
+        // 12 overlapping puff circles, rotating slowly
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 12; i++) {
+            final float a = (i / 12f) * (float) Math.PI * 2f + now * 0.002f;
+            final float dist = puffR * (0.30f + 0.20f * (i % 2));
+            final float px = cx + (float) Math.cos(a) * dist;
+            final float py = cy + (float) Math.sin(a) * dist;
+            final float pr = puffR * (0.55f + 0.12f * (float) Math.sin(now * 0.01f + i));
+            shapes.setColor(0.55f, 0.55f, 0.60f, alpha * 0.18f);
+            drawCircle(shapes, px, py, pr, 18);
+            shapes.setColor(0.50f, 0.50f, 0.50f, alpha * 0.32f);
+            drawCircle(shapes, px, py, pr * 0.78f, 16);
+            shapes.setColor(0.25f, 0.25f, 0.25f, alpha * 0.4f);
+            drawCircle(shapes, px, py, pr * 0.45f, 14);
+        }
+        shapes.end();
+        // Dagger silhouettes (first 35%)
+        if (t < 0.35f) {
+            final float dagA = (1f - t / 0.35f) * alpha;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            final int dCount = 4;
+            for (int i = 0; i < dCount; i++) {
+                final float a = (i / (float) dCount) * (float) Math.PI * 2f + (float) Math.PI / 4f;
+                final float reach = puffR * (0.55f + t * 0.6f);
+                final float dx = cx + (float) Math.cos(a) * reach;
+                final float dy = cy + (float) Math.sin(a) * reach;
+                final float cs = (float) Math.cos(a), sn = (float) Math.sin(a);
+                shapes.setColor(0.69f, 0.69f, 0.75f, dagA * 0.85f);
+                shapes.triangle(dx + cs * 8f, dy + sn * 8f,
+                                dx + sn * 2.5f, dy - cs * 2.5f,
+                                dx - cs * 4f,  dy - sn * 4f);
+                shapes.triangle(dx + cs * 8f, dy + sn * 8f,
+                                dx - cs * 4f, dy - sn * 4f,
+                                dx - sn * 2.5f, dy + cs * 2.5f);
+                shapes.setColor(1f, 1f, 1f, dagA * 0.9f);
+                shapes.triangle(dx + cs * 7f, dy + sn * 7f,
+                                dx + sn * 1f, dy - cs * 1f,
+                                dx - cs * 2f, dy - sn * 2f);
+                shapes.triangle(dx + cs * 7f, dy + sn * 7f,
+                                dx - cs * 2f, dy - sn * 2f,
+                                dx - sn * 1f, dy + cs * 1f);
+            }
+            shapes.end();
+        }
+        // POP flash (first 30%)
+        if (t < 0.30f) {
+            final float flashA = 1f - t / 0.30f;
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glLineWidth(4f);
+            shapes.setColor(0.55f, 0.55f, 0.60f, flashA * 0.75f);
+            drawCircleOutline(shapes, cx, cy, puffR * 0.7f * (1f + t * 1.2f), 48);
+            Gdx.gl.glLineWidth(1f);
+            shapes.end();
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.55f, 0.55f, 0.60f, flashA * 0.55f);
+            drawCircle(shapes, cx, cy, puffR * 0.55f * (1f + t), 32);
+            shapes.setColor(1f, 1f, 1f, flashA * 0.85f);
+            drawCircle(shapes, cx, cy, puffR * 0.35f * (1f + t), 24);
+            shapes.end();
+        }
+        // Ember flecks
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 10; i++) {
+            final float seed = i * 0.439f;
+            final float phase = (t * 1.6f + seed) % 1.0f;
+            final float a = (seed * (float) Math.PI * 2f + now * 0.001f) % ((float) Math.PI * 2f);
+            final float dist = puffR * 0.4f + phase * puffR * 0.7f;
+            final float lift = phase * 28f;
+            final float ex = cx + (float) Math.cos(a) * dist;
+            final float ey = cy + (float) Math.sin(a) * dist + lift;  // +lift: native Y-up flips relative to web Y-down
+            final float eA = alpha * (1f - phase) * 0.95f;
+            if (eA <= 0.05f) continue;
+            shapes.setColor(1.00f, 0.55f, 0.15f, eA * 0.4f);
+            drawCircle(shapes, ex, ey, 3f, 10);
+            shapes.setColor(1.00f, 0.78f, 0.30f, eA);
+            drawCircle(shapes, ex, ey, 1.5f, 8);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Wizard / Mystic Frost Nova — 12 diamond ice spikes radiating outward
+     * from a cold halo, with a tiny white central frost burst.
+     * Procedural port of renderer.js case 19.
+     */
+    private void renderFrostNova(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        // Halo
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.50f, 0.82f, 1.00f, alpha * 0.18f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.50f, 0.82f, 1.00f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Crystal diamond spikes
+        final int spikes = 12;
+        final float spikeReach = radius * (0.55f + 0.55f * t);
+        final float baseW = 9f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < spikes; i++) {
+            final float a = (i / (float) spikes) * (float) Math.PI * 2f;
+            final float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            final float tipX = cx + ca * spikeReach;
+            final float tipY = cy + sa * spikeReach;
+            final float perpX = -sa * baseW, perpY = ca * baseW;
+            final float innerX = cx + ca * (spikeReach * 0.35f);
+            final float innerY = cy + sa * (spikeReach * 0.35f);
+            final float tailX = cx + ca * (spikeReach * 0.05f);
+            final float tailY = cy + sa * (spikeReach * 0.05f);
+            // Diamond as two triangles
+            shapes.setColor(0.50f, 0.82f, 1.00f, alpha * 0.6f);
+            shapes.triangle(tipX, tipY, innerX + perpX, innerY + perpY, tailX, tailY);
+            shapes.triangle(tipX, tipY, tailX, tailY, innerX - perpX, innerY - perpY);
+        }
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        for (int i = 0; i < spikes; i++) {
+            final float a = (i / (float) spikes) * (float) Math.PI * 2f;
+            final float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            final float tipX = cx + ca * spikeReach;
+            final float tipY = cy + sa * spikeReach;
+            final float perpX = -sa * baseW, perpY = ca * baseW;
+            final float innerX = cx + ca * (spikeReach * 0.35f);
+            final float innerY = cy + sa * (spikeReach * 0.35f);
+            final float tailX = cx + ca * (spikeReach * 0.05f);
+            final float tailY = cy + sa * (spikeReach * 0.05f);
+            shapes.setColor(0.19f, 0.44f, 0.82f, alpha * 0.95f);
+            shapes.line(tipX, tipY, innerX + perpX, innerY + perpY);
+            shapes.line(innerX + perpX, innerY + perpY, tailX, tailY);
+            shapes.line(tailX, tailY, innerX - perpX, innerY - perpY);
+            shapes.line(innerX - perpX, innerY - perpY, tipX, tipY);
+            // Inner core line
+            shapes.setColor(1f, 1f, 1f, alpha);
+            shapes.line(cx + ca * (spikeReach * 0.08f), cy + sa * (spikeReach * 0.08f), tipX, tipY);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Central frost burst
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.55f);
+        drawCircle(shapes, cx, cy, radius * 0.12f, 16);
+        shapes.end();
+    }
+
+    /**
+     * Hunter Reticle — red 4-corner crosshair sweeping inward toward the
+     * target, with center cross-tick lock indicator.
+     * Procedural port of renderer.js case 21.
+     */
+    private void renderHuntersReticle(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        // Faint marker fill
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.13f, 0.19f, alpha * 0.10f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        // Corner brackets converging inward
+        final float reach = radius * (1.0f - 0.35f * t);
+        final float len   = radius * 0.28f;
+        final int[][] corners = { {-1,-1}, {1,-1}, {-1,1}, {1,1} };
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int[] c : corners) {
+            final float dx = c[0], dy = c[1];
+            final float bx = cx + dx * reach;
+            final float by = cy + dy * reach;
+            // Outer dark trace
+            Gdx.gl.glLineWidth(6f);
+            shapes.setColor(0.50f, 0.00f, 0.06f, alpha * 0.85f);
+            shapes.line(bx - dx * len, by, bx, by);
+            shapes.line(bx, by, bx, by - dy * len);
+            // Bright red
+            Gdx.gl.glLineWidth(4f);
+            shapes.setColor(1.00f, 0.13f, 0.19f, alpha);
+            shapes.line(bx - dx * len, by, bx, by);
+            shapes.line(bx, by, bx, by - dy * len);
+            // White highlight
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
+            shapes.line(bx - dx * len, by, bx, by);
+            shapes.line(bx, by, bx, by - dy * len);
+        }
+        // Center cross (gap around middle)
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1.00f, 0.44f, 0.50f, alpha);
+        shapes.line(cx - 14, cy, cx - 4, cy);
+        shapes.line(cx + 4, cy,  cx + 14, cy);
+        shapes.line(cx, cy - 14, cx, cy - 4);
+        shapes.line(cx, cy + 4,  cx, cy + 14);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Center dot
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.13f, 0.19f, alpha);
+        drawCircle(shapes, cx, cy, 3.5f, 12);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 1.5f, 8);
+        shapes.end();
+    }
+
+    /**
+     * Druid / Necromancer Poison Cloud — sickly green bubbling toxic cloud
+     * with 9 orbiting bubble blobs of varying radii.
+     * Procedural port of renderer.js case 22.
+     */
+    private void renderPoisonCloud(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // Cloud body
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.19f, 0.31f, 0.06f, alpha * 0.35f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.setColor(0.38f, 0.75f, 0.13f, alpha * 0.40f);
+        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.67f, 1.00f, 0.50f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Bubbles
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int bubbles = 9;
+        for (int i = 0; i < bubbles; i++) {
+            final float seed = i * 0.591f;
+            final float a = seed * (float) Math.PI * 2f + now * 0.001f;
+            final float dist = radius * (0.2f + 0.55f * ((seed * 17f) % 1f));
+            final float bx = cx + (float) Math.cos(a) * dist;
+            final float by = cy + (float) Math.sin(a) * dist;
+            final float br = 4f + 2f * (float) Math.sin(now * 0.008f + seed * 7f);
+            shapes.setColor(0.38f, 0.75f, 0.13f, alpha * 0.75f);
+            drawCircle(shapes, bx, by, br + 1f, 14);
+            shapes.setColor(0.67f, 1.00f, 0.50f, alpha * 0.9f);
+            drawCircle(shapes, bx, by, br * 0.55f, 12);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Wizard / Storm Lightning Strike — vertical zigzag bolt crashing down
+     * with bright white core, ground impact ring expanding outward, and
+     * yellow burst at impact point.
+     * Procedural port of renderer.js case 25. Native Y-up means the bolt
+     * descends from cy+r*2.2 to cy (web: from cy-r*2.2 downward to cy).
+     */
+    private void renderLightningStrike(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final int segs = 6;
+        // Outer dark zigzag
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(6f);
+        shapes.setColor(0.50f, 0.38f, 0.06f, alpha * 0.7f);
+        float px = cx + (float) Math.sin(now * 0.05f) * 8f;
+        float py = cy + radius * 2.2f;
+        for (int s = 1; s <= segs; s++) {
+            final float frac = s / (float) segs;
+            final float wob = ((float) Math.sin(now * 0.04f + s * 1.7f) * 14f) * (1f - frac);
+            final float nx = cx + wob;
+            final float ny = cy + radius * 2.2f * (1f - frac);
+            shapes.line(px, py, nx, ny);
+            px = nx; py = ny;
+        }
+        // Bright yellow bolt
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1.00f, 0.94f, 0.38f, alpha);
+        px = cx + (float) Math.sin(now * 0.05f) * 8f;
+        py = cy + radius * 2.2f;
+        for (int s = 1; s <= segs; s++) {
+            final float frac = s / (float) segs;
+            final float wob = ((float) Math.sin(now * 0.04f + s * 1.7f) * 14f) * (1f - frac);
+            final float nx = cx + wob;
+            final float ny = cy + radius * 2.2f * (1f - frac);
+            shapes.line(px, py, nx, ny);
+            px = nx; py = ny;
+        }
+        // White core line straight down
+        Gdx.gl.glLineWidth(1f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        shapes.line(cx, cy + radius * 2.2f, cx, cy);
+        // Ground impact ring
+        final float ringR = radius * (0.4f + t * 0.8f);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1.00f, 0.94f, 0.38f, (1f - t) * alpha);
+        drawCircleOutline(shapes, cx, cy, ringR, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Burst at impact
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.94f, 0.38f, alpha * 0.6f);
+        drawCircle(shapes, cx, cy, 14f, 20);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 6f, 14);
+        shapes.end();
+    }
+
+    /**
+     * Priest / Paladin Smite Flash — golden cross of light + central white
+     * burst + 4 diagonal ground cracks radiating outward.
+     * Procedural port of renderer.js case 29.
+     */
+    private void renderSmiteFlash(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        // Gold cross
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(8f);
+        shapes.setColor(1.00f, 0.82f, 0.38f, alpha);
+        shapes.line(cx, cy - radius * 0.6f, cx, cy + radius * 0.6f);
+        shapes.line(cx - radius * 0.45f, cy - radius * 0.1f,
+                    cx + radius * 0.45f, cy - radius * 0.1f);
+        // White inner highlight
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        shapes.line(cx, cy - radius * 0.6f, cx, cy + radius * 0.6f);
+        shapes.line(cx - radius * 0.45f, cy - radius * 0.1f,
+                    cx + radius * 0.45f, cy - radius * 0.1f);
+        // Ground cracks (4 diagonals)
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.50f, 0.38f, 0.13f, alpha * 0.85f);
+        for (int i = 0; i < 4; i++) {
+            final float a = (i / 4f) * (float) Math.PI * 2f + (float) Math.PI / 4f;
+            final float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            shapes.line(cx + ca * radius * 0.6f, cy + sa * radius * 0.6f,
+                        cx + ca * radius * 1.1f, cy + sa * radius * 1.1f);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Center burst
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.82f, 0.38f, alpha * 0.55f);
+        drawCircle(shapes, cx, cy, radius * 0.55f, 32);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.75f);
+        drawCircle(shapes, cx, cy, radius * 0.35f, 24);
+        shapes.end();
+    }
+
+    /**
+     * Necromancer Bone Spikes — 9 jagged white shards erupting from the
+     * ground, each with a darker shadow base. Spikes grow in the first 45%
+     * of life. Procedural port of renderer.js case 24.
+     */
+    private void renderBoneSpikes(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, alpha * 0.15f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        final int spikes = 9;
+        final float grow = Math.min(t * 2.2f, 1f);
+        for (int i = 0; i < spikes; i++) {
+            final float seed = i * 0.683f;
+            final float a = (i / (float) spikes) * (float) Math.PI * 2f + seed;
+            final float dist = radius * (0.20f + 0.7f * ((seed * 13f) % 1f));
+            final float bx = cx + (float) Math.cos(a) * dist;
+            final float by = cy + (float) Math.sin(a) * dist;
+            final float h = (14f + 10f * ((seed * 7f) % 1f)) * grow;
+            final float w = 6f;
+            // Shadow base triangle (point up in native Y-up: tip = by + h)
+            shapes.setColor(0.31f, 0.28f, 0.19f, alpha * 0.7f);
+            shapes.triangle(bx - w, by, bx + w, by, bx, by + h);
+            // Bone face
+            shapes.setColor(0.92f, 0.88f, 0.75f, alpha);
+            shapes.triangle(bx - w * 0.7f, by + 1f, bx + w * 0.7f, by + 1f, bx, by + h * 0.92f);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Wizard Mana Bolt — 6 rotating arcane star arms with violet halo and
+     * bright white core. Procedural port of renderer.js case 26.
+     */
+    private void renderManaBolt(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.56f, 0.25f, 1.00f, alpha * 0.25f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        final int arms = 6;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.75f, 0.50f, 1.00f, alpha);
+        for (int i = 0; i < arms; i++) {
+            final float a = (i / (float) arms) * (float) Math.PI * 2f + now * 0.003f;
+            shapes.line(cx, cy, cx + (float) Math.cos(a) * radius, cy + (float) Math.sin(a) * radius);
+        }
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        for (int i = 0; i < arms; i++) {
+            final float a = (i / (float) arms) * (float) Math.PI * 2f + now * 0.003f;
+            shapes.line(cx, cy,
+                        cx + (float) Math.cos(a) * radius * 0.95f,
+                        cy + (float) Math.sin(a) * radius * 0.95f);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.75f, 0.50f, 1.00f, alpha * 0.7f);
+        drawCircle(shapes, cx, cy, 14f, 18);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 8f, 14);
+        shapes.end();
+    }
+
+    /**
+     * Mystic Time Stop — silver chronometer ring with 12 tick marks and
+     * frozen hour/minute hands (no animation: time is stopped).
+     * Procedural port of renderer.js case 27.
+     */
+    private void renderTimeStop(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.25f, 0.28f, 0.35f, alpha * 0.20f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(0.75f, 0.82f, 0.88f, alpha * 0.95f);
+        drawCircleOutline(shapes, cx, cy, radius, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircleOutline(shapes, cx, cy, radius - 3f, 64);
+        // Tick marks
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.75f, 0.82f, 0.88f, alpha);
+        for (int i = 0; i < 12; i++) {
+            final float a = (i / 12f) * (float) Math.PI * 2f;
+            final float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            shapes.line(cx + ca * (radius - 6f), cy + sa * (radius - 6f),
+                        cx + ca * (radius - 14f), cy + sa * (radius - 14f));
+        }
+        // Frozen hands (hour pointing up = +y native, minute toward upper-right)
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        shapes.line(cx, cy, cx, cy + radius * 0.55f);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.75f, 0.82f, 0.88f, alpha);
+        shapes.line(cx, cy, cx + radius * 0.7f, cy - radius * 0.1f);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 5f, 14);
+        shapes.end();
+    }
+
+    /**
+     * Druid Beast Claws — 3 angled claw-slash arcs at the caster, each
+     * with shadow + sharp claw + bright white highlight, rotating slowly.
+     * Procedural port of renderer.js case 28.
+     */
+    private void renderBeastClaws(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float reach = radius * 1.4f;
+        final float sweep = 0.55f;
+        final int slashes = 3;
+        final int segs = 8;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < slashes; i++) {
+            final float baseA = (i / (float) slashes) * (float) Math.PI * 2f + now * 0.001f;
+            // Shadow
+            Gdx.gl.glLineWidth(7f);
+            shapes.setColor(0.25f, 0.13f, 0.06f, alpha * 0.85f);
+            for (int s = 0; s < segs; s++) {
+                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
+                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
+                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+            }
+            // Sharp claw
+            Gdx.gl.glLineWidth(4f);
+            shapes.setColor(0.82f, 0.63f, 0.38f, alpha);
+            for (int s = 0; s < segs; s++) {
+                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
+                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
+                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+            }
+            // Bright highlight
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
+            for (int s = 0; s < segs; s++) {
+                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
+                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
+                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+    }
+
+    /**
+     * Ninja Death Blossom ult — 8 radial slash arcs with dark outer trace
+     * and bright blade core, rotating with progress + red center pip.
+     * Procedural port of renderer.js case 30.
+     */
+    private void renderDeathBlossom(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final int slashes = 8;
+        final float reach = radius * 1.1f;
+        final float sweep = 0.42f;
+        final int segs = 6;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < slashes; i++) {
+            final float baseA = (i / (float) slashes) * (float) Math.PI * 2f + t * (float) Math.PI * 0.5f;
+            // Outer dark
+            Gdx.gl.glLineWidth(6f);
+            shapes.setColor(0.16f, 0.13f, 0.19f, alpha * 0.85f);
+            for (int s = 0; s < segs; s++) {
+                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
+                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
+                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+            }
+            // Bright blade
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(0.88f, 0.88f, 0.94f, alpha);
+            for (int s = 0; s < segs; s++) {
+                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
+                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
+                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.25f, 0.38f, alpha);
+        drawCircle(shapes, cx, cy, 6f, 14);
+        shapes.end();
+    }
+
+    /**
+     * Bard Inspire Bloom — 6 golden flower petals expanding outward from
+     * the center, with deep-gold base, gold body, and white core.
+     * Procedural port of renderer.js case 31.
+     */
+    private void renderInspireBloom(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final int petals = 6;
+        final float reach = radius * (0.55f + 0.55f * t);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < petals; i++) {
+            final float a = (i / (float) petals) * (float) Math.PI * 2f + t * (float) Math.PI * 0.25f;
+            final float px = cx + (float) Math.cos(a) * reach * 0.5f;
+            final float py = cy + (float) Math.sin(a) * reach * 0.5f;
+            shapes.setColor(0.63f, 0.44f, 0.13f, alpha * 0.75f);
+            drawCircle(shapes, px, py, reach * 0.32f, 18);
+            shapes.setColor(1.00f, 0.82f, 0.38f, alpha * 0.95f);
+            drawCircle(shapes, px, py, reach * 0.26f, 16);
+            shapes.setColor(1f, 1f, 1f, alpha * 0.6f);
+            drawCircle(shapes, px, py, reach * 0.12f, 12);
+        }
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 6f, 14);
+        shapes.setColor(1.00f, 0.82f, 0.38f, alpha);
+        drawCircle(shapes, cx, cy, 11f, 18);
+        shapes.end();
+    }
+
+    /**
+     * Berserker Reckless Slash — wide sweeping red arc with dark outer
+     * trace + bright red blade + white highlight along the sweep.
+     * Procedural port of renderer.js case 32. (Web uses no rotation —
+     * always sweeps right; we keep that for consistency.)
+     */
+    private void renderRecklessSlash(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float reach = radius * 1.05f;
+        final float sweep = 1.4f;
+        final int segs = 14;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(10f);
+        shapes.setColor(0.38f, 0.00f, 0.06f, alpha * 0.85f);
+        for (int s = 0; s < segs; s++) {
+            final float a0 = -sweep / 2f + (s / (float) segs) * sweep;
+            final float a1 = -sweep / 2f + ((s + 1) / (float) segs) * sweep;
+            shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                        cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+        }
+        Gdx.gl.glLineWidth(6f);
+        shapes.setColor(1.00f, 0.13f, 0.19f, alpha);
+        for (int s = 0; s < segs; s++) {
+            final float a0 = -sweep / 2f + (s / (float) segs) * sweep;
+            final float a1 = -sweep / 2f + ((s + 1) / (float) segs) * sweep;
+            shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                        cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+        }
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
+        for (int s = 0; s < segs; s++) {
+            final float a0 = -sweep / 2f + (s / (float) segs) * sweep;
+            final float a1 = -sweep / 2f + ((s + 1) / (float) segs) * sweep;
+            shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                        cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+    }
+
+    /**
+     * Ninja Star Shuriken — rotating 4-point throwing star drawn as two
+     * crossed triangles + bright cross highlight + dark center stud.
+     * Procedural port of renderer.js case 33.
+     */
+    private void renderStarShuriken(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float rot = now * 0.018f;
+        final float armR = radius * (0.6f + 0.4f * t);
+        final float[] px = new float[4];
+        final float[] py = new float[4];
+        for (int i = 0; i < 4; i++) {
+            final float a = rot + (i / 4f) * (float) Math.PI * 2f;
+            px[i] = cx + (float) Math.cos(a) * armR;
+            py[i] = cy + (float) Math.sin(a) * armR;
+        }
+        // Steel body as two triangles forming the diamond
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.75f, 0.78f, 0.82f, alpha * 0.85f);
+        shapes.triangle(px[0], py[0], px[1], py[1], px[2], py[2]);
+        shapes.triangle(px[0], py[0], px[2], py[2], px[3], py[3]);
+        shapes.end();
+        // Outer dark frame
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.25f, 0.28f, 0.31f, alpha);
+        shapes.line(px[0], py[0], px[1], py[1]);
+        shapes.line(px[1], py[1], px[2], py[2]);
+        shapes.line(px[2], py[2], px[3], py[3]);
+        shapes.line(px[3], py[3], px[0], py[0]);
+        // Bright cross highlight
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        shapes.line(px[0], py[0], px[2], py[2]);
+        shapes.line(px[1], py[1], px[3], py[3]);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.25f, 0.28f, 0.31f, alpha);
+        drawCircle(shapes, cx, cy, 5f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Sorcerer Blink Glyph — violet runic portal: outer rune ring,
+     * translucent void interior, 6 runic tick-runes orbiting the rim, and
+     * a central vertical rift line. Procedural port of renderer.js case 20.
+     */
+    private void renderBlinkGlyph(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float phase = Math.min(t * 2f, 1f);
+        final float ringR = radius * (0.4f + phase * 0.7f);
+        // Void interior
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.10f, 0.04f, 0.19f, alpha * 0.55f);
+        drawCircle(shapes, cx, cy, ringR, 48);
+        shapes.end();
+        // Outer rune ring
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.78f, 0.50f, 1.00f, alpha);
+        drawCircleOutline(shapes, cx, cy, ringR, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.56f, 0.25f, 1.00f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, ringR - 4f, 64);
+        // Vertical rift line
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.78f, 0.50f, 1.00f, alpha * 0.95f);
+        shapes.line(cx, cy - ringR * 0.9f, cx, cy + ringR * 0.9f);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.8f);
+        shapes.line(cx, cy - ringR * 0.85f, cx, cy + ringR * 0.85f);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // 6 rune ticks orbiting
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 6; i++) {
+            final float a = (i / 6f) * (float) Math.PI * 2f + now * 0.004f;
+            final float rx = cx + (float) Math.cos(a) * ringR;
+            final float ry = cy + (float) Math.sin(a) * ringR;
+            shapes.setColor(0.78f, 0.50f, 1.00f, alpha);
+            drawCircle(shapes, rx, ry, 4f, 12);
+            shapes.setColor(1f, 1f, 1f, alpha * 0.8f);
+            drawCircle(shapes, rx, ry, 1.6f, 8);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Necromancer Life Drain — 3 spiraling red ribbon streams pulling
+     * INWARD from the rim to the caster, with bright pulsing center.
+     * Procedural port of renderer.js case 23.
+     */
+    private void renderLifeDrain(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // Halo
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.75f, 0.00f, 0.13f, alpha * 0.20f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.31f, 0.00f, 0.06f, alpha * 0.95f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        // 3 inward-spiraling streams
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.75f, 0.00f, 0.13f, alpha);
+        final int arms = 3, segs = 20;
+        for (int arm = 0; arm < arms; arm++) {
+            final float armOff = (arm / (float) arms) * (float) Math.PI * 2f;
+            for (int s = 0; s < segs - 1; s++) {
+                final float t0 = s / (float) segs, t1 = (s + 1) / (float) segs;
+                final float rr0 = radius * (1f - t0) + 4f;
+                final float rr1 = radius * (1f - t1) + 4f;
+                final float a0 = armOff + t0 * 4f + now * 0.004f;
+                final float a1 = armOff + t1 * 4f + now * 0.004f;
+                shapes.line(cx + (float) Math.cos(a0) * rr0, cy + (float) Math.sin(a0) * rr0,
+                            cx + (float) Math.cos(a1) * rr1, cy + (float) Math.sin(a1) * rr1);
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.75f, 0.00f, 0.13f, alpha);
+        drawCircle(shapes, cx, cy, 8f, 16);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 4f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Engineer Snare Gear — tightening iron gear ring with 12 rectangular
+     * teeth around the rim. Procedural port of renderer.js case 34.
+     */
+    private void renderSnareGear(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float gearR = radius * (1f - t * 0.30f);
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(0.19f, 0.22f, 0.25f, alpha * 0.95f);
+        drawCircleOutline(shapes, cx, cy, gearR, 48);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.50f, 0.53f, 0.56f, alpha);
+        drawCircleOutline(shapes, cx, cy, gearR - 3f, 48);
+        // 12 teeth
+        final int teeth = 12;
+        for (int i = 0; i < teeth; i++) {
+            final float a = (i / (float) teeth) * (float) Math.PI * 2f + now * 0.001f;
+            final float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            Gdx.gl.glLineWidth(5f);
+            shapes.setColor(0.50f, 0.53f, 0.56f, alpha);
+            shapes.line(cx + ca * gearR, cy + sa * gearR,
+                        cx + ca * (gearR + 8f), cy + sa * (gearR + 8f));
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, alpha);
+            shapes.line(cx + ca * gearR, cy + sa * gearR,
+                        cx + ca * (gearR + 8f), cy + sa * (gearR + 8f));
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+    }
+
+    /**
+     * Pyromancer Combustion Trap — orange explosion ring with hot inner
+     * core, ember sparks, and central flash. Ring expands with progress.
+     * Procedural port of renderer.js case 35.
+     */
+    private void renderCombustionTrap(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float ringR = radius * (0.4f + 0.7f * t);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.38f, 0.13f, alpha * 0.45f);
+        drawCircle(shapes, cx, cy, ringR, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(8f);
+        shapes.setColor(0.50f, 0.25f, 0.13f, alpha * 0.9f);
+        drawCircleOutline(shapes, cx, cy, ringR, 48);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(1.00f, 0.38f, 0.13f, alpha);
+        drawCircleOutline(shapes, cx, cy, ringR - 4f, 48);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1.00f, 0.88f, 0.25f, alpha);
+        drawCircleOutline(shapes, cx, cy, ringR - 9f, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Embers
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int embers = 12;
+        for (int i = 0; i < embers; i++) {
+            final float seed = i * 0.491f;
+            final float a = seed * (float) Math.PI * 2f + now * 0.002f;
+            final float d = ringR * ((seed * 13f) % 1f);
+            shapes.setColor(1.00f, 0.88f, 0.25f, alpha);
+            drawCircle(shapes, cx + (float) Math.cos(a) * d, cy + (float) Math.sin(a) * d, 3f, 10);
+        }
+        // Central flash
+        shapes.setColor(1.00f, 0.88f, 0.25f, alpha * 0.85f);
+        drawCircle(shapes, cx, cy, ringR * 0.2f, 18);
+        shapes.end();
+    }
+
+    /**
+     * Warrior War Cry Wave — 4 concentric red wave-rings at staggered
+     * progress offsets to evoke a roaring shockwave. Procedural port of
+     * renderer.js case 36.
+     */
+    private void renderWarCryWave(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < 4; i++) {
+            final float phase = (t * 1.5f + i * 0.18f) % 1.0f;
+            final float ringR = radius * (0.2f + phase * 1.0f);
+            final float ringA = (1f - phase) * alpha;
+            if (ringA <= 0.02f) continue;
+            Gdx.gl.glLineWidth(4f);
+            shapes.setColor(0.50f, 0.00f, 0.13f, ringA * 0.85f);
+            drawCircleOutline(shapes, cx, cy, ringR, 48);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1.00f, 0.19f, 0.31f, ringA);
+            drawCircleOutline(shapes, cx, cy, ringR - 3f, 48);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.19f, 0.31f, alpha * 0.45f);
+        drawCircle(shapes, cx, cy, radius * 0.18f, 16);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, radius * 0.08f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Trapper Caltrops — 10 scattered tiny 4-point metal spikes inside the
+     * radius, each with a steel center stud. Procedural port of renderer.js
+     * case 37.
+     */
+    private void renderCaltrops(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.25f, 0.28f, 0.31f, alpha * 0.18f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.69f, 0.72f, 0.75f, alpha * 0.5f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        final int caltrops = 10;
+        for (int i = 0; i < caltrops; i++) {
+            final float seed = i * 0.421f;
+            final float a = seed * (float) Math.PI * 2f;
+            final float d = radius * ((seed * 11f) % 0.85f);
+            final float kx = cx + (float) Math.cos(a) * d;
+            final float ky = cy + (float) Math.sin(a) * d;
+            final float arm = 6f;
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(0.25f, 0.28f, 0.31f, alpha);
+            shapes.line(kx - arm, ky, kx + arm, ky);
+            shapes.line(kx, ky - arm, kx, ky + arm);
+            shapes.line(kx - arm * 0.7f, ky - arm * 0.7f, kx + arm * 0.7f, ky + arm * 0.7f);
+            shapes.line(kx - arm * 0.7f, ky + arm * 0.7f, kx + arm * 0.7f, ky - arm * 0.7f);
+            Gdx.gl.glLineWidth(1f);
+            shapes.setColor(1f, 1f, 1f, alpha);
+            shapes.line(kx - arm, ky, kx + arm, ky);
+            shapes.line(kx, ky - arm, kx, ky + arm);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < caltrops; i++) {
+            final float seed = i * 0.421f;
+            final float a = seed * (float) Math.PI * 2f;
+            final float d = radius * ((seed * 11f) % 0.85f);
+            shapes.setColor(0.69f, 0.72f, 0.75f, alpha);
+            drawCircle(shapes, cx + (float) Math.cos(a) * d, cy + (float) Math.sin(a) * d, 2f, 8);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Wizard Arcane Aura — purple swirling self-aura with 8 orbiting
+     * sparks at varying radii. Procedural port of renderer.js case 38.
+     */
+    private void renderArcaneAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.56f, 0.25f, 1.00f, alpha * 0.20f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.75f, 0.50f, 1.00f, alpha * 0.9f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Orbiting sparks
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int sparks = 8;
+        for (int i = 0; i < sparks; i++) {
+            final float a = (i / (float) sparks) * (float) Math.PI * 2f + now * 0.005f;
+            final float wob = (float) Math.sin(now * 0.01f + i) * 0.15f;
+            final float orbR = radius * (0.85f + wob);
+            final float ex = cx + (float) Math.cos(a) * orbR;
+            final float ey = cy + (float) Math.sin(a) * orbR;
+            shapes.setColor(0.75f, 0.50f, 1.00f, alpha);
+            drawCircle(shapes, ex, ey, 4f, 12);
+            shapes.setColor(1f, 1f, 1f, alpha);
+            drawCircle(shapes, ex, ey, 1.8f, 8);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Ninja Haste Wind — 5 vertical cyan streamers at the caster's feet
+     * sliding upward as progress advances. Procedural port of renderer.js
+     * case 39. (Native Y-up: streamers travel up the screen with phase.)
+     */
+    private void renderHasteWind(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final int streamers = 5;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < streamers; i++) {
+            final float seed = i * 0.523f;
+            final float phase = (t + seed) % 1.0f;
+            final float xOff = (seed * 2f - 1f) * radius * 0.6f;
+            // Web: yStart = sy + r*0.4 - phase * r*1.2; yEnd = yStart + 18 (downward in web Y-down).
+            // In native Y-up, mirror: streamer rises up the screen.
+            final float yStart = cy - radius * 0.4f + phase * radius * 1.2f;
+            final float yEnd   = yStart - 18f;
+            final float a = (1f - phase) * alpha;
+            Gdx.gl.glLineWidth(4f);
+            shapes.setColor(0.25f, 0.88f, 1.00f, a);
+            shapes.line(cx + xOff, yStart, cx + xOff, yEnd);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, a);
+            shapes.line(cx + xOff, yStart, cx + xOff, yEnd);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+    }
+
+    /**
+     * Standard-bearer Banner Raise — vertical red banner with gold pole
+     * above the caster + ground stomp shockwave. Procedural port of
+     * renderer.js case 40. (Native Y-up: banner extends upward = +y.)
+     */
+    private void renderBannerRaise(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float h = radius * 1.6f * Math.min(t * 1.6f, 1f);
+        // Pole (gold) — extends upward
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.82f, 0.38f, alpha);
+        shapes.rect(cx - 2f, cy, 4f, radius * 1.5f);
+        // Banner cloth — dark backing
+        shapes.setColor(0.31f, 0.00f, 0.06f, alpha * 0.95f);
+        shapes.rect(cx + 2f, cy + radius * 1.4f - h, 30f, h);
+        // Banner cloth — red face
+        shapes.setColor(0.75f, 0.06f, 0.19f, alpha);
+        shapes.rect(cx + 4f, cy + radius * 1.4f - 2f - (h - 4f), 26f, h - 4f);
+        shapes.end();
+        // Banner emblem (X) — drawn at the top of banner
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        final float ey0 = cy + radius * 1.3f;
+        shapes.line(cx + 8f,  ey0, cx + 26f, ey0 - 14f);
+        shapes.line(cx + 26f, ey0, cx + 8f,  ey0 - 14f);
+        // Stomp shockwave at feet
+        final float ringR = radius * (0.3f + t * 0.8f);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.75f, 0.06f, 0.19f, (1f - t) * alpha);
+        drawCircleOutline(shapes, cx, cy - 8f, ringR, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+    }
+
+    /**
+     * Berserker Rampage Aura — dark-red ground halo with 10 outer flame
+     * tongues drawn as triangles + hot gold inner highlight triangles.
+     * Procedural port of renderer.js case 41.
+     */
+    private void renderRampageAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.38f, 0.00f, 0.06f, alpha * 0.35f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.setColor(1.00f, 0.25f, 0.13f, alpha * 0.45f);
+        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
+        final int tongues = 10;
+        for (int i = 0; i < tongues; i++) {
+            final float a = (i / (float) tongues) * (float) Math.PI * 2f + now * 0.0035f;
+            final float wob = 0.85f + 0.15f * (float) Math.sin(now * 0.015f + i);
+            final float baseX = cx + (float) Math.cos(a) * radius * 0.85f;
+            final float baseY = cy + (float) Math.sin(a) * radius * 0.85f;
+            final float tipX = cx + (float) Math.cos(a) * radius * 1.15f * wob;
+            final float tipY = cy + (float) Math.sin(a) * radius * 1.15f * wob;
+            final float perpX = -(float) Math.sin(a) * 6f;
+            final float perpY =  (float) Math.cos(a) * 6f;
+            shapes.setColor(1.00f, 0.25f, 0.13f, alpha * 0.95f);
+            shapes.triangle(baseX + perpX, baseY + perpY,
+                            tipX, tipY,
+                            baseX - perpX, baseY - perpY);
+            shapes.setColor(1.00f, 0.82f, 0.25f, alpha);
+            shapes.triangle(baseX + perpX * 0.6f, baseY + perpY * 0.6f,
+                            tipX, tipY,
+                            baseX - perpX * 0.6f, baseY - perpY * 0.6f);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Storm Druid Storm Aura — 5 zigzag yellow bolts emanating outward
+     * with a deep-blue ground halo + bright white center pip.
+     * Procedural port of renderer.js case 42.
+     */
+    private void renderStormAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.13f, 0.16f, 0.28f, alpha * 0.25f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1.00f, 0.94f, 0.38f, alpha * 0.75f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        // 5 bolts
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1.00f, 0.94f, 0.38f, alpha);
+        final int bolts = 5;
+        final int segs = 5;
+        for (int i = 0; i < bolts; i++) {
+            final float baseA = (i / (float) bolts) * (float) Math.PI * 2f + now * 0.003f + (float) Math.sin(now * 0.01f + i);
+            float px = cx, py = cy;
+            for (int s = 1; s <= segs; s++) {
+                final float tt = s / (float) segs;
+                final float wob = (float) Math.sin(now * 0.03f + s + i) * 8f;
+                final float tA = baseA + wob * 0.02f;
+                final float nx = cx + (float) Math.cos(tA) * radius * tt;
+                final float ny = cy + (float) Math.sin(tA) * radius * tt;
+                shapes.line(px, py, nx, ny);
+                px = nx; py = ny;
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 5f, 14);
+        shapes.end();
+    }
+
+    /**
+     * Necromancer Death Pact Aura — 10 dark-red mist wisps spiraling at
+     * varying radii with deep ground halo. Procedural port of renderer.js
+     * case 43.
+     */
+    private void renderDeathPactAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.19f, 0.00f, 0.06f, alpha * 0.40f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.63f, 0.00f, 0.13f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Spiral wisps
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int wisps = 10;
+        for (int i = 0; i < wisps; i++) {
+            final float seed = i * 0.671f;
+            final float a = seed * (float) Math.PI * 2f + now * 0.004f;
+            final float orbR = radius * (0.4f + ((seed * 7f) % 0.6f));
+            final float wx = cx + (float) Math.cos(a) * orbR;
+            final float wy = cy + (float) Math.sin(a) * orbR;
+            shapes.setColor(0.38f, 0.13f, 0.19f, alpha * 0.85f);
+            drawCircle(shapes, wx, wy, 5f, 12);
+            shapes.setColor(0.63f, 0.00f, 0.13f, alpha);
+            drawCircle(shapes, wx, wy, 2.5f, 10);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Berserker Blade Storm — 2 dual rotating blades through the player,
+     * drawn as long line segments crossing the center. Procedural port of
+     * renderer.js case 44.
+     */
+    private void renderBladeStorm(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float rot = now * 0.025f;
+        final float orbR = radius * 0.85f;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < 2; i++) {
+            final float a = rot + i * (float) Math.PI;
+            final float x0 = cx + (float) Math.cos(a) * orbR;
+            final float y0 = cy + (float) Math.sin(a) * orbR;
+            final float x1 = cx + (float) Math.cos(a + (float) Math.PI) * orbR;
+            final float y1 = cy + (float) Math.sin(a + (float) Math.PI) * orbR;
+            Gdx.gl.glLineWidth(7f);
+            shapes.setColor(0.13f, 0.13f, 0.16f, alpha * 0.85f);
+            shapes.line(x0, y0, x1, y1);
+            Gdx.gl.glLineWidth(4f);
+            shapes.setColor(0.88f, 0.88f, 0.94f, alpha);
+            shapes.line(x0, y0, x1, y1);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, alpha);
+            shapes.line(x0, y0, x1, y1);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircle(shapes, cx, cy, 5f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Knight Taunt Roar — translucent red disc + bright outline ring +
+     * small bright center dot. Tightens slightly as it fades.
+     * Procedural port of renderer.js case 17.
+     */
+    private void renderTauntRoar(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float r2 = radius * (1f - 0.25f * t);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.13f, 0.19f, alpha * 0.55f);
+        drawCircle(shapes, cx, cy, r2, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(1.00f, 0.31f, 0.38f, alpha);
+        drawCircleOutline(shapes, cx, cy, r2, 48);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.7f);
+        drawCircleOutline(shapes, cx, cy, r2 - 3f, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.6f);
+        drawCircle(shapes, cx, cy, r2 * 0.18f, 14);
+        shapes.end();
+    }
+
+    /**
+     * Knight Brace Stance — black core with bright accent rim, 8 spoke
+     * decorations, and 4 cardinal bright dots. Expands outward with
+     * progress. Procedural port of renderer.js case 18.
+     */
+    private void renderBraceStance(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float ringR = radius * (0.35f + 0.95f * t);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.06f, 0.06f, 0.07f, alpha * 0.70f);
+        drawCircle(shapes, cx, cy, ringR, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(0.78f, 0.78f, 0.82f, alpha);
+        drawCircleOutline(shapes, cx, cy, ringR, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.8f);
+        drawCircleOutline(shapes, cx, cy, ringR - 4f, 64);
+        // 8 spoke decorations
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.78f, 0.78f, 0.82f, alpha * 0.95f);
+        final int spokes = 8;
+        for (int i = 0; i < spokes; i++) {
+            final float a = (i / (float) spokes) * (float) Math.PI * 2f + t * (float) Math.PI * 0.5f;
+            final float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            shapes.line(cx + ca * (ringR - 8f), cy + sa * (ringR - 8f),
+                        cx + ca * (ringR + 6f), cy + sa * (ringR + 6f));
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // 4 cardinal dots
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 4; i++) {
+            final float a = (i / 4f) * (float) Math.PI * 2f + t * (float) Math.PI * 0.5f;
+            final float dx = (float) Math.cos(a) * ringR;
+            final float dy = (float) Math.sin(a) * ringR;
+            shapes.setColor(1f, 1f, 1f, alpha);
+            drawCircle(shapes, cx + dx, cy + dy, 3f, 10);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Knight Phalanx Shield Dome — HARDCODED BLUE protective bubble: dense
+     * translucent blue interior, heavy multi-layer rim, 4 rotating energy
+     * ripples, edge sparks, plus a bright cast-moment flash on the first
+     * 15% of life. Procedural port of renderer.js case 16.
+     */
+    private void renderShieldDome(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        // 1. Translucent BLUE interior
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.06f, 0.50f, 1.00f, alpha * 0.42f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.setColor(0.63f, 0.86f, 1.00f, alpha * 0.22f);
+        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.10f);
+        drawCircle(shapes, cx, cy, radius * 0.55f, 48);
+        shapes.end();
+        // 2. Heavy multi-layer rim
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(10f);
+        shapes.setColor(0.23f, 0.66f, 1.00f, alpha);
+        drawCircleOutline(shapes, cx, cy, radius, 64);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(0.63f, 0.86f, 1.00f, alpha);
+        drawCircleOutline(shapes, cx, cy, radius - 7f, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, radius - 12f, 64);
+        // 3. Rotating energy ripples — 4 short white arcs
+        final int ripples = 4;
+        final float ripPhase = now * 0.003f;
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
+        for (int i = 0; i < ripples; i++) {
+            final float a0 = ripPhase + (i / (float) ripples) * (float) Math.PI * 2f;
+            final float a1 = a0 + 0.32f;
+            final int seg = 8;
+            for (int s = 0; s < seg; s++) {
+                final float aa = a0 + (a1 - a0) * (s / (float) seg);
+                final float ab = a0 + (a1 - a0) * ((s + 1) / (float) seg);
+                shapes.line(cx + (float) Math.cos(aa) * radius, cy + (float) Math.sin(aa) * radius,
+                            cx + (float) Math.cos(ab) * radius, cy + (float) Math.sin(ab) * radius);
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // 4. Edge sparks — fixed seeded positions, flicker independently
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int sparks = 10;
+        for (int i = 0; i < sparks; i++) {
+            final float seed = i * 0.371f;
+            final float angle = seed * (float) Math.PI * 2f + now * 0.0008f;
+            final float flicker = 0.5f + 0.5f * (float) Math.sin(now * 0.012f + seed * 11f);
+            if (flicker < 0.55f) continue;
+            final float ex = cx + (float) Math.cos(angle) * radius;
+            final float ey = cy + (float) Math.sin(angle) * radius;
+            shapes.setColor(0.23f, 0.66f, 1.00f, alpha * 0.85f * flicker);
+            drawCircle(shapes, ex, ey, 5f, 12);
+            shapes.setColor(1f, 1f, 1f, alpha * flicker);
+            drawCircle(shapes, ex, ey, 2f, 8);
+        }
+        shapes.end();
+        // 5. Cast-moment punch
+        if (t < 0.15f) {
+            final float flashA = 1.0f - t / 0.15f;
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glLineWidth(8f);
+            shapes.setColor(1f, 1f, 1f, flashA * 0.9f);
+            drawCircleOutline(shapes, cx, cy, radius, 64);
+            Gdx.gl.glLineWidth(1f);
+            shapes.end();
+        }
+    }
+
+    /**
+     * Wizard Burst — arcane release: filled magic-circle floor, two
+     * expanding wave-rings beyond the burst, two main runic rings, glyph
+     * hexagram (rotating Star of David), 6 orbiting rune diamonds, radial
+     * spokes that fade, sparkle convergence (first 30%), bright cast
+     * flash. Procedural port of renderer.js case 10.
+     */
+    private void renderWizardBurst(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float burstR = radius * (0.5f + t * 0.6f);
+        // Floor
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.18f);
+        drawCircle(shapes, cx, cy, burstR, 48);
+        shapes.end();
+        // Expanding wave rings
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int w = 0; w < 2; w++) {
+            final float waveDelay = w * 0.20f;
+            final float wt = Math.max(0f, (t - waveDelay)) / Math.max(0.001f, 1f - waveDelay);
+            if (wt <= 0f || wt >= 1f) continue;
+            final float wR = burstR * (1.0f + wt * 0.9f);
+            final float wA = alpha * (1f - wt) * 0.75f;
+            Gdx.gl.glLineWidth(2.5f);
+            shapes.setColor(1.00f, 0.55f, 0.10f, wA);
+            drawCircleOutline(shapes, cx, cy, wR, 64);
+            Gdx.gl.glLineWidth(1.5f);
+            shapes.setColor(1f, 1f, 1f, wA * 0.6f);
+            drawCircleOutline(shapes, cx, cy, wR * 0.97f, 64);
+        }
+        // Two main runic rings
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, burstR, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, burstR * 0.78f, 64);
+        // Glyph hexagram — two interlocking triangles
+        final float glyphR = burstR * 0.55f;
+        final float rot = now * 0.003f;
+        shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.75f);
+        Gdx.gl.glLineWidth(2f);
+        // Upright triangle
+        final float u0x = cx + (float) Math.cos(rot - (float) Math.PI / 2f) * glyphR;
+        final float u0y = cy + (float) Math.sin(rot - (float) Math.PI / 2f) * glyphR;
+        final float u1x = cx + (float) Math.cos(rot + (float) Math.PI / 6f) * glyphR;
+        final float u1y = cy + (float) Math.sin(rot + (float) Math.PI / 6f) * glyphR;
+        final float u2x = cx + (float) Math.cos(rot + 5f * (float) Math.PI / 6f) * glyphR;
+        final float u2y = cy + (float) Math.sin(rot + 5f * (float) Math.PI / 6f) * glyphR;
+        shapes.line(u0x, u0y, u1x, u1y);
+        shapes.line(u1x, u1y, u2x, u2y);
+        shapes.line(u2x, u2y, u0x, u0y);
+        // Inverted triangle
+        final float i0x = cx + (float) Math.cos(rot + (float) Math.PI / 2f) * glyphR;
+        final float i0y = cy + (float) Math.sin(rot + (float) Math.PI / 2f) * glyphR;
+        final float i1x = cx + (float) Math.cos(rot - (float) Math.PI / 6f) * glyphR;
+        final float i1y = cy + (float) Math.sin(rot - (float) Math.PI / 6f) * glyphR;
+        final float i2x = cx + (float) Math.cos(rot + 7f * (float) Math.PI / 6f) * glyphR;
+        final float i2y = cy + (float) Math.sin(rot + 7f * (float) Math.PI / 6f) * glyphR;
+        shapes.line(i0x, i0y, i1x, i1y);
+        shapes.line(i1x, i1y, i2x, i2y);
+        shapes.line(i2x, i2y, i0x, i0y);
+        // Radial spokes that fade
+        final float spokeA = alpha * (1.0f - t * 0.7f);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, spokeA);
+        for (int i = 0; i < 8; i++) {
+            final float a = (i / 8f) * (float) Math.PI * 2f;
+            final float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            shapes.line(cx + ca * burstR * 0.2f, cy + sa * burstR * 0.2f,
+                        cx + ca * burstR * 0.95f, cy + sa * burstR * 0.95f);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Six rune-points orbiting (filled diamonds)
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int runes = 6;
+        for (int i = 0; i < runes; i++) {
+            final float a = (i / (float) runes) * (float) Math.PI * 2f + now * 0.006f;
+            final float px = cx + (float) Math.cos(a) * burstR;
+            final float py = cy + (float) Math.sin(a) * burstR;
+            shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.55f);
+            drawCircle(shapes, px, py, 8f, 14);
+            shapes.setColor(1f, 1f, 1f, alpha * 0.95f);
+            // Diamond as two triangles
+            shapes.triangle(px, py - 5f, px + 4f, py, px, py + 5f);
+            shapes.triangle(px, py - 5f, px, py + 5f, px - 4f, py);
+        }
+        // Sparkle convergence (first 30%)
+        if (t < 0.30f) {
+            final float gt = t / 0.30f;
+            final float eased = 1f - (float) Math.pow(1f - gt, 2);
+            for (int i = 0; i < 8; i++) {
+                final float a = (i / 8f) * (float) Math.PI * 2f;
+                final float dist = burstR * 1.4f * (1f - eased);
+                final float px = cx + (float) Math.cos(a) * dist;
+                final float py = cy + (float) Math.sin(a) * dist;
+                shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
+                drawCircle(shapes, px, py, 2f + (1f - eased) * 2f, 10);
+                shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.55f);
+                drawCircle(shapes, px, py, 5f + (1f - eased) * 3f, 12);
+            }
+        }
+        // Initial flash
+        if (t < 0.25f) {
+            final float flashA = 1.0f - t / 0.25f;
+            shapes.setColor(1f, 1f, 1f, flashA * 0.85f);
+            drawCircle(shapes, cx, cy, burstR * 0.5f, 32);
+            shapes.setColor(1.00f, 0.55f, 0.10f, flashA * 0.65f);
+            drawCircle(shapes, cx, cy, burstR * 0.75f, 32);
+        }
+        // Pulsing core
+        shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.75f);
+        drawCircle(shapes, cx, cy, burstR * 0.18f, 14);
+        shapes.end();
+    }
+
+    /**
+     * Paladin Seal — vertical pillar of light + radiant gold cross at the
+     * caster + rotating halo with 12 sun-rays + ascending divine motes +
+     * cast-moment consecration flash. Procedural port of renderer.js
+     * case 14. (Native Y-up: pillar extends +y above caster.)
+     */
+    private void renderPaladinSeal(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float baseR = radius * (0.55f + 0.45f * t);
+        final float pillarH = baseR * 2.4f;
+        final float pillarW = baseR * 0.55f;
+        // Pillar (Y-up: pillar rises upward = positive Y above caster)
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(1.00f, 0.85f, 0.35f, alpha * 0.18f);
+        shapes.rect(cx - pillarW, cy, pillarW * 2f, pillarH);
+        shapes.setColor(1.00f, 0.94f, 0.63f, alpha * 0.30f);
+        shapes.rect(cx - pillarW * 0.55f, cy, pillarW * 1.1f, pillarH * 0.95f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.45f);
+        shapes.rect(cx - pillarW * 0.20f, cy, pillarW * 0.4f, pillarH * 0.92f);
+        // Halo behind the cross (above caster)
+        final float haloR = baseR * 0.78f;
+        final float crossCy = cy + baseR * 0.15f;
+        shapes.setColor(1.00f, 0.85f, 0.35f, alpha * 0.22f);
+        drawCircle(shapes, cx, crossCy, haloR, 48);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1.00f, 0.88f, 0.44f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, crossCy, haloR, 48);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.6f);
+        drawCircleOutline(shapes, cx, crossCy, haloR * 0.92f, 48);
+        // 12 sun-rays
+        final int spokes = 12;
+        final float spokePulse = 0.8f + 0.2f * (float) Math.sin(now * 0.012f);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1.00f, 0.94f, 0.63f, alpha * 0.7f * spokePulse);
+        for (int i = 0; i < spokes; i++) {
+            final float a = (i / (float) spokes) * (float) Math.PI * 2f + now * 0.0015f;
+            final float inner = haloR * 0.95f;
+            final float outer = haloR * (1.15f + 0.08f * (float) Math.sin(now * 0.008f + i));
+            shapes.line(cx + (float) Math.cos(a) * inner, crossCy + (float) Math.sin(a) * inner,
+                        cx + (float) Math.cos(a) * outer, crossCy + (float) Math.sin(a) * outer);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // The cross (vertical + horizontal beams as rects)
+        final float vH = haloR * 1.55f;
+        final float vW = haloR * 0.18f;
+        final float hH = haloR * 0.18f;
+        final float hW = haloR * 1.05f;
+        final float hOff = vH * 0.12f;  // horizontal sits slightly above center (Y-up = +)
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // Outer glow
+        shapes.setColor(1.00f, 0.85f, 0.35f, alpha * 0.55f);
+        shapes.rect(cx - vW * 1.5f, crossCy - vH * 0.55f, vW * 3f, vH * 1.1f);
+        shapes.rect(cx - hW, crossCy + hOff - hH * 1.5f, hW * 2f, hH * 3f);
+        // Warm gold
+        shapes.setColor(1.00f, 0.94f, 0.63f, alpha * 0.85f);
+        shapes.rect(cx - vW, crossCy - vH * 0.5f, vW * 2f, vH);
+        shapes.rect(cx - hW * 0.95f, crossCy + hOff - hH, hW * 1.9f, hH * 2f);
+        // White core
+        shapes.setColor(1f, 1f, 1f, Math.min(1f, alpha));
+        shapes.rect(cx - vW * 0.45f, crossCy - vH * 0.5f, vW * 0.9f, vH);
+        shapes.rect(cx - hW * 0.92f, crossCy + hOff - hH * 0.45f, hW * 1.84f, hH * 0.9f);
+        // Cross-arm endpoint flares
+        final float flareR = 4f + 2f * spokePulse;
+        shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
+        drawCircle(shapes, cx, crossCy - vH * 0.5f, flareR, 12);
+        drawCircle(shapes, cx, crossCy + vH * 0.5f, flareR, 12);
+        drawCircle(shapes, cx - hW * 0.95f, crossCy + hOff, flareR, 12);
+        drawCircle(shapes, cx + hW * 0.95f, crossCy + hOff, flareR, 12);
+        shapes.setColor(1.00f, 0.85f, 0.35f, alpha * 0.5f);
+        drawCircle(shapes, cx, crossCy - vH * 0.5f, flareR * 1.8f, 14);
+        drawCircle(shapes, cx, crossCy + vH * 0.5f, flareR * 1.8f, 14);
+        drawCircle(shapes, cx - hW * 0.95f, crossCy + hOff, flareR * 1.8f, 14);
+        drawCircle(shapes, cx + hW * 0.95f, crossCy + hOff, flareR * 1.8f, 14);
+        // Ascending motes (web: rises from ground upward; Y-up: same direction)
+        final int motes = 14;
+        for (int i = 0; i < motes; i++) {
+            final float seed = i * 0.61f;
+            final float phase = (t + seed) % 1.0f;
+            final float moteA = (float) Math.sin(phase * (float) Math.PI) * alpha;
+            if (moteA <= 0.05f) continue;
+            final float dx = (float) Math.sin(seed * 7f + now * 0.001f) * baseR * 0.5f;
+            // Y-up: motes rise upward as phase increases
+            final float my = cy - baseR * 0.6f + phase * pillarH * 1.05f;
+            final float mx = cx + dx;
+            shapes.setColor(1.00f, 0.94f, 0.63f, moteA * 0.5f);
+            drawCircle(shapes, mx, my, 5f, 12);
+            shapes.setColor(1f, 1f, 1f, Math.min(1f, moteA));
+            drawCircle(shapes, mx, my, 2.5f, 10);
+        }
+        // Initial consecration flash
+        if (t < 0.18f) {
+            final float flashA = 1.0f - t / 0.18f;
+            shapes.setColor(1f, 1f, 1f, flashA * 0.95f);
+            drawCircle(shapes, cx, cy, baseR * 0.55f, 32);
+            shapes.setColor(1.00f, 0.94f, 0.63f, flashA * 0.7f);
+            drawCircle(shapes, cx, cy, baseR * 0.85f, 32);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Warrior Buff — gritty battle rally: smoke haze + jagged 16-segment
+     * shockwave ring + crossed war-blades raised high + 8 outward chevrons
+     * + 18 ember motes + cast-moment roar flash + pulsing core.
+     * Procedural port of renderer.js case 12.
+     */
+    private void renderWarriorBuff(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float earlyA = t < 0.35f ? alpha : alpha * (1.0f - (t - 0.35f) / 0.65f);
+        final long now = System.currentTimeMillis();
+        final float buffR = radius * (0.5f + t * 0.55f);
+        // 1. Smoke haze
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.33f, 0.20f, 0.13f, alpha * 0.22f);
+        drawCircle(shapes, cx, cy, buffR * 1.1f, 48);
+        shapes.end();
+        // 2. Jagged 16-segment shockwave ring
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(1.00f, 0.65f, 0.20f, alpha * 0.85f);
+        final int jagSegs = 16;
+        for (int i = 0; i < jagSegs; i++) {
+            final float a0 = (i / (float) jagSegs) * (float) Math.PI * 2f;
+            final float a1 = ((i + 1) / (float) jagSegs) * (float) Math.PI * 2f;
+            final float r0 = buffR * (0.92f + 0.08f * (float) Math.sin(i * 5.7f + now * 0.005f));
+            final float r1 = buffR * (0.92f + 0.08f * (float) Math.sin((i + 1) * 5.7f + now * 0.005f));
+            shapes.line(cx + (float) Math.cos(a0) * r0, cy + (float) Math.sin(a0) * r0,
+                        cx + (float) Math.cos(a1) * r1, cy + (float) Math.sin(a1) * r1);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // 3. Crossed war-blades — two diagonal stretched diamonds
+        final float bladeAngle1 = -(float) Math.PI / 4f + (float) Math.sin(now * 0.004f) * 0.06f;
+        final float bladeAngle2 = -(float) Math.PI * 3f / 4f - (float) Math.sin(now * 0.004f) * 0.06f;
+        final float bladeLen = buffR * 0.55f;
+        final float bladeWid = 6f;
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int blade = 0; blade < 2; blade++) {
+            final float ang = blade == 0 ? bladeAngle1 : bladeAngle2;
+            final float cs = (float) Math.cos(ang), sn = (float) Math.sin(ang);
+            // Outer warm glow (orange-red)
+            shapes.setColor(1.00f, 0.50f, 0.19f, alpha * 0.55f);
+            final float bw = bladeWid + 3f;
+            // Diamond split into two triangles: (tip, side1, tail) + (tip, tail, side2)
+            shapes.triangle(cx + bladeLen * 1.1f * cs, cy + bladeLen * 1.1f * sn,
+                            cx - bw * sn,              cy + bw * cs,
+                            cx - bladeLen * 0.55f * cs, cy - bladeLen * 0.55f * sn);
+            shapes.triangle(cx + bladeLen * 1.1f * cs, cy + bladeLen * 1.1f * sn,
+                            cx - bladeLen * 0.55f * cs, cy - bladeLen * 0.55f * sn,
+                            cx + bw * sn,              cy - bw * cs);
+            // Steel-bright core
+            shapes.setColor(1f, 1f, 1f, alpha * 0.95f);
+            shapes.triangle(cx + bladeLen * cs,        cy + bladeLen * sn,
+                            cx - bladeWid * sn,        cy + bladeWid * cs,
+                            cx - bladeLen * 0.5f * cs, cy - bladeLen * 0.5f * sn);
+            shapes.triangle(cx + bladeLen * cs,        cy + bladeLen * sn,
+                            cx - bladeLen * 0.5f * cs, cy - bladeLen * 0.5f * sn,
+                            cx + bladeWid * sn,        cy - bladeWid * cs);
+        }
+        shapes.end();
+        // 4. Outward war-cry chevrons
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        final int chevs = 8;
+        for (int i = 0; i < chevs; i++) {
+            final float a = (i / (float) chevs) * (float) Math.PI * 2f + now * 0.005f;
+            final float kx = cx + (float) Math.cos(a) * buffR * 0.78f;
+            final float ky = cy + (float) Math.sin(a) * buffR * 0.78f;
+            final float ox = (float) Math.cos(a), oy = (float) Math.sin(a);
+            final float tx = -oy, ty = ox;
+            Gdx.gl.glLineWidth(4f);
+            shapes.setColor(1.00f, 0.65f, 0.20f, alpha * 0.85f);
+            shapes.line(kx - tx * 8f - ox * 4f, ky - ty * 8f - oy * 4f, kx + ox * 9f, ky + oy * 9f);
+            shapes.line(kx + ox * 9f, ky + oy * 9f, kx + tx * 8f - ox * 4f, ky + ty * 8f - oy * 4f);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1.00f, 0.88f, 0.75f, alpha * 0.95f);
+            shapes.line(kx - tx * 8f - ox * 4f, ky - ty * 8f - oy * 4f, kx + ox * 9f, ky + oy * 9f);
+            shapes.line(kx + ox * 9f, ky + oy * 9f, kx + tx * 8f - ox * 4f, ky + ty * 8f - oy * 4f);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // 5. Ember motes (18 little square dust particles)
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int embers = 18;
+        for (int i = 0; i < embers; i++) {
+            final float seed = i * 0.91f;
+            final float a = (seed * 6.28f) + now * 0.004f;
+            final float dist = buffR * (0.85f + 0.20f * (float) Math.sin(now * 0.008f + seed));
+            final float ex = cx + (float) Math.cos(a) * dist;
+            final float ey = cy + (float) Math.sin(a) * dist;
+            final float sz = (i & 1) != 0 ? 3f : 2f;
+            shapes.setColor(1.00f, 0.38f, 0.13f, alpha * 0.85f);
+            shapes.rect(ex - sz, ey - sz, sz * 2f, sz * 2f);
+            shapes.setColor(0.53f, 0.27f, 0.00f, alpha * 0.55f);
+            shapes.rect(ex - sz - 1f, ey - sz - 1f, sz * 2f + 2f, sz * 2f + 2f);
+        }
+        // 6. Initial roar flash
+        if (t < 0.18f) {
+            final float flashA = 1.0f - t / 0.18f;
+            shapes.setColor(1.00f, 0.88f, 0.75f, flashA * 0.95f);
+            drawCircle(shapes, cx, cy, buffR * 0.28f, 28);
+            shapes.setColor(1.00f, 0.50f, 0.19f, flashA * 0.7f);
+            drawCircle(shapes, cx, cy, buffR * 0.5f, 32);
+        }
+        // 7. Throbbing core
+        final float corePulse = 0.6f + 0.4f * (float) Math.sin(now * 0.022f);
+        shapes.setColor(1.00f, 0.65f, 0.20f, earlyA * 0.65f * corePulse);
+        drawCircle(shapes, cx, cy, buffR * 0.22f, 24);
         shapes.end();
     }
 

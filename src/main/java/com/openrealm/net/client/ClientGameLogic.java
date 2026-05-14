@@ -191,6 +191,21 @@ public class ClientGameLogic {
 		}
 	}
 
+	@PacketHandlerClient(com.openrealm.net.client.packet.AbilityCastStartPacket.class)
+	public static void handleAbilityCastStartClient(RealmManagerClient cli, Packet packet) {
+		final com.openrealm.net.client.packet.AbilityCastStartPacket cast =
+				(com.openrealm.net.client.packet.AbilityCastStartPacket) packet;
+		try {
+			if (cli.getState() == null) return;
+			// Store as [startEpochMs, durationMs] so PlayState's renderer can
+			// compute progress and auto-clear when the cast completes.
+			cli.getState().getActiveCasts().put(cast.getPlayerId(),
+					new long[] { System.currentTimeMillis(), cast.getDurationMs() });
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed to handle AbilityCastStart Packet. Reason: {}", e);
+		}
+	}
+
 	public static void handlePlayerDeathClient(RealmManagerClient cli, Packet packet) {
 		@SuppressWarnings("unused")
 		final PlayerDeathPacket playerDeath = (PlayerDeathPacket) packet;
@@ -910,6 +925,17 @@ public class ClientGameLogic {
 		ClientGameLogic.log.info("[CLIENT] Recieved Text Packet \nTO: {}\nFROM: {}\nMESSAGE: {}", textPacket.getTo(),
 				textPacket.getFrom(), textPacket.getMessage());
 		try {
+			// Party invite hook — same regex match the webclient uses to
+			// pop up the Accept/Decline panel. PlayerUI owns the actual
+			// prompt overlay; this just dispatches inviter name to it.
+			if ("SYSTEM".equalsIgnoreCase(textPacket.getFrom())) {
+				final String msg = textPacket.getMessage() == null ? "" : textPacket.getMessage();
+				final int idx = msg.indexOf(" invited you to a party");
+				if (idx > 0) {
+					final String inviter = msg.substring(0, idx).trim();
+					cli.getState().getPui().showPartyInvitePrompt(inviter);
+				}
+			}
 			cli.getState().getPui().enqueueChat(textPacket.clone());
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle text packet. Reason: {}", e.getMessage());

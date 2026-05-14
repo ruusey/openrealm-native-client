@@ -77,6 +77,21 @@ public class PlayerUI {
      *  (trade.js showTradeRequestPopup). */
     @lombok.Getter @lombok.Setter
     private String pendingTradeRequestFrom = null;
+    /** Phase 4 — party invite prompt state. Set by showPartyInvitePrompt
+     *  when SYSTEM chat reports "X invited you to a party". Cleared on
+     *  Accept/Decline click or 60s TTL (matches server invite eviction). */
+    private String pendingPartyInviteFrom = null;
+    private long   pendingPartyInviteExpiresAt = 0L;
+    private Button partyInviteAcceptBtn = null;
+    private Button partyInviteDeclineBtn = null;
+    public void showPartyInvitePrompt(String inviterName) {
+        this.pendingPartyInviteFrom = inviterName;
+        this.pendingPartyInviteExpiresAt = System.currentTimeMillis() + 60_000L;
+        // Force re-create on next render so the button click handlers bind
+        // to the current inviter (not whoever was in the slot before).
+        this.partyInviteAcceptBtn = null;
+        this.partyInviteDeclineBtn = null;
+    }
     @lombok.Getter @lombok.Setter
     private long pendingTradeRequestStartMs = 0L;
     /** Buttons for the pending-trade-request popup — Accept fires
@@ -758,6 +773,12 @@ public class PlayerUI {
             if (this.tradeRequestAcceptBtn != null) this.tradeRequestAcceptBtn.input(mouse, key);
             if (this.tradeRequestDeclineBtn != null) this.tradeRequestDeclineBtn.input(mouse, key);
         }
+        // Party-invite popup input — Accept / Decline buttons. Sits left,
+        // routed identically to the trade prompt.
+        if (this.pendingPartyInviteFrom != null) {
+            if (this.partyInviteAcceptBtn != null)  this.partyInviteAcceptBtn.input(mouse, key);
+            if (this.partyInviteDeclineBtn != null) this.partyInviteDeclineBtn.input(mouse, key);
+        }
 
         // Handle nearby player button input
         for (Button btn : this.nearbyPlayerButtons) {
@@ -1262,6 +1283,7 @@ public class PlayerUI {
         this.renderPlayerTooltip(batch, shapes, font);
         this.renderPlayerContextMenu(batch, shapes, font);
         this.renderTradeRequestPopup(batch, shapes, font);
+        this.renderPartyInvitePrompt(batch, shapes, font);
         if (!useSpriteHud) this.renderStats(batch, font); // sprite HUD draws stats in renderSpriteHud
         this.renderPortalPrompt(batch, shapes, font);
         this.renderInteractPrompt(batch, shapes, font);
@@ -1481,6 +1503,69 @@ public class PlayerUI {
      *  resolves to. Buttons clear themselves on click and feed
      *  /accept or /decline through the existing chat command path
      *  (no need to actually type the command). Webclient parity. */
+    /**
+     * Phase 4 — party invite prompt with Accept/Decline buttons. Sits on
+     * the LEFT side of the screen (matches the webclient placement) so
+     * the player doesn't have to type /party accept. Auto-dismisses after
+     * 60s to match the server-side invite TTL.
+     */
+    private void renderPartyInvitePrompt(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        if (this.pendingPartyInviteFrom == null) return;
+        if (System.currentTimeMillis() > this.pendingPartyInviteExpiresAt) {
+            this.pendingPartyInviteFrom = null;
+            this.partyInviteAcceptBtn = null;
+            this.partyInviteDeclineBtn = null;
+            return;
+        }
+        final int boxW = 220;
+        final int boxH = 80;
+        final int boxX = 16;
+        // Center vertically — 28% from top matches the web placement.
+        final int boxY = OpenRealmGame.height - (OpenRealmGame.height * 28 / 100) - boxH;
+        if (this.partyInviteAcceptBtn == null || this.partyInviteDeclineBtn == null) {
+            final int btnW = (boxW - 24) / 2;
+            final int btnH = 26;
+            final int btnY = boxY + 8;
+            this.partyInviteAcceptBtn = new Button("ACCEPT", new Vector2f(boxX + 8, btnY), btnW, btnH);
+            this.partyInviteAcceptBtn.onMouseDown(event -> {
+                this.sendServerCommand("party", "accept");
+                this.pendingPartyInviteFrom = null;
+                this.partyInviteAcceptBtn = null;
+                this.partyInviteDeclineBtn = null;
+            });
+            this.partyInviteDeclineBtn = new Button("DECLINE", new Vector2f(boxX + 16 + btnW, btnY), btnW, btnH);
+            this.partyInviteDeclineBtn.onMouseDown(event -> {
+                this.sendServerCommand("party", "decline");
+                this.pendingPartyInviteFrom = null;
+                this.partyInviteAcceptBtn = null;
+                this.partyInviteDeclineBtn = null;
+            });
+        }
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f);
+        shapes.rect(boxX, boxY, boxW, boxH);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        shapes.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+        shapes.rect(boxX, boxY, boxW, boxH);
+        shapes.end();
+        batch.begin();
+        font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+        font.draw(batch, "PARTY INVITE", boxX + 10, boxY + boxH - 8);
+        font.setColor(1f, 0.94f, 0.62f, 1f);
+        font.draw(batch, this.pendingPartyInviteFrom + " wants you in their party",
+                boxX + 10, boxY + boxH - 26);
+        font.setColor(Color.WHITE);
+        this.drawTradeButton(batch, shapes, font, this.partyInviteAcceptBtn,
+                "ACCEPT", new Color(0.25f, 0.78f, 0.35f, 1f));
+        this.drawTradeButton(batch, shapes, font, this.partyInviteDeclineBtn,
+                "DECLINE", new Color(0.78f, 0.27f, 0.27f, 1f));
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+    }
+
     private void renderTradeRequestPopup(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.pendingTradeRequestFrom == null) return;
         final int panelW = OpenRealmGame.width / 5;
@@ -1752,27 +1837,28 @@ public class PlayerUI {
             if (m != null && m.getPlayerId() != localId) toDraw.add(m);
         }
 
-        final int rowH = 32;
+        // Slightly taller rows so the cooldown strip below HP/MP has room.
+        final int rowH = 44;
         final int iconSize = 24;
         final int rowGap = 2;
+        final int cdCellSize = 14;
+        final int cdCellGap = 2;
         int headerY = this.layoutNearbyY;
         font.setColor(1.00f, 0.85f, 0.36f, 1f); // gold accent
         font.draw(batch, "Party  " + members.length + "/4", startX, headerY);
         font.setColor(Color.WHITE);
         int y = headerY + 12;
+        final long nowMs = System.currentTimeMillis();
         for (com.openrealm.net.entity.NetPartyMember m : toDraw) {
-            // Class icon — same lookup the nearby panel uses.
             TextureRegion icon = this.getClassIcon(m.getClassId());
             if (icon != null) {
                 batch.draw(icon, startX, y + (rowH - iconSize) / 2f, iconSize, iconSize);
             }
-            // Gold-tinted name (truncate to 14 chars to match webclient).
             String name = m.getName() != null ? m.getName() : "?";
             if (name.length() > 14) name = name.substring(0, 14);
             font.setColor(1.00f, 0.94f, 0.62f, 1f);
             font.draw(batch, name, startX + iconSize + 6, y + 11);
             font.setColor(Color.WHITE);
-            // HP + MP mini bars right under the name.
             final float hpPct = m.getMaxHealth() > 0
                     ? Math.max(0f, Math.min(1f, m.getHealth() / (float) m.getMaxHealth())) : 0f;
             final float mpPct = m.getMaxMana() > 0
@@ -1781,7 +1867,14 @@ public class PlayerUI {
             final int barW = panelWidth - (iconSize + 6) - 4;
             final int hpY = y + 14;
             final int mpY = hpY + 5;
-            // Switch into shape pass for the bars, then back to batch.
+            // Cooldown strip — 4 mini ability icons under the HP/MP bars.
+            // Each cell is a small sprite of the bound ability with a dark
+            // overlay that drains from the top as the cooldown ticks down.
+            // Mirrors the webclient party-cd-strip behavior.
+            final Integer[] bindings = m.getHotbarBindings();
+            final Long[]    cdEnds   = m.getAbilityCooldownEnds();
+            final int cdY = mpY + 5;
+            final int cdStripX = barX;
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(0.10f, 0.06f, 0.06f, 0.88f);
@@ -1792,8 +1885,61 @@ public class PlayerUI {
             shapes.rect(barX, mpY, barW, 3);
             shapes.setColor(0.31f, 0.44f, 1.00f, 0.95f);
             shapes.rect(barX, mpY, barW * mpPct, 3);
+            // Cell backplates so missing-icon cells still register visually.
+            for (int i = 0; i < 4; i++) {
+                final float cx = cdStripX + i * (cdCellSize + cdCellGap);
+                shapes.setColor(0.10f, 0.07f, 0.03f, 0.92f);
+                shapes.rect(cx, cdY, cdCellSize, cdCellSize);
+            }
             shapes.end();
             batch.begin();
+            // Ability icons + cooldown overlay (drain-from-top dark rect).
+            if (bindings != null) {
+                for (int i = 0; i < 4 && i < bindings.length; i++) {
+                    final int aid = bindings[i] != null ? bindings[i] : 0;
+                    if (aid <= 0) continue;
+                    final com.openrealm.game.model.ability.Ability ab =
+                            com.openrealm.game.data.GameDataManager.ABILITIES == null ? null
+                                    : com.openrealm.game.data.GameDataManager.ABILITIES.get(aid);
+                    if (ab == null) continue;
+                    final float cx = cdStripX + i * (cdCellSize + cdCellGap);
+                    if (ab.getSpriteKey() != null && !ab.getSpriteKey().isEmpty()) {
+                        final int spriteSize = ab.getSpriteSize() > 0 ? ab.getSpriteSize() : 8;
+                        final Sprite spr = GameSpriteManager.loadSprite(ab.getCol(), ab.getRow(),
+                                ab.getSpriteKey(), spriteSize);
+                        if (spr != null && spr.getRegion() != null) {
+                            batch.draw(spr.getRegion(), cx + 1, cdY + 1, cdCellSize - 2, cdCellSize - 2);
+                        }
+                    }
+                    // Cooldown overlay (dark rect from top) — height tracks
+                    // remaining/total. Drawn via shapes pass.
+                    final long cdEnd = cdEnds != null && i < cdEnds.length && cdEnds[i] != null ? cdEnds[i] : 0L;
+                    final long baseCd = ab.getBaseCooldownMs();
+                    if (cdEnd > nowMs && baseCd > 0) {
+                        final float remaining = Math.min(cdEnd - nowMs, baseCd);
+                        final float frac = Math.max(0f, Math.min(1f, remaining / (float) baseCd));
+                        batch.end();
+                        shapes.begin(ShapeRenderer.ShapeType.Filled);
+                        shapes.setColor(0f, 0f, 0f, 0.65f);
+                        shapes.rect(cx, cdY + cdCellSize * (1f - frac), cdCellSize, cdCellSize * frac);
+                        shapes.end();
+                        batch.begin();
+                    }
+                }
+            }
+            // Dim if member is in a different realm — applied to whole row
+            // after sprites are drawn by drawing a translucent grey overlay.
+            final boolean sameRealm = m.getRealmId() == 0L
+                    || this.playState.getRealmManager().getRealm() == null
+                    || this.playState.getRealmManager().getRealm().getRealmId() == m.getRealmId();
+            if (!sameRealm) {
+                batch.end();
+                shapes.begin(ShapeRenderer.ShapeType.Filled);
+                shapes.setColor(0f, 0f, 0f, 0.45f);
+                shapes.rect(startX, y, panelWidth, rowH);
+                shapes.end();
+                batch.begin();
+            }
             y += rowH + rowGap;
         }
         return Math.max(0, y - headerY + 8);
