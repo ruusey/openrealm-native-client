@@ -1789,7 +1789,8 @@ public class PlayerUI {
 
         int headerY = this.layoutNearbyY + partyConsumed;
         font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent (matches name + level)
-        font.draw(batch, "Nearby players", startX, headerY);
+        // Matches webclient #nearby-section label ("Players Nearby").
+        font.draw(batch, "Players Nearby", startX, headerY);
         font.setColor(Color.WHITE);
 
         if (this.nearbyPlayerList.isEmpty()) return;
@@ -1862,7 +1863,9 @@ public class PlayerUI {
         final int cdCellGap = 2;
         int headerY = this.layoutNearbyY;
         font.setColor(1.00f, 0.85f, 0.36f, 1f); // gold accent
-        font.draw(batch, "Party  " + members.length + "/4", startX, headerY);
+        // Header text mirrors webclient #party-section: "Players In Party N/4"
+        // (count includes self so the user sees their own membership).
+        font.draw(batch, "Players In Party  " + members.length + "/4", startX, headerY);
         font.setColor(Color.WHITE);
         int y = headerY + 12;
         final long nowMs = System.currentTimeMillis();

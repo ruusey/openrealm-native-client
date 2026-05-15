@@ -2399,6 +2399,30 @@ public class PlayState extends GameState {
             renderVampiricLatch(shapes, cx, cy, maxRadius, t);
             return;
         }
+        if (type == CreateEffectPacket.EFFECT_RAPIER_STAB) {
+            renderRapierStab(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_LOW_SWING) {
+            renderLowSwing(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_DISARM_FLOURISH) {
+            renderDisarmFlourish(shapes, vfx, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_DIVINE_BEAM) {
+            renderDivineBeam(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_FORTIFY_AURA) {
+            renderFortifyAura(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_GROUND_POUND) {
+            renderGroundPound(shapes, cx, cy, maxRadius, t);
+            return;
+        }
         if (type == CreateEffectPacket.EFFECT_SOUL_VORTEX) {
             renderSoulVortex(shapes, vfx, cx, cy, maxRadius, t);
             return;
@@ -2608,6 +2632,13 @@ public class PlayState extends GameState {
         case CreateEffectPacket.EFFECT_STASIS_LOCK:       r = 0.55f; g = 0.85f; b = 1.00f; break;
         case CreateEffectPacket.EFFECT_SANCTUARY_DOME:    r = 1.00f; g = 0.85f; b = 0.35f; break;
         case CreateEffectPacket.EFFECT_VAMPIRIC_LATCH:    r = 0.85f; g = 0.10f; b = 0.30f; break;
+        // Heavy class kit FX — Debuffer (silver/red), Buffer (gold), DPS (dust).
+        case CreateEffectPacket.EFFECT_RAPIER_STAB:       r = 0.88f; g = 0.90f; b = 0.93f; break;
+        case CreateEffectPacket.EFFECT_LOW_SWING:         r = 0.75f; g = 0.16f; b = 0.19f; break;
+        case CreateEffectPacket.EFFECT_DISARM_FLOURISH:   r = 1.00f; g = 0.82f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_DIVINE_BEAM:       r = 1.00f; g = 0.83f; b = 0.30f; break;
+        case CreateEffectPacket.EFFECT_FORTIFY_AURA:      r = 0.25f; g = 0.66f; b = 1.00f; break;
+        case CreateEffectPacket.EFFECT_GROUND_POUND:      r = 0.72f; g = 0.56f; b = 0.38f; break;
         default:                                          r = 1.00f; g = 1.00f; b = 1.00f; break;
         }
 
@@ -3615,6 +3646,360 @@ public class PlayState extends GameState {
         drawCircle(shapes, cx, cy, 8f, 18);
         shapes.setColor(1f, 0.5f, 0.63f, alpha);
         drawCircle(shapes, cx, cy, 4f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Heavy Debuffer Sidearm — quick silver rapier stab. 4 cardinal sparkle
+     * arms shoot outward, white core flash, sparkle stars at the tips.
+     * Procedural port of renderer.js case 53.
+     */
+    private void renderRapierStab(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float corePulse = 1.0f - t;
+        final float armReach = radius * (0.4f + 0.7f * t);
+
+        // 4-axis sparkle lines (N/S/E/W) — outward dashes
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.54f, 0.60f, 0.66f, alpha * 0.85f);
+        for (int i = 0; i < 4; i++) {
+            final float a = (i / 4f) * (float) Math.PI * 2f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float fx = cx + cosA * (armReach * 0.35f);
+            final float fy = cy + sinA * (armReach * 0.35f);
+            final float tx = cx + cosA * armReach;
+            final float ty = cy + sinA * armReach;
+            shapes.line(fx, fy, tx, ty);
+        }
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        for (int i = 0; i < 4; i++) {
+            final float a = (i / 4f) * (float) Math.PI * 2f;
+            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
+            final float fx = cx + cosA * (armReach * 0.35f);
+            final float fy = cy + sinA * (armReach * 0.35f);
+            final float tx = cx + cosA * armReach;
+            final float ty = cy + sinA * armReach;
+            shapes.line(fx, fy, tx, ty);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Sparkle stars at tips + bright core flash
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 4; i++) {
+            final float a = (i / 4f) * (float) Math.PI * 2f;
+            final float tx = cx + (float) Math.cos(a) * armReach;
+            final float ty = cy + (float) Math.sin(a) * armReach;
+            shapes.setColor(1f, 1f, 1f, alpha * (1.0f - t * 0.6f));
+            drawCircle(shapes, tx, ty, 3f + 2f * (1f - t), 12);
+        }
+        shapes.setColor(1f, 1f, 1f, alpha * corePulse);
+        drawCircle(shapes, cx, cy, 6f + 3f * corePulse, 18);
+        shapes.setColor(0.88f, 0.90f, 0.93f, alpha * corePulse * 0.7f);
+        drawCircle(shapes, cx, cy, 10f + 4f * corePulse, 18);
+        shapes.end();
+    }
+
+    /**
+     * Heavy Debuffer Ankle Strike — bottom-half horizontal arc sweep. Steel
+     * underlay, red core, white highlight. Quick ankle-level glint at center.
+     * Procedural port of renderer.js case 54.
+     */
+    private void renderLowSwing(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float reach = radius * 1.05f;
+        final int segs = 10;
+        // Sweep across the lower half of the ring. LibGDX is Y-up; PIXI Y is
+        // down. Negate sin so the arc reads "lower" on screen (below caster).
+        final float a0 = (float) (Math.PI * 0.15);
+        final float a1 = (float) (Math.PI * 0.85);
+
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(8f);
+        shapes.setColor(0.25f, 0.03f, 0.06f, alpha * 0.8f);
+        for (int s = 0; s < segs; s++) {
+            final float p0 = a0 + ((a1 - a0) * s) / segs;
+            final float p1 = a0 + ((a1 - a0) * (s + 1)) / segs;
+            shapes.line(cx + (float) Math.cos(p0) * reach, cy - (float) Math.sin(p0) * reach,
+                        cx + (float) Math.cos(p1) * reach, cy - (float) Math.sin(p1) * reach);
+        }
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(0.75f, 0.16f, 0.19f, alpha);
+        for (int s = 0; s < segs; s++) {
+            final float p0 = a0 + ((a1 - a0) * s) / segs;
+            final float p1 = a0 + ((a1 - a0) * (s + 1)) / segs;
+            shapes.line(cx + (float) Math.cos(p0) * reach, cy - (float) Math.sin(p0) * reach,
+                        cx + (float) Math.cos(p1) * reach, cy - (float) Math.sin(p1) * reach);
+        }
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
+        for (int s = 0; s < segs; s++) {
+            final float p0 = a0 + ((a1 - a0) * s) / segs;
+            final float p1 = a0 + ((a1 - a0) * (s + 1)) / segs;
+            shapes.line(cx + (float) Math.cos(p0) * reach, cy - (float) Math.sin(p0) * reach,
+                        cx + (float) Math.cos(p1) * reach, cy - (float) Math.sin(p1) * reach);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Small ankle-level steel glint just below caster.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.63f, 0.66f, 0.69f, alpha * (1f - t));
+        drawCircle(shapes, cx, cy - 4f, 4f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Heavy Debuffer Disarm — ultimate flourish. Triple-ring expanding
+     * outward, 8 sparkle stars at cardinal/diagonal points, central impact
+     * burst. Procedural port of renderer.js case 55.
+     */
+    private void renderDisarmFlourish(ShapeRenderer shapes, ActiveVisualEffect vfx,
+                                       float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float elapsed = vfx != null ? vfx.getElapsed() : 0f;
+
+        // Three pulsing rings, time-offset for a cascade outward.
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < 3; i++) {
+            final float ringP = (t + i * 0.18f) % 1.0f;
+            if (ringP > 0.85f) continue;
+            final float ringR = radius * (0.2f + ringP * 1.0f);
+            final float ringA = alpha * (1.0f - ringP) * 0.9f;
+            Gdx.gl.glLineWidth(6f);
+            shapes.setColor(0.50f, 0.28f, 0.03f, ringA * 0.6f);
+            drawCircleOutline(shapes, cx, cy, ringR, 48);
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(1.00f, 0.82f, 0.30f, ringA);
+            drawCircleOutline(shapes, cx, cy, ringR, 48);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // 8 sparkle stars at cardinal+diagonal points.
+        final float starR = radius * (0.7f + 0.25f * t);
+        final float starPulse = 0.5f + 0.5f * (float) Math.sin(elapsed * 0.024);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 8; i++) {
+            final float a = (i / 8f) * (float) Math.PI * 2f + elapsed * 0.001f;
+            final float tx = cx + (float) Math.cos(a) * starR;
+            final float ty = cy + (float) Math.sin(a) * starR;
+            shapes.setColor(1.00f, 0.82f, 0.30f, alpha);
+            drawCircle(shapes, tx, ty, 5f + 2f * starPulse, 8);
+            shapes.setColor(1f, 1f, 1f, alpha);
+            drawCircle(shapes, tx, ty, 2f, 8);
+        }
+        // Central impact burst — bright early, fades out.
+        final float earlyA = Math.max(0f, 1f - t * 2.5f);
+        if (earlyA > 0f) {
+            shapes.setColor(1f, 1f, 1f, alpha * earlyA);
+            drawCircle(shapes, cx, cy, 10f + 8f * earlyA, 24);
+            shapes.setColor(1.00f, 0.82f, 0.30f, alpha * earlyA * 0.85f);
+            drawCircle(shapes, cx, cy, 18f + 10f * earlyA, 24);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Heavy Buffer Divine Beam — vertical column of golden light rising from
+     * the caster, ground halo, and rising heal sparkles. Procedural port of
+     * renderer.js case 56. LibGDX is Y-up so the column rises +y.
+     */
+    private void renderDivineBeam(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float beamH = radius * 2.2f;
+        final float beamW = Math.max(12f, radius * 0.35f);
+        final float colA = alpha * (1.0f - t * 0.4f);
+
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // Outer column glow
+        shapes.setColor(1.00f, 0.94f, 0.63f, colA * 0.35f);
+        shapes.rect(cx - beamW, cy, beamW * 2f, beamH);
+        // Inner column — bright core
+        shapes.setColor(1.00f, 0.83f, 0.30f, colA * 0.65f);
+        shapes.rect(cx - beamW * 0.5f, cy, beamW, beamH);
+        // Hot white spine
+        shapes.setColor(1f, 1f, 1f, colA);
+        shapes.rect(cx - 3f, cy, 6f, beamH);
+        // Ground halo fill
+        shapes.setColor(1.00f, 0.94f, 0.63f, alpha * 0.45f);
+        drawCircle(shapes, cx, cy, radius * 0.7f, 36);
+        shapes.end();
+
+        // Ground halo rings
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(1.00f, 0.83f, 0.30f, alpha * 0.9f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(1f, 1f, 1f, alpha);
+        drawCircleOutline(shapes, cx, cy, radius * 0.85f, 48);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Rising sparkle particles (heal feel) — Y-up: rise in +y.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < 8; i++) {
+            final float seed = i * 0.713f;
+            final float st = (t + seed) % 1.0f;
+            final float angle = seed * (float) Math.PI * 2f;
+            final float dist = radius * (0.25f + 0.6f * ((seed * 11f) % 1f));
+            final float px = cx + (float) Math.cos(angle) * dist;
+            final float py = cy + (float) Math.sin(angle) * dist + st * radius * 0.7f;
+            shapes.setColor(1f, 1f, 1f, alpha * (1f - st));
+            drawCircle(shapes, px, py, 3f, 10);
+            shapes.setColor(1.00f, 0.83f, 0.30f, alpha * (1f - st) * 0.8f);
+            drawCircle(shapes, px, py, 5f, 10);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Heavy Buffer Fortify Aura — persistent regen sigil. Outer ring,
+     * hexagram (two interlocking triangles), pulsing rising sparkles.
+     * Procedural port of renderer.js case 57.
+     */
+    private void renderFortifyAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.90f ? 1.0f : 1.0f - (t - 0.90f) * 10f;
+        final long now = System.currentTimeMillis();
+        final float pulse = 0.65f + 0.35f * (float) Math.sin(now * 0.005);
+
+        // Outer ring (dark base + blue overlay).
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.06f, 0.22f, 0.28f, alpha * 0.85f);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.25f, 0.66f, 1.00f, alpha * 0.9f * pulse);
+        drawCircleOutline(shapes, cx, cy, radius, 48);
+
+        // Hexagram — two interlocking equilateral triangles.
+        final float innerR = radius * 0.62f;
+        Gdx.gl.glLineWidth(3f);
+        // Triangle A — green, pointing up (rotation = -PI/2 in math convention).
+        shapes.setColor(0.38f, 1.00f, 0.53f, alpha * pulse);
+        {
+            float[] tx = new float[3], ty = new float[3];
+            for (int i = 0; i < 3; i++) {
+                final float a = (-(float) Math.PI / 2f) + (i / 3f) * (float) Math.PI * 2f;
+                tx[i] = cx + (float) Math.cos(a) * innerR;
+                ty[i] = cy + (float) Math.sin(a) * innerR;
+            }
+            shapes.line(tx[0], ty[0], tx[1], ty[1]);
+            shapes.line(tx[1], ty[1], tx[2], ty[2]);
+            shapes.line(tx[2], ty[2], tx[0], ty[0]);
+        }
+        // Triangle B — blue, pointing down (rotation = PI/2).
+        shapes.setColor(0.25f, 0.66f, 1.00f, alpha * pulse);
+        {
+            float[] tx = new float[3], ty = new float[3];
+            for (int i = 0; i < 3; i++) {
+                final float a = ((float) Math.PI / 2f) + (i / 3f) * (float) Math.PI * 2f;
+                tx[i] = cx + (float) Math.cos(a) * innerR;
+                ty[i] = cy + (float) Math.sin(a) * innerR;
+            }
+            shapes.line(tx[0], ty[0], tx[1], ty[1]);
+            shapes.line(tx[1], ty[1], tx[2], ty[2]);
+            shapes.line(tx[2], ty[2], tx[0], ty[0]);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Rising sparkles — alternating green/blue. Y-up: rise +y.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int sparkles = 14;
+        for (int i = 0; i < sparkles; i++) {
+            final float seed = i * 0.451f;
+            final float cycle = ((now * 0.0006f) + seed) % 1.0f;
+            final float angle = (i / (float) sparkles) * (float) Math.PI * 2f + now * 0.0005f;
+            final float dist = radius * (0.3f + 0.55f * ((seed * 23f) % 1f));
+            final float px = cx + (float) Math.cos(angle) * dist;
+            final float py = cy + (float) Math.sin(angle) * dist + cycle * radius * 0.65f;
+            final float sA = (1f - cycle) * 0.9f;
+            if ((i & 1) == 0) shapes.setColor(0.25f, 0.66f, 1.00f, alpha * sA);
+            else              shapes.setColor(0.38f, 1.00f, 0.53f, alpha * sA);
+            drawCircle(shapes, px, py, 2.5f, 8);
+            shapes.setColor(1f, 1f, 1f, alpha * sA * 0.7f);
+            drawCircle(shapes, px, py, 1.2f, 6);
+        }
+        // Central glint.
+        shapes.setColor(1f, 1f, 1f, alpha * pulse * 0.7f);
+        drawCircle(shapes, cx, cy, 4f, 12);
+        shapes.end();
+    }
+
+    /**
+     * Heavy DPS Ground Pound — expanding dust ring, 6 radial ground cracks,
+     * lingering dust puffs, central impact flash. Procedural port of
+     * renderer.js case 58.
+     */
+    private void renderGroundPound(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+
+        // 1. Expanding dust ring — fast outward in first 40% of life.
+        final float ringP = Math.min(1f, t / 0.4f);
+        final float ringR = radius * (0.2f + 0.8f * ringP);
+        final float ringA = alpha * (1f - ringP * 0.5f);
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(8f);
+        shapes.setColor(0.25f, 0.16f, 0.06f, ringA * 0.85f);
+        drawCircleOutline(shapes, cx, cy, ringR, 48);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(0.72f, 0.56f, 0.38f, ringA);
+        drawCircleOutline(shapes, cx, cy, ringR, 48);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.88f, 0.78f, 0.56f, ringA * 0.9f);
+        drawCircleOutline(shapes, cx, cy, ringR, 48);
+
+        // 2. 6 radial crack lines with a midpoint kink for texture.
+        final float crackR = radius * (0.5f + 0.55f * t);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.25f, 0.16f, 0.06f, alpha * (1f - t * 0.4f));
+        for (int i = 0; i < 6; i++) {
+            final float a = (i / 6f) * (float) Math.PI * 2f + 0.3f;
+            final float midR = crackR * 0.55f;
+            final float midX = cx + (float) Math.cos(a) * midR;
+            final float midY = cy + (float) Math.sin(a) * midR;
+            final float jitterA = a + ((i % 2 == 0) ? 0.15f : -0.15f);
+            final float endX = cx + (float) Math.cos(jitterA) * crackR;
+            final float endY = cy + (float) Math.sin(jitterA) * crackR;
+            shapes.line(cx, cy, midX, midY);
+            shapes.line(midX, midY, endX, endY);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // 3. Lingering dust puffs — slowly drift up (Y-up: +y) in second half.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int puffs = 8;
+        for (int i = 0; i < puffs; i++) {
+            final float seed = i * 0.617f;
+            final float angle = (i / (float) puffs) * (float) Math.PI * 2f + seed * 0.4f;
+            final float dist = radius * (0.3f + 0.5f * ((seed * 13f) % 1f));
+            final float px = cx + (float) Math.cos(angle) * dist;
+            final float py = cy + (float) Math.sin(angle) * dist + t * 8f;
+            final float puffR = 4f + 4f * t;
+            shapes.setColor(0.72f, 0.56f, 0.38f, alpha * (1f - t) * 0.75f);
+            drawCircle(shapes, px, py, puffR, 12);
+            shapes.setColor(0.88f, 0.78f, 0.56f, alpha * (1f - t) * 0.55f);
+            drawCircle(shapes, px, py, puffR * 0.5f, 10);
+        }
+        // 4. Central impact flash — first beat only.
+        final float earlyA = Math.max(0f, 1f - t * 4f);
+        if (earlyA > 0f) {
+            shapes.setColor(1f, 1f, 1f, alpha * earlyA);
+            drawCircle(shapes, cx, cy, 12f * earlyA + 6f, 18);
+            shapes.setColor(0.88f, 0.78f, 0.56f, alpha * earlyA * 0.8f);
+            drawCircle(shapes, cx, cy, 18f * earlyA + 8f, 18);
+        }
         shapes.end();
     }
 

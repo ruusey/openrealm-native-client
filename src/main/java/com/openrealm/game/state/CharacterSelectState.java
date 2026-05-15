@@ -81,7 +81,8 @@ public class CharacterSelectState extends GameState {
     // class that ships is sourced from JSON; adding a class is a data-only edit.
     private static final String[] CLASS_NAMES = {
             "Rogue","Archer","Wizard","Priest","Warrior","Knight","Paladin",
-            "Assassin","Necromancer","Mystic","Trickster","Sorcerer","Huntress","Ninja"
+            "Assassin","Necromancer","Mystic","Trickster","Sorcerer","Huntress","Ninja",
+            "Heavy Debuffer","Heavy Buffer","Heavy DPS","Heavy Oddball"
     };
 
     /**
