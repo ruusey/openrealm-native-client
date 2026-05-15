@@ -293,6 +293,16 @@ public class ClientGameLogic {
 			final long prevMapId   = cli.getRealm().getMapId();
 			final boolean realmChanged = (prevRealmId != loadPacket.getRealmId())
 					|| (prevMapId != loadPacket.getMapId());
+			// Initial session connect: prevRealmId is the default 0L and
+			// no client-initiated portal use has occurred. The cross-realm
+			// entity wipe below must NOT fire on this transition, or it
+			// would race against the server's initial LoadPacket (which
+			// arrives before LoadMap in some session boots) and erase the
+			// portals/enemies the player just received → 1–2s "empty map"
+			// gap until the next server broadcast loop refilled them.
+			// Webclient parity: game.handleLoadMap never touches entity
+			// state; renderer.prepareForNewRealm only clears the PIXI pool.
+			final boolean isInitialConnect = (prevRealmId == 0L);
 
 			cli.getState().getPui().getMinimap().initializeMap((int) loadPacket.getMapId());
 			cli.getRealm().setRealmId(loadPacket.getRealmId());
@@ -307,31 +317,34 @@ public class ClientGameLogic {
 				// Clear chat on realm change so the log doesn't carry over
 				// across maps / instances. Mirrors the web client.
 				try { cli.getState().getPui().getPlayerChat().clearChat(); } catch (Exception ignored) {}
-				// Clear cross-realm carry-over state: previous realm's
-				// players/enemies/bullets/loot/portals were lingering in
-				// the local realm map, so e.g. transitioning from nexus
-				// → vault still showed the nexus crowd in the nearby
-				// list. The next LoadPacket for the new realm will
-				// re-add anything that's actually present.
-				try {
-					final long localId = cli.getCurrentPlayerId();
-					final java.util.Map<Long, com.openrealm.game.entity.Player> players = cli.getRealm().getPlayers();
-					if (players != null) {
-						players.entrySet().removeIf(e -> e.getKey() != localId);
-					}
-					final java.util.Map<Long, com.openrealm.game.entity.Enemy> enemies = cli.getRealm().getEnemies();
-					if (enemies != null) enemies.clear();
-					final java.util.Map<Long, com.openrealm.game.entity.Bullet> bullets = cli.getRealm().getBullets();
-					if (bullets != null) bullets.clear();
-					final java.util.Map<Long, com.openrealm.game.entity.item.LootContainer> loot = cli.getRealm().getLoot();
-					if (loot != null) loot.clear();
-					final java.util.Map<Long, com.openrealm.game.entity.Portal> portals = cli.getRealm().getPortals();
-					if (portals != null) portals.clear();
-					// Buffered UpdatePackets for the previous realm's
-					// players are stale — drop them so a same-id player
-					// in the new realm doesn't replay an old packet.
-					PENDING_UPDATES.clear();
-				} catch (Exception ignored) { /* defensive — never block transition */ }
+				// Cross-realm carry-over wipe — gated on !isInitialConnect.
+				// User-initiated portal use already calls Realm.loadMap()
+				// BEFORE the new LoadPacket arrives, so the new realm's
+				// entities populate into a clean map. On the FIRST LoadMap
+				// of a session there's no prior realm to leak from, and
+				// the LoadPacket race makes wiping here harmful (see
+				// isInitialConnect comment above).
+				if (!isInitialConnect) {
+					try {
+						final long localId = cli.getCurrentPlayerId();
+						final java.util.Map<Long, com.openrealm.game.entity.Player> players = cli.getRealm().getPlayers();
+						if (players != null) {
+							players.entrySet().removeIf(e -> e.getKey() != localId);
+						}
+						final java.util.Map<Long, com.openrealm.game.entity.Enemy> enemies = cli.getRealm().getEnemies();
+						if (enemies != null) enemies.clear();
+						final java.util.Map<Long, com.openrealm.game.entity.Bullet> bullets = cli.getRealm().getBullets();
+						if (bullets != null) bullets.clear();
+						final java.util.Map<Long, com.openrealm.game.entity.item.LootContainer> loot = cli.getRealm().getLoot();
+						if (loot != null) loot.clear();
+						final java.util.Map<Long, com.openrealm.game.entity.Portal> portals = cli.getRealm().getPortals();
+						if (portals != null) portals.clear();
+						// Buffered UpdatePackets for the previous realm's
+						// players are stale — drop them so a same-id player
+						// in the new realm doesn't replay an old packet.
+						PENDING_UPDATES.clear();
+					} catch (Exception ignored) { /* defensive — never block transition */ }
+				}
 
 				// Snap local player to the new map's spawn so we don't render
 				// at the previous realm's coordinates inside the new tile
