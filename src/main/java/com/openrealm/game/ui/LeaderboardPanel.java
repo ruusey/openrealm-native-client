@@ -40,8 +40,11 @@ public class LeaderboardPanel {
         public int classIdx;
         public int level;
         public long fame;
-        /** Item id per slot index (0=weapon, 1=ability, 2=armor, 3=ring); -1 = empty. */
-        public int[] equipment = new int[]{-1, -1, -1, -1};
+        /** Item id per slot index, in canonical left-to-right order:
+         *  0=PRIMARY_WEAPON, 1=ARMOR, 2=GAUNTLETS, 3=BOOTS, 4=RING.
+         *  -1 = empty. Layout matches the webclient leaderboard tooltip
+         *  (loadLeaderboard / showEquipmentTooltip in main.js). */
+        public int[] equipment = new int[]{-1, -1, -1, -1, -1};
 
         public Row(int rank, String accountName, String className, int classIdx,
                    int level, long fame, int[] equipment) {
@@ -51,9 +54,13 @@ public class LeaderboardPanel {
             this.classIdx = classIdx;
             this.level = level;
             this.fame = fame;
-            if (equipment != null && equipment.length == 4) this.equipment = equipment;
+            if (equipment != null && equipment.length == 5) this.equipment = equipment;
         }
     }
+
+    /** Slot count rendered per leaderboard row. All classes use the same
+     *  5-slot layout (weapon/armor/gauntlets/boots/ring). */
+    private static final int EQUIP_SLOT_COUNT = 5;
 
     private List<Row> rows = Collections.emptyList();
     private long lastFetchAt = 0L;
@@ -113,13 +120,13 @@ public class LeaderboardPanel {
                     int level = isFameMode ? 20
                             : (entry.has("level") ? entry.get("level").asInt(0) : 0);
 
-                    int[] equip = new int[]{-1, -1, -1, -1};
+                    int[] equip = new int[]{-1, -1, -1, -1, -1};
                     JsonNode equipNode = entry.get("equipment");
                     if (equipNode != null && equipNode.isArray()) {
                         for (JsonNode e : equipNode) {
                             int slot = e.has("slotIdx") ? e.get("slotIdx").asInt(-1) : -1;
                             int itemId = e.has("itemId") ? e.get("itemId").asInt(-1) : -1;
-                            if (slot >= 0 && slot < 4) equip[slot] = itemId;
+                            if (slot >= 0 && slot < EQUIP_SLOT_COUNT) equip[slot] = itemId;
                         }
                     }
                     parsed.add(new Row(rank++, name, className, classIdx, level, fame, equip));
@@ -253,10 +260,11 @@ public class LeaderboardPanel {
 
             // Middle band: equipment icons (left of textX), no overlap with
             // the name above thanks to the 14 px gap between nameBaseline
-            // descenders and the icon top.
+            // descenders and the icon top. Order: weapon → armor → gauntlets
+            // → boots → ring (matches webclient leaderboard tooltip).
             int eqX = textX;
             int eqY = rowTop + eqYOff;
-            for (int s = 0; s < 4; s++) {
+            for (int s = 0; s < EQUIP_SLOT_COUNT; s++) {
                 int slotX = eqX + s * (eqIconSize + eqGap);
                 batch.end();
                 shapes.begin(ShapeRenderer.ShapeType.Filled);
