@@ -495,7 +495,10 @@ public class ServerGameLogic {
 		}
 	}
 
-	@PacketHandlerServer(TextPacket.class)
+	// Explicitly registered in RealmManagerServer.registerPacketCallbacks()
+	// (TextPacket.class -> handleTextServer). Do NOT add a @PacketHandlerServer
+	// annotation here — the reflection pass would register a SECOND copy of
+	// the same handler, causing every player chat message to broadcast twice.
 	public static void handleTextServer(RealmManagerServer mgr, Packet packet) {
 		final TextPacket textPacket = (TextPacket) packet;
 		final long fromPlayerId = mgr.getRemoteAddresses().get(textPacket.getSrcIp());
