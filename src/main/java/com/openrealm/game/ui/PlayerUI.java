@@ -26,10 +26,12 @@ import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.ItemTooltip;
 import com.openrealm.game.model.ability.Ability;
+import com.openrealm.game.model.AbilityTooltip;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.game.state.RealmTransitionState;
 import com.openrealm.net.client.packet.UpdatePlayerTradeSelectionPacket;
 import com.openrealm.net.entity.NetInventorySelection;
+import com.openrealm.net.entity.NetStats;
 import com.openrealm.net.entity.NetTradeSelection;
 import com.openrealm.net.messaging.CommandType;
 import com.openrealm.net.messaging.ServerCommandMessage;
@@ -188,7 +190,7 @@ public class PlayerUI {
      *  by updateTooltip on hover, consumed by the render pass. Mutually
      *  exclusive with activeTooltip — whichever surface gets the cursor
      *  first wins, and the other is cleared. */
-    private com.openrealm.game.model.AbilityTooltip activeAbilityTooltip = null;
+    private AbilityTooltip activeAbilityTooltip = null;
     /** Per-cell rects captured during renderPartyMembers' cd-strip pass so
      *  updateTooltip can hit-test them on hover. Each entry encodes
      *  [x, y, w, h, abilityId, investedSp]. Cleared at the start of every
@@ -924,20 +926,18 @@ public class PlayerUI {
 
         // Own hotbar — 4 cells whose pixel rects were captured by
         // renderSpriteHud last frame. cellIdx is 1..4 ("Key N" subtitle).
-        final com.openrealm.game.entity.Player local =
-                (this.playState != null) ? this.playState.getPlayer() : null;
+        final Player local = (this.playState != null) ? this.playState.getPlayer() : null;
         if (local != null && this._lastHotbarCellPx != null) {
             for (int slot = 0; slot < this._lastHotbarCellPx.length; slot++) {
                 final float[] cell = this._lastHotbarCellPx[slot];
                 if (cell == null) continue;
                 if (mx >= cell[0] && mx < cell[0] + cell[2]
                         && my >= cell[1] && my < cell[1] + cell[3]) {
-                    final com.openrealm.game.model.ability.Ability ab = local.getActiveAbility(slot);
+                    final Ability ab = local.getActiveAbility(slot);
                     if (ab == null) continue;
-                    final int invested = com.openrealm.game.model.AbilityTooltip.investedFor(local, ab);
-                    final com.openrealm.game.entity.item.Stats stats = (local.getStats() != null)
-                            ? local.getStats() : null;
-                    this.activeAbilityTooltip = new com.openrealm.game.model.AbilityTooltip(
+                    final int invested = AbilityTooltip.investedFor(local, ab);
+                    final Stats stats = local.getStats();
+                    this.activeAbilityTooltip = new AbilityTooltip(
                             ab, slot + 1, invested, stats,
                             new Vector2f(tooltipX, 100), panelWidth);
                     this.activeTooltip = null;
@@ -947,22 +947,35 @@ public class PlayerUI {
         }
 
         // Party member cooldown-strip cells (cached by renderPartyMembers).
+        // Each entry encodes [x, y, w, h, abilityId, investedSp, vit, wis,
+        // hp, mp, att, def, spd, dex] — the trailing 8 floats are the
+        // member's computed stats so stat-scaled damage in the tooltip
+        // can use THEIR numbers instead of falling back to base damage.
         if (!this._lastPartyAbilityCells.isEmpty()) {
             for (float[] cell : this._lastPartyAbilityCells) {
                 if (mx >= cell[0] && mx < cell[0] + cell[2]
                         && my >= cell[1] && my < cell[1] + cell[3]) {
                     final int aid = (int) cell[4];
                     final int invested = (int) cell[5];
-                    final com.openrealm.game.model.ability.Ability ab =
-                            (com.openrealm.game.data.GameDataManager.ABILITIES != null)
-                            ? com.openrealm.game.data.GameDataManager.ABILITIES.get(aid) : null;
+                    final Ability ab = (GameDataManager.ABILITIES != null)
+                            ? GameDataManager.ABILITIES.get(aid) : null;
                     if (ab == null) continue;
-                    // No viewer stats for a party member's ability — server
-                    // hasn't broadcast their stats. Damage breakdown still
-                    // shows base damage; stat-scaled bonuses just won't be
-                    // included (matches webclient party hover behavior).
-                    this.activeAbilityTooltip = new com.openrealm.game.model.AbilityTooltip(
-                            ab, 0, invested, null,
+                    // Stats: hp is int, the other 7 fields are short — match
+                    // the field types or Lombok's @Builder rejects the call.
+                    final Stats memberStats = (cell.length >= 14)
+                            ? Stats.builder()
+                                    .vit((short) cell[6])
+                                    .wis((short) cell[7])
+                                    .hp ((int)   cell[8])
+                                    .mp ((short) cell[9])
+                                    .att((short) cell[10])
+                                    .def((short) cell[11])
+                                    .spd((short) cell[12])
+                                    .dex((short) cell[13])
+                                    .build()
+                            : null;
+                    this.activeAbilityTooltip = new AbilityTooltip(
+                            ab, 0, invested, memberStats,
                             new Vector2f(tooltipX, 100), panelWidth);
                     this.activeTooltip = null;
                     return;
@@ -2049,22 +2062,35 @@ public class PlayerUI {
             batch.begin();
             // Ability icons + cooldown overlay (drain-from-top dark rect).
             final Integer[] invested = m.getHotbarInvested();
+            // Cache the member's stats once outside the per-slot loop so we
+            // can stash them alongside each cell entry for the AbilityTooltip
+            // hover path (server-broadcast computed stats via NetPartyMember).
+            final NetStats netStats = m.getStats();
+            final int sVit = netStats != null ? netStats.getVit() : 0;
+            final int sWis = netStats != null ? netStats.getWis() : 0;
+            final int sHp  = netStats != null ? netStats.getHp()  : 0;
+            final int sMp  = netStats != null ? netStats.getMp()  : 0;
+            final int sAtt = netStats != null ? netStats.getAtt() : 0;
+            final int sDef = netStats != null ? netStats.getDef() : 0;
+            final int sSpd = netStats != null ? netStats.getSpd() : 0;
+            final int sDex = netStats != null ? netStats.getDex() : 0;
             if (bindings != null) {
                 for (int i = 0; i < 4 && i < bindings.length; i++) {
                     final int aid = bindings[i] != null ? bindings[i] : 0;
                     if (aid <= 0) continue;
-                    final com.openrealm.game.model.ability.Ability ab =
-                            com.openrealm.game.data.GameDataManager.ABILITIES == null ? null
-                                    : com.openrealm.game.data.GameDataManager.ABILITIES.get(aid);
+                    final Ability ab = GameDataManager.ABILITIES == null ? null
+                            : GameDataManager.ABILITIES.get(aid);
                     if (ab == null) continue;
                     final float cx = cdStripX + i * (cdCellSize + cdCellGap);
-                    // Stash cell rect + ability + invested-SP so updateTooltip
-                    // can spawn an AbilityTooltip on hover. Same surface the
-                    // webclient hover handler covers on .party-cd-cell.
+                    // Stash cell rect + ability + invested-SP + member's
+                    // computed stats so updateTooltip can spawn an
+                    // AbilityTooltip with the same stat-scaled damage
+                    // breakdown the owner sees on their own hotbar.
                     final int inv = (invested != null && i < invested.length && invested[i] != null)
                             ? invested[i] : 0;
                     this._lastPartyAbilityCells.add(new float[] {
-                            cx, cdY, cdCellSize, cdCellSize, (float) aid, (float) inv
+                            cx, cdY, cdCellSize, cdCellSize, (float) aid, (float) inv,
+                            sVit, sWis, sHp, sMp, sAtt, sDef, sSpd, sDex
                     });
                     if (ab.getSpriteKey() != null && !ab.getSpriteKey().isEmpty()) {
                         final int spriteSize = ab.getSpriteSize() > 0 ? ab.getSpriteSize() : 8;

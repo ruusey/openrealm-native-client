@@ -49,4 +49,12 @@ public class NetPartyMember extends SerializableFieldType<NetPartyMember> {
     /** Skill points invested into each of the 4 hotbar abilities. */
     @SerializableField(order = 12, type = SerializableInt.class, isCollection = true)
     private Integer[] hotbarInvested;
+
+    /** Server-computed stats (base + equipment + enchantments + buffs).
+     *  Carried so ability tooltips for a party member can render the same
+     *  stat-scaled damage breakdown the owner sees on their own hotbar.
+     *  18 bytes on the wire — negligible at 4-member cap, ~2 Hz. Wire
+     *  order MUST match the prod server's NetPartyMember field order. */
+    @SerializableField(order = 13, type = NetStats.class)
+    private NetStats stats;
 }

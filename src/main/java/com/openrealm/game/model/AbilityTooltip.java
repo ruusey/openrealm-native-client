@@ -12,6 +12,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.entity.Player;
+import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.ability.Ability;
 import com.openrealm.game.model.ability.AbilityScaling;
@@ -29,7 +30,7 @@ public class AbilityTooltip {
     private final int cellIdx;            // 1..4 ("Key N" subtitle); 0 = hide
     private final int investedSp;
     /** Optional viewer stats — used by stat-scaled DAMAGE breakdown. */
-    private final com.openrealm.game.entity.item.Stats viewerStats;
+    private final Stats viewerStats;
     private final Vector2f pos;
     private final int width;
 
@@ -49,7 +50,7 @@ public class AbilityTooltip {
     private static final Color SP_COLOR     = new Color(1f,    0.65f, 0.18f, 1f);
 
     public AbilityTooltip(Ability ability, int cellIdx, int investedSp,
-                          com.openrealm.game.entity.item.Stats viewerStats,
+                          Stats viewerStats,
                           Vector2f pos, int width) {
         this.ability = ability;
         this.cellIdx = cellIdx;
@@ -215,7 +216,7 @@ public class AbilityTooltip {
      *  viewer stats and invested-SP level. Mirrors webclient
      *  {@code _scalingContribution} (ui-widgets.js): linear-only port. */
     public static int scalingContribution(AbilityScaling sc,
-                                          com.openrealm.game.entity.item.Stats stats,
+                                          Stats stats,
                                           int investedSp) {
         if (sc == null) return 0;
         int statVal;
