@@ -63,6 +63,14 @@ public class PlayerUI {
     private Slots[] groundLoot;
 
     private PlayState playState;
+
+    /** Local player's classId, or -1 if not in a game yet. Used by the
+     *  ItemTooltip ctor to render the "Compatible / Cannot equip" row. */
+    private int viewerClassId() {
+        if (this.playState == null) return -1;
+        final Player p = this.playState.getPlayer();
+        return (p == null) ? -1 : p.getClassId();
+    }
     private PlayerChat playerChat;
     private Minimap minimap;
     private long lastAction = Instant.now().toEpochMilli();
@@ -809,7 +817,8 @@ public class PlayerUI {
             if (s != null && s.getButton() != null && s.getItem() != null) {
                 if (s.getButton().getBounds().inside(mx, my)) {
                     this.activeTooltip = new ItemTooltip(s.getItem(),
-                            new Vector2f(tooltipX, 100), panelWidth, 0);
+                            new Vector2f(tooltipX, 100), panelWidth, 0,
+                            this.viewerClassId());
                     return;
                 }
             }
@@ -821,7 +830,8 @@ public class PlayerUI {
             if (s != null && s.getButton() != null && s.getItem() != null) {
                 if (s.getButton().getBounds().inside(mx, my)) {
                     this.activeTooltip = new ItemTooltip(s.getItem(),
-                            new Vector2f(tooltipX, 100), panelWidth, 0);
+                            new Vector2f(tooltipX, 100), panelWidth, 0,
+                            this.viewerClassId());
                     return;
                 }
             }
@@ -840,7 +850,8 @@ public class PlayerUI {
                     if (r != null && mx >= r[0] && mx < r[0] + r[2]
                             && my >= r[1] && my < r[1] + r[3]) {
                         this.activeTooltip = new ItemTooltip(stored,
-                                new Vector2f(tooltipX, 100), panelWidth, 0);
+                                new Vector2f(tooltipX, 100), panelWidth, 0,
+                                this.viewerClassId());
                         return;
                     }
                 }

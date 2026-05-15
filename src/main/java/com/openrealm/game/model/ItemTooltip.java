@@ -49,6 +49,10 @@ public class ItemTooltip {
     private List<AttributeModifier> attributeModifiers;
     private byte targetSlot;
 
+    /** Local player's classId for compatibility-line rendering. -1 means
+     *  "no viewer set" — the compatibility row is suppressed. */
+    private int viewerClassId = -1;
+
     private static final int PADDING = 8;
     private static final int LINE_HEIGHT = 22;
     private static final Color BG_COLOR = new Color(0.12f, 0.12f, 0.15f, 0.95f);
@@ -68,6 +72,14 @@ public class ItemTooltip {
         "None","Teleported","","Dazed","","","Damaging","Stasis",
         "Cursed","Poisoned","Armored","Berserk","","Slowed","Armor Broken"
     };
+
+    /** Constructor variant that carries the viewer's classId so the tooltip
+     *  can render a "Compatible with your class" / "Cannot be equipped" row.
+     *  Pass -1 (or use the 4-arg constructor) to suppress the row. */
+    public ItemTooltip(GameItem item, Vector2f pos, int width, int height, int viewerClassId) {
+        this(item, pos, width, height);
+        this.viewerClassId = viewerClassId;
+    }
 
     public ItemTooltip(GameItem item, Vector2f pos, int width, int height) {
         this.pos = pos;
@@ -99,6 +111,50 @@ public class ItemTooltip {
         CharacterClass cls = CharacterClass.valueOf((int) this.targetClass);
         if (cls == null) return "Unknown";
         return cls.name();
+    }
+
+    /** Human-readable label for an item's class requirement. Covers both
+     *  specific-class IDs (Rogue, Archer, ...) and the role/weapon-family
+     *  buckets (ROBE/LEATHER/HEAVY/ALL/STAFF/WAND/DAGGER/BOW). */
+    private static String compatibilityLabel(byte targetClass) {
+        switch ((int) targetClass) {
+            case -1: return "Robe classes";
+            case -2: return "Leather classes";
+            case -3: return "Heavy classes";
+            case -4: return "All classes";
+            case -5: return "Staff users";
+            case -6: return "Wand users";
+            case -7: return "Dagger users";
+            case -8: return "Bow users";
+            default: {
+                CharacterClass c = CharacterClass.valueOf((int) targetClass);
+                if (c == null) return "Unknown class";
+                // Title-case the enum name for display: ROGUE -> Rogue.
+                final String n = c.name();
+                if (n.isEmpty()) return n;
+                return n.charAt(0) + n.substring(1).toLowerCase().replace('_', ' ');
+            }
+        }
+    }
+
+    /** Pure-int compatibility check — same rules as
+     *  {@link CharacterClass#isValidUser(com.openrealm.game.entity.Player, byte)}
+     *  but takes a classId so we can call it from tooltip code without a
+     *  Player instance handy. */
+    private static boolean isCompatible(int viewerClassId, byte targetClass) {
+        final CharacterClass pc = CharacterClass.valueOf(viewerClassId);
+        if (pc == null) return false;
+        switch ((int) targetClass) {
+            case -1: return CharacterClass.isRobeClass(pc);
+            case -2: return CharacterClass.isLeatherClass(pc);
+            case -3: return CharacterClass.isHeavyClass(pc);
+            case -4: return true;
+            case -5: return CharacterClass.isStaffUser(pc);
+            case -6: return CharacterClass.isWandUser(pc);
+            case -7: return CharacterClass.isDaggerUser(pc);
+            case -8: return CharacterClass.isBowUser(pc);
+            default: return targetClass == (byte) viewerClassId;
+        }
     }
 
     /** Convert ARGB int to a libGDX Color. */
@@ -179,6 +235,23 @@ public class ItemTooltip {
         if (!subtitleBits.isEmpty()) {
             final Color rarityColor = argbToColor(Rarity.fromOrdinal(this.rarity).color);
             lines.add(new TooltipLine(String.join(" · ", subtitleBits), rarityColor));
+        }
+
+        // Class-compatibility row — shown when a viewer is set AND the item
+        // has a class restriction (everything except targetClass=-4 ALL,
+        // which is always compatible so we just say "Any class").
+        if (this.viewerClassId >= 0) {
+            final boolean ok = isCompatible(this.viewerClassId, this.targetClass);
+            final String label = compatibilityLabel(this.targetClass);
+            // -4 ALL is a special case — never a "cannot equip" call-out, just
+            // a single info line. For everything else, give explicit green/red
+            // feedback so the player knows at a glance.
+            if (this.targetClass == (byte) -4) {
+                lines.add(new TooltipLine("Usable by: Any class", INFO_COLOR));
+            } else {
+                final String prefix = ok ? "Compatible: " : "Cannot equip: requires ";
+                lines.add(new TooltipLine(prefix + label, ok ? STAT_POS_COLOR : STAT_NEG_COLOR));
+            }
         }
 
         // Description - wrap long text to fit tooltip width
