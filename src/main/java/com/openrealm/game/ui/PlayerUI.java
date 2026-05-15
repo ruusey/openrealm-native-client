@@ -1260,19 +1260,32 @@ public class PlayerUI {
             this.renderTradeUI(batch, shapes, font, startX, panelWidth);
         }
 
-        // Render nearby players list
-        // Sprite HUD reroutes the nearby-players list into its own bottom-
-        // left panel; the legacy path renders it in the right sidebar.
+        // Render nearby players list — and, when the player is in a party,
+        // a SEPARATE party-members list in its own chrome above nearby.
+        // Sprite HUD reroutes both into dedicated bottom-left panels; the
+        // legacy path keeps the old single-panel right-sidebar layout.
         if (useSpriteHud && this.spriteHudNearbyEnabled) {
-            // renderNearbyPlayers reads layoutNearbyY for the header Y —
-            // override it to the sprite-HUD nearby panel's screen y, restore
-            // after so the legacy path is unaffected.
+            // Party panel (top) — only when in a party. Uses its own anchor
+            // so it lives in the upper chrome, not nested inside nearby.
+            if (this.spriteHudPartyEnabled) {
+                final int prevNearbyY = this.layoutNearbyY;
+                this.layoutNearbyY = this.spriteHudPartyY;
+                this.renderPartyMembers(batch, shapes, font,
+                        this.spriteHudPartyX, this.spriteHudPartyW);
+                this.layoutNearbyY = prevNearbyY;
+            }
+            // Nearby panel (bottom). renderNearbyPlayers will NOT also draw
+            // the party section because we pass useExternalParty=true via
+            // the suppressInternalParty flag set above.
             final int prevNearbyY = this.layoutNearbyY;
             this.layoutNearbyY = this.spriteHudNearbyY;
+            this.suppressInternalParty = true;
             this.renderNearbyPlayers(batch, shapes, font,
                     this.spriteHudNearbyX, this.spriteHudNearbyW);
+            this.suppressInternalParty = false;
             this.layoutNearbyY = prevNearbyY;
         } else {
+            // Legacy single-panel layout — party still renders inside nearby.
             this.renderNearbyPlayers(batch, shapes, font, startX, panelWidth);
         }
 
@@ -1765,10 +1778,14 @@ public class PlayerUI {
         this.refreshNearbyPlayerButtons(startX, panelWidth);
 
         // Phase 4 — Party section sits ABOVE the nearby list when the
-        // player is in a party. Returns the Y consumed so the nearby
-        // header drops below it. Mirrors webclient _renderPartySection in
-        // trade.js (party panel above "Players nearby").
-        int partyConsumed = this.renderPartyMembers(batch, shapes, font, startX, panelWidth);
+        // player is in a party. In the legacy single-panel layout it
+        // renders here (inline above the nearby header). The sprite-HUD
+        // two-panel layout calls renderPartyMembers separately into its
+        // own chrome and sets suppressInternalParty so we don't double-
+        // render it here.
+        final int partyConsumed = this.suppressInternalParty
+                ? 0
+                : this.renderPartyMembers(batch, shapes, font, startX, panelWidth);
 
         int headerY = this.layoutNearbyY + partyConsumed;
         font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent (matches name + level)
@@ -2618,11 +2635,24 @@ public class PlayerUI {
         final float playerInfoY = margin;
 
         // Nearby-players panel sits BETWEEN playerInfo (top) and chat (bottom)
-        // on the left column. Uses panel.container.small chrome.
+        // on the left column. Uses panel.container.small chrome. When the
+        // player is in a party, a SECOND identical panel is stamped above
+        // nearby to hold the party-members list — same chrome twice, one
+        // labelled "PARTY", one "PLAYERS NEARBY", stacked with an 8px gap.
+        // Available vertical space is split between them.
         final float nearbyW = cNearby != null ? cNearby.getW() * s : 0;
-        final float nearbyH = cNearby != null ? cNearby.getH() * s : 0;
+        final float nearbyFullH = cNearby != null ? cNearby.getH() * s : 0;
         final float nearbyX = margin;
-        final float nearbyY = playerInfoY + playerInfoH + 8;
+        final boolean partyVisible = (this.playState != null && this.playState.getPartyId() != 0L);
+        final float panelGap = 8f;
+        // When in a party: split available height in half so two equal-sized
+        // chromes stack within the original nearby slot. Otherwise nearby
+        // gets the full slot to itself.
+        final float partyH  = partyVisible ? (nearbyFullH - panelGap) / 2f : 0f;
+        final float nearbyH = partyVisible ? (nearbyFullH - panelGap) / 2f : nearbyFullH;
+        final float partyY  = playerInfoY + playerInfoH + 8;
+        final float nearbyY = partyVisible ? (partyY + partyH + panelGap)
+                                            : (playerInfoY + playerInfoH + 8);
 
         final float chatW = cChat.getW() * s;
         final float chatH = cChat.getH() * s;
@@ -2674,7 +2704,12 @@ public class PlayerUI {
 
         if (rPlayerInfo != null) batch.draw(rPlayerInfo, playerInfoX, playerInfoY, playerInfoW, playerInfoH);
         // Nearby-players panel chrome (small container, between playerInfo and chat).
+        // When in a party, also stamp a SECOND identical chrome ABOVE nearby
+        // for the party-members list — two distinct panels, same look.
         final TextureRegion rNearby = UiAtlas.region("panel.container.small");
+        if (partyVisible && rNearby != null && cNearby != null) {
+            batch.draw(rNearby, nearbyX, partyY, nearbyW, partyH);
+        }
         if (rNearby != null && cNearby != null) batch.draw(rNearby, nearbyX, nearbyY, nearbyW, nearbyH);
         if (rMinimap    != null) batch.draw(rMinimap,    minimapX,    minimapY,    minimapW,    minimapH);
         if (rEquipStats != null) batch.draw(rEquipStats, equipStatsX, equipStatsY, equipStatsW, equipStatsH);
@@ -2879,6 +2914,14 @@ public class PlayerUI {
         this.spriteHudNearbyPanelTop    = (int)(nearbyY);
         this.spriteHudNearbyPanelBottom = (int)(nearbyY + nearbyH);
         this.spriteHudNearbyEnabled = (cNearby != null);
+        // Party panel content rect — mirrors nearby. Only consulted when
+        // partyVisible is true; renderPartyMembers anchors its header at
+        // spriteHudPartyY so the gold "PARTY N/4" sits inside the upper
+        // chrome stamped above nearby.
+        this.spriteHudPartyEnabled = partyVisible && cNearby != null;
+        this.spriteHudPartyX = (int)(nearbyX + 8);
+        this.spriteHudPartyW = (int)(nearbyW - 16);
+        this.spriteHudPartyY = (int)(partyY + 8);
     }
 
     // Sprite HUD — nearby panel position passed to renderNearbyPlayers().
@@ -2895,6 +2938,15 @@ public class PlayerUI {
     private int spriteHudNearbyPanelTop = 0;
     private int spriteHudNearbyPanelBottom = 0;
     private boolean spriteHudNearbyEnabled = false;
+    // Sprite HUD — second panel stamped above nearby for the party list.
+    private int spriteHudPartyX = 0;
+    private int spriteHudPartyY = 0;
+    private int spriteHudPartyW = 0;
+    private boolean spriteHudPartyEnabled = false;
+    /** When true, renderNearbyPlayers skips its internal renderPartyMembers
+     *  call so the caller can draw the party section in its own panel
+     *  chrome instead (sprite-HUD two-panel layout). */
+    private boolean suppressInternalParty = false;
 
     /** Move the inventory or groundLoot slot's {@link Button} to a new screen
      *  position so existing click/right-click handlers fire at the sprite-HUD
