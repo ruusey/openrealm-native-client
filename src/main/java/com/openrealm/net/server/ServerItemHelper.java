@@ -213,7 +213,7 @@ public class ServerItemHelper {
         } else if (fromIsGroundLoot) {
             LootContainer nearLoot = mgr.getClosestLootContainer(realm.getRealmId(), player.getPos(), 32, player.getId());
             if (nearLoot != null) {
-                int lootIdx = fromIdx - 20;
+                int lootIdx = fromIdx - MoveItemPacket.groundLootBase();
                 if (lootIdx >= 0 && lootIdx < nearLoot.getItems().length) {
                     from = nearLoot.getItems()[lootIdx];
                 }
@@ -332,13 +332,14 @@ public class ServerItemHelper {
             }
             player.getInventory()[targetIdx] = from.clone();
 
-        // Ground loot pickup (fromSlot 20-27)
+        // Ground loot pickup. Wire indices are GROUND_LOOT_IDX (21..28);
+        // translate to a 0-based array index via groundLootBase().
         } else if (MoveItemPacket.isGroundLoot(fromIdx)) {
             final LootContainer nearLoot = mgr.getClosestLootContainer(realm.getRealmId(), player.getPos(),
                     (int)(player.getSize() * 0.75), player.getId());
             if (nearLoot == null) return;
 
-            int lootIdx = fromIdx - 20;
+            int lootIdx = fromIdx - MoveItemPacket.groundLootBase();
             if (lootIdx < 0 || lootIdx >= nearLoot.getItems().length) return;
 
             final GameItem lootItem = nearLoot.getItems()[lootIdx];

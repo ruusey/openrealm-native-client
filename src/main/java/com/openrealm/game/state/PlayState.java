@@ -1778,38 +1778,78 @@ public class PlayState extends GameState {
             shapes.rect(wx, mpY, barW * mpPct, barH);
         }
 
-        // Status effect icons stacked above each player's HP/MP bars +
-        // nameplate. Colored chips mirror webclient _drawStatusIcons
-        // (renderer.js ~3066): bottommost chip just above the name,
-        // additional effects stack upward. Color choices match the
-        // webclient palette so a player can identify the effect at a
-        // glance from either client.
+        // Status-effect chips stacked above each player's nameplate.
+        // Port of webclient _drawStatusIcons (renderer.js ~5512): 40x14
+        // pill-shaped chips, bottommost just above the head, additional
+        // effects stack upward. Chip BACKGROUND is drawn here (shapes
+        // pass); the abbreviation TEXT is drawn in a follow-up batch pass
+        // below so font.draw can lay glyphs over the colored body. Cache
+        // per-chip layout coords during this loop so the text pass
+        // doesn't have to recompute them.
+        final java.util.List<float[]> _statusChipLayout = new java.util.ArrayList<>();
+        final java.util.List<String>  _statusChipLabels = new java.util.ArrayList<>();
         for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
             final Short[] effs = rp.getEffectIds();
             if (effs == null) continue;
-            final int s = rp.getSize() > 0 ? rp.getSize() : 32;
+            final int sSize = rp.getSize() > 0 ? rp.getSize() : 32;
             // Same render-anchor as the HP/MP bars and nameplate above
             // so status icons don't oscillate against the moving sprite.
             final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
             final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
-            // ~16 px below the HP/MP/name stack: HP at wy-10, MP at
-            // wy-6, name centered around wy-15. Iconize from wy-22 down
-            // (smaller y = visually higher in this projection).
-            float iconY = wy - 22;
-            final float iconW = s * 0.9f;
-            final float iconH = 4f;
-            final float iconGap = 1f;
-            final float iconX = wx + (s - iconW) * 0.5f;
+            // Chip size matches webclient: 40x14 with a 2px gap.
+            final float iconW = 40f;
+            final float iconH = 14f;
+            final float iconGap = 2f;
+            final float iconX = wx + (sSize * 0.5f) - (iconW * 0.5f);
+            final float bottomY = wy - 22f; // just above the HP bar / name
+            int activeIdx = 0;
             for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
                 if (!hasEffectId(effs, def.effectId)) continue;
+                // bottommost chip is idx 0, additional effects stack upward
+                // (Y-up in libGDX: -Y in our flipped world cam → "upward").
+                final float chipY = bottomY - (activeIdx + 1) * (iconH + iconGap);
+                // Black border + drop shadow for legibility
                 shapes.setColor(0f, 0f, 0f, 0.85f);
-                shapes.rect(iconX - 1, iconY - 1, iconW + 2, iconH + 2);
-                shapes.setColor(def.r, def.g, def.b, 0.95f);
-                shapes.rect(iconX, iconY, iconW, iconH);
-                iconY -= (iconH + iconGap);
+                shapes.rect(iconX - 1, chipY - 1, iconW + 2, iconH + 2);
+                // Coloured body (effect identity)
+                shapes.setColor(def.r, def.g, def.b, 0.92f);
+                shapes.rect(iconX, chipY, iconW, iconH);
+                // Highlight strip along the top edge for polish
+                shapes.setColor(1f, 1f, 1f, 0.18f);
+                shapes.rect(iconX + 1, chipY + iconH - 4f, iconW - 2, 3f);
+                _statusChipLayout.add(new float[] { iconX, chipY, iconW, iconH });
+                _statusChipLabels.add(def.label);
+                activeIdx++;
             }
         }
         shapes.end();
+
+        // Status-chip label pass — draw abbreviations centered inside
+        // each chip we just painted. Smaller-than-default scale so the
+        // 4-char labels fit inside a 40-wide chip.
+        if (!_statusChipLayout.isEmpty()) {
+            batch.begin();
+            final float prevScale = font.getData().scaleX;
+            font.getData().setScale(0.45f);
+            for (int idx = 0; idx < _statusChipLayout.size(); idx++) {
+                final float[] r = _statusChipLayout.get(idx);
+                final String label = _statusChipLabels.get(idx);
+                this.nameLayoutScratch.setText(font, label);
+                font.setColor(Color.WHITE);
+                // libGDX uses a flipped ortho, so font.draw y argument is
+                // the top of the glyph baseline — center text vertically
+                // by aligning baseline to chip middle + half text height.
+                final float tx = r[0] + (r[2] - this.nameLayoutScratch.width) * 0.5f;
+                final float ty = r[1] + (r[3] + this.nameLayoutScratch.height) * 0.5f;
+                font.draw(batch, this.nameLayoutScratch, tx, ty);
+            }
+            font.getData().setScale(prevScale);
+            font.setColor(Color.WHITE);
+            batch.end();
+            // Leave shapes ENDED to match the original flow that the
+            // following renderVisualEffects pass expects (it manages its
+            // own begin/end pairs).
+        }
 
         // Pass 5: Visual ability effects (rings, arcs, particles)
         this.renderVisualEffects(shapes);
@@ -2157,48 +2197,53 @@ public class PlayState extends GameState {
      */
     private static final class StatusEffectIconDef {
         final short effectId;
+        final String label;
         final float r, g, b;
-        StatusEffectIconDef(short effectId, int rgb) {
+        StatusEffectIconDef(short effectId, String label, int rgb) {
             this.effectId = effectId;
+            this.label = label;
             this.r = ((rgb >> 16) & 0xFF) / 255f;
             this.g = ((rgb >>  8) & 0xFF) / 255f;
             this.b = ( rgb        & 0xFF) / 255f;
         }
     }
 
+    /** Labels MUST match webclient renderer.js STATUS_ICON_DEFS so a
+     *  player can read the same chip text on either client. Suffix
+     *  convention: '+' = buff modifier up, '-' = debuff modifier down. */
     private static final StatusEffectIconDef[] STATUS_ICON_DEFS = new StatusEffectIconDef[] {
-        new StatusEffectIconDef(StatusEffectType.HEALING.effectId,      0xFF4444),
-        new StatusEffectIconDef(StatusEffectType.SPEEDY.effectId,       0x44FF44),
-        new StatusEffectIconDef(StatusEffectType.BERSERK.effectId,      0xFF6644),
-        new StatusEffectIconDef(StatusEffectType.DAMAGING.effectId,     0xFFAA44),
-        new StatusEffectIconDef(StatusEffectType.ARMORED.effectId,      0x6688CC),
-        new StatusEffectIconDef(StatusEffectType.INVINCIBLE.effectId,   0x44AAFF),
-        new StatusEffectIconDef(StatusEffectType.INVISIBLE.effectId,    0xCCBB88),
-        new StatusEffectIconDef(StatusEffectType.SLOWED.effectId,       0x6688FF),
-        new StatusEffectIconDef(StatusEffectType.PARALYZED.effectId,    0x888888),
-        new StatusEffectIconDef(StatusEffectType.STUNNED.effectId,      0x88CCFF),
-        new StatusEffectIconDef(StatusEffectType.STASIS.effectId,       0x444448),
-        new StatusEffectIconDef(StatusEffectType.DAZED.effectId,        0x9988AA),
-        new StatusEffectIconDef(StatusEffectType.POISONED.effectId,     0x40CC40),
-        new StatusEffectIconDef(StatusEffectType.CURSED.effectId,       0xAA2255),
-        new StatusEffectIconDef(StatusEffectType.ARMOR_BROKEN.effectId, 0x7060CC),
+        new StatusEffectIconDef(StatusEffectType.HEALING.effectId,      "Heal",   0xFF4444),
+        new StatusEffectIconDef(StatusEffectType.SPEEDY.effectId,       "Spd+",   0x44FF44),
+        new StatusEffectIconDef(StatusEffectType.BERSERK.effectId,      "Aspd+",  0xFF6644),
+        new StatusEffectIconDef(StatusEffectType.DAMAGING.effectId,     "Atk+",   0xFFAA44),
+        new StatusEffectIconDef(StatusEffectType.ARMORED.effectId,      "Armr+",  0x6688CC),
+        new StatusEffectIconDef(StatusEffectType.INVINCIBLE.effectId,   "Invuln", 0x44AAFF),
+        new StatusEffectIconDef(StatusEffectType.INVISIBLE.effectId,    "Hide",   0xCCBB88),
+        new StatusEffectIconDef(StatusEffectType.SLOWED.effectId,       "Slow",   0x6688FF),
+        new StatusEffectIconDef(StatusEffectType.PARALYZED.effectId,    "Para",   0x888888),
+        new StatusEffectIconDef(StatusEffectType.STUNNED.effectId,      "Stun",   0x88CCFF),
+        new StatusEffectIconDef(StatusEffectType.STASIS.effectId,       "Stasis", 0x444448),
+        new StatusEffectIconDef(StatusEffectType.DAZED.effectId,        "Daze",   0x9988AA),
+        new StatusEffectIconDef(StatusEffectType.POISONED.effectId,     "Pois",   0x40CC40),
+        new StatusEffectIconDef(StatusEffectType.CURSED.effectId,       "Curse",  0xAA2255),
+        new StatusEffectIconDef(StatusEffectType.ARMOR_BROKEN.effectId, "Armr-",  0x7060CC),
         // Phase 3 — class kit statuses added during the combat rework.
-        new StatusEffectIconDef(StatusEffectType.TAUNT_TARGET.effectId, 0xC8201F),
-        new StatusEffectIconDef(StatusEffectType.BRACED.effectId,       0x88AACC),
-        new StatusEffectIconDef(StatusEffectType.PROTECTED.effectId,    0xFFE070),
-        new StatusEffectIconDef(StatusEffectType.PHALANX_DOME.effectId, 0x6CCCFF),
+        new StatusEffectIconDef(StatusEffectType.TAUNT_TARGET.effectId, "Taunt",  0xC8201F),
+        new StatusEffectIconDef(StatusEffectType.BRACED.effectId,       "Def+",   0x88AACC),
+        new StatusEffectIconDef(StatusEffectType.PROTECTED.effectId,    "Vit+",   0xFFE070),
+        new StatusEffectIconDef(StatusEffectType.PHALANX_DOME.effectId, "Dome",   0x6CCCFF),
         // Phase 3 (post-rework) expanded debuff palette.
-        new StatusEffectIconDef(StatusEffectType.WEAKEN.effectId,       0x8A5A30),
-        new StatusEffectIconDef(StatusEffectType.BLIND.effectId,        0x1A1A1A),
-        new StatusEffectIconDef(StatusEffectType.WARDED.effectId,       0xC8C0FF),
-        new StatusEffectIconDef(StatusEffectType.MANA_FOUNT.effectId,   0x4080FF),
-        new StatusEffectIconDef(StatusEffectType.VULNERABLE.effectId,   0xCC4080),
-        new StatusEffectIconDef(StatusEffectType.GROUNDED.effectId,     0x806040),
-        new StatusEffectIconDef(StatusEffectType.MARKED_FOR_LOOT.effectId, 0xFFD840),
+        new StatusEffectIconDef(StatusEffectType.WEAKEN.effectId,       "Atk-",   0x8A5A30),
+        new StatusEffectIconDef(StatusEffectType.BLIND.effectId,        "Blind",  0x1A1A1A),
+        new StatusEffectIconDef(StatusEffectType.WARDED.effectId,       "Ward",   0xC8C0FF),
+        new StatusEffectIconDef(StatusEffectType.MANA_FOUNT.effectId,   "MP+",    0x4080FF),
+        new StatusEffectIconDef(StatusEffectType.VULNERABLE.effectId,   "Vuln",   0xCC4080),
+        new StatusEffectIconDef(StatusEffectType.GROUNDED.effectId,     "Grnd",   0x806040),
+        new StatusEffectIconDef(StatusEffectType.MARKED_FOR_LOOT.effectId, "Mark", 0xFFD840),
         // Heavy Buffer "Guiding Light" aura — split into two icons so ATT
         // and DEX each show as their own pip above the player's head.
-        new StatusEffectIconDef(StatusEffectType.EMPOWERED_ATT.effectId, 0xFFAA44),
-        new StatusEffectIconDef(StatusEffectType.EMPOWERED_DEX.effectId, 0xFFD060),
+        new StatusEffectIconDef(StatusEffectType.EMPOWERED_ATT.effectId, "Atk+",  0xFFAA44),
+        new StatusEffectIconDef(StatusEffectType.EMPOWERED_DEX.effectId, "Dex+",  0xFFD060),
     };
 
     private static boolean hasEffectId(Short[] effs, short eid) {

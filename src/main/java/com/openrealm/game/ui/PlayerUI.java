@@ -33,6 +33,7 @@ import com.openrealm.net.entity.NetInventorySelection;
 import com.openrealm.net.entity.NetTradeSelection;
 import com.openrealm.net.messaging.CommandType;
 import com.openrealm.net.messaging.ServerCommandMessage;
+import com.openrealm.net.server.packet.MoveItemPacket;
 import com.openrealm.net.server.packet.PotionStorageMovePacket;
 import com.openrealm.net.server.packet.SplitStackPacket;
 import com.openrealm.net.server.packet.CommandPacket;
@@ -314,19 +315,54 @@ public class PlayerUI {
     }
 
     public void setEquipment(GameItem[] loot) {
-        this.inventory = new Slots[Player.INVENTORY_SIZE];
-
-        // Load all 21 slots (5 equipment + 16 inventory). Phase 1B (combat
-        // rework) bumped equipment from 4 to 5 slots: weapon, armor,
-        // gauntlets, boots, ring. Backpack starts at index EQUIPMENT_SLOT_COUNT.
+        // CRITICAL: do NOT recreate the inventory array on every UpdatePacket.
+        // UpdatePackets fire at 5 Hz from the server; the old `this.inventory
+        // = new Slots[...]` blew away every Button's bounds + clicked state
+        // mid-click, so press→release transitions for click/drag/right-click
+        // were silently lost (user reported "can't pick up loot / drag items
+        // / shift-drop is broken" on the native client). Same defect was
+        // already fixed for ground loot in setGroundLoot — we mirror that
+        // pattern here:
+        //   - empty → empty:    keep null
+        //   - empty → populated: build a fresh Slots + Button
+        //   - populated → empty: drop the slot (button + handlers go away)
+        //   - populated → populated: KEEP existing Button (preserves bounds
+        //     reposition done by renderSpriteHud + the click state machine),
+        //     just swap the item field. This is the equivalent of the
+        //     webclient updating the slot's <img>/dataset without ripping
+        //     down the <div>.
+        if (this.inventory == null || this.inventory.length != Player.INVENTORY_SIZE) {
+            this.inventory = new Slots[Player.INVENTORY_SIZE];
+        }
         final int eq = Player.EQUIPMENT_SLOT_COUNT;
-        final int equipEnd = Math.min(eq, loot.length);
-        final int invEnd   = Math.min(Player.INVENTORY_SIZE, loot.length);
-        GameItem[] equipmentArr = Arrays.copyOfRange(loot, 0, equipEnd);
-        GameItem[] inventoryArr = invEnd > eq ? Arrays.copyOfRange(loot, eq, invEnd) : new GameItem[0];
-
-        this.buildEquipmentSlots(equipmentArr);
-        this.buildInventorySlots(inventoryArr);
+        final int total = Math.min(Player.INVENTORY_SIZE, loot != null ? loot.length : 0);
+        // For each slot, decide rebuild vs swap.
+        for (int i = 0; i < this.inventory.length; i++) {
+            final GameItem next = (i < total) ? loot[i] : null;
+            final boolean nextEmpty = (next == null || next.getItemId() == -1);
+            final Slots existing = this.inventory[i];
+            if (nextEmpty) {
+                // Item left this slot — drop the Slots so its Button stops
+                // hit-testing. Without this an empty slot would still pick
+                // up clicks from the ghost button of the previous item.
+                this.inventory[i] = null;
+                continue;
+            }
+            if (existing == null) {
+                // Empty → populated: build the appropriate button. Equipment
+                // (0..eq-1) vs backpack (eq..INVENTORY_SIZE-1) take different
+                // handlers — buildEquipmentSlotButton vs buildInventorySlotsButton.
+                if (i < eq) {
+                    this.buildEquipmentSlotButton(i, next);
+                } else {
+                    this.buildInventorySlotsButton(i - eq, next);
+                }
+            } else {
+                // Populated → populated: swap the item, keep the Button so
+                // in-progress click/drag state survives the UpdatePacket.
+                existing.setItem(next);
+            }
+        }
     }
 
     public void setGroundLoot(GameItem[] loot) {
@@ -493,12 +529,19 @@ public class PlayerUI {
                 if (!this.canSwap()) return;
                 this.setActionTime();
                 // Mirror webclient onSlotClick: just send moveItem with
-                // target=4 and let the server's ground-loot branch route
-                // it via firstEmptyInvSlot() — covers BAG 1 + BAG 2,
-                // potions, and stack merging.
+                // target=first-backpack-slot and let the server's
+                // ground-loot branch route it via firstEmptyInvSlot() —
+                // covers BAG 1 + BAG 2, potions, and stack merging.
+                // Wire protocol (Phase 1B): ground loot is indices
+                // [21..28] (MoveItemPacket.GROUND_LOOT_IDX). The stale
+                // `+ 20` offset sent fromIdx=20 (last backpack) for the
+                // first loot item, which the server rejected as
+                // "invalid from slot" → every loot click was a no-op.
+                final int wireFromIdx = actualIdx + MoveItemPacket.groundLootBase();
+                final byte wireTargetSlot = (byte) Player.EQUIPMENT_SLOT_COUNT;
                 try {
-                    this.playState.getRealmManager().moveItem((byte) 4, actualIdx + 20, false, false);
-                    log.info("[loot-click] moveItem sent (target=4 from={})", actualIdx + 20);
+                    this.playState.getRealmManager().moveItem(wireTargetSlot, wireFromIdx, false, false);
+                    log.info("[loot-click] moveItem sent (target={} from={})", wireTargetSlot, wireFromIdx);
                 } catch (Exception e) {
                     log.warn("[loot-click] moveItem failed for slot {} item {}: {}",
                             actualIdx, item != null ? item.getItemId() : -1, e.getMessage());
@@ -552,7 +595,13 @@ public class PlayerUI {
 
     private void buildInventorySlotsButton(int index, GameItem item) {
         this.recomputeLayout();
-        final int inventoryOffset = 4;
+        // Phase 1B (combat rework) grew equipment from 4 → 5 slots. This
+        // offset MUST match Player.EQUIPMENT_SLOT_COUNT and the wire
+        // protocol in MoveItemPacket (backpack starts at index 5). The
+        // stale `= 4` here was the root cause behind every backpack click
+        // mapping to the wrong slot — right-click drop in the first
+        // backpack cell was actually dropping the ring, etc.
+        final int inventoryOffset = Player.EQUIPMENT_SLOT_COUNT;
 
         if (item != null) {
             final int actualIdx = index + inventoryOffset;
@@ -939,7 +988,8 @@ public class PlayerUI {
     }
 
     /** Lazy-construct the 8 click-targets that overlay my-side trade
-     *  cells. Click toggles selection on inventory[i + 4] and fires
+     *  cells. Click toggles selection on inventory[i + EQUIPMENT_SLOT_COUNT]
+     *  (= the first 8 backpack slots — BAG 1) and fires
      *  UpdatePlayerTradeSelectionPacket. Position is updated each frame
      *  by {@link #renderTradeUI}. */
     private void ensureTradeMyButtons(int leftX, int bodyY, UiComponent cInv) {
@@ -949,7 +999,7 @@ public class PlayerUI {
         final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
         final int cellW = (cells != null && cells.length > 0) ? cells[0][2] * s : SLOT_SIZE;
         for (int i = 0; i < 8; i++) {
-            final int slotIdx = i + 4;
+            final int slotIdx = i + Player.EQUIPMENT_SLOT_COUNT;
             final Button b = new Button(new Vector2f(0, 0), cellW);
             // onMouseDown so the toggle fires ONCE per click cycle —
             // onMouseUp fires twice (press + release), which toggled
@@ -1476,7 +1526,8 @@ public class PlayerUI {
                 final float cy = bodyY + (c[1] - cInv.getY()) * s;
                 final float cw = c[2] * s;
                 final float ch = c[3] * s;
-                final Slots slot = (i + 4 < this.inventory.length) ? this.inventory[i + 4] : null;
+                final int slotIdx = i + Player.EQUIPMENT_SLOT_COUNT;
+                final Slots slot = (slotIdx < this.inventory.length) ? this.inventory[slotIdx] : null;
                 final GameItem item = (slot != null) ? slot.getItem() : null;
                 final boolean selected = slot != null && slot.isSelected();
                 this.drawTradeSlot(batch, shapes, cx, cy, cw, ch, item, selected);
@@ -1502,7 +1553,9 @@ public class PlayerUI {
                 final float cy = bodyY  + (c[1] - cInv.getY()) * s;
                 final float cw = c[2] * s;
                 final float ch = c[3] * s;
-                final GameItem item = (theirItems != null && i + 4 < theirItems.length) ? theirItems[i + 4] : null;
+                final int partnerSlotIdx = i + Player.EQUIPMENT_SLOT_COUNT;
+                final GameItem item = (theirItems != null && partnerSlotIdx < theirItems.length)
+                        ? theirItems[partnerSlotIdx] : null;
                 // Partner's selection is keyed 0..7 (server uses bag-1
                 // relative indices); our flags array matches that.
                 final boolean sel = (theirFlags != null && i < theirFlags.length
@@ -2314,7 +2367,11 @@ public class PlayerUI {
                 for (int i = 0; i < this.groundLoot.length; i++) {
                     Slots slot = this.groundLoot[i];
                     if (slot != null && slot.getDragPos() != null && slot.getItem() != null) {
-                        this.dragSourceIndex = i + 20;
+                        // Wire protocol: ground loot is GROUND_LOOT_IDX
+                        // = [21..28]. Was `i + 20` which collided with
+                        // backpack[15] (slot 20) AND produced server-
+                        // rejected fromIdx values for all loot picks.
+                        this.dragSourceIndex = i + MoveItemPacket.groundLootBase();
                         this.dragStartPos = new Vector2f(mouseX, mouseY);
                         break;
                     }
@@ -2344,29 +2401,98 @@ public class PlayerUI {
         }
     }
 
+    /**
+     * Hit-test a screen point against every slot rectangle (including
+     * empty slots) and return the slot's WIRE PROTOCOL index, or -1 for
+     * nothing-hit. Wire layout (per MoveItemPacket): equipment 0..4,
+     * backpack 5..20, ground loot 21..28.
+     *
+     * Sprite-HUD uses the atlas grid cells; each panel anchor is cached
+     * by renderSpriteHud so we can compute the cell rect for empty slots
+     * (which have no Button to interrogate). Falls back to the legacy
+     * sidebar layout when the atlas isn't ready yet — that path uses the
+     * pre-Phase-1B 4-equip/8-backpack/8-loot sidebar.
+     */
     private int findSlotAtPositionByLayout(int mouseX, int mouseY) {
         this.recomputeLayout();
+
+        if (UiAtlas.isReady() && this.spriteHudInvOnlyX > 0 && this.spriteHudEquipStatsX > 0) {
+            final int s = UiAtlas.getDisplayScale();
+            final UiComponent cEquipStats = UiAtlas.componentOf("panel.hud.equipment_with_stats");
+            // Equipment row (5 slots, indices 0..4 on the wire).
+            if (cEquipStats != null) {
+                for (int i = 0; i < Player.EQUIPMENT_SLOT_COUNT; i++) {
+                    final UiComponent eq = UiAtlas.componentOf("panel.hud.equipment_with_stats." + i);
+                    if (eq == null) continue;
+                    final int ex = (int)(this.spriteHudEquipStatsX + (eq.getX() - cEquipStats.getX()) * s);
+                    final int ey = (int)(this.spriteHudEquipStatsY + (eq.getY() - cEquipStats.getY()) * s);
+                    final int ew = (int)(eq.getW() * s);
+                    final int eh = (int)(eq.getH() * s);
+                    if (mouseX >= ex && mouseX < ex + ew && mouseY >= ey && mouseY < ey + eh) {
+                        return i;
+                    }
+                }
+            }
+            // Backpack grid (16 cells, indices 5..20 on the wire).
+            final UiComponent cInvOnly = UiAtlas.componentOf("panel.hud.inv_only");
+            final int[][] invCells = UiAtlas.gridCells("panel.hud.inv_only.grid");
+            if (cInvOnly != null && invCells != null) {
+                final int backpackBase = Player.EQUIPMENT_SLOT_COUNT;
+                for (int i = 0; i < invCells.length; i++) {
+                    final int[] cell = invCells[i];
+                    final int cx = (int)(this.spriteHudInvOnlyX + (cell[0] - cInvOnly.getX()) * s);
+                    final int cy = (int)(this.spriteHudInvOnlyY + (cell[1] - cInvOnly.getY()) * s);
+                    final int cw = (int)(cell[2] * s);
+                    final int ch = (int)(cell[3] * s);
+                    if (mouseX >= cx && mouseX < cx + cw && mouseY >= cy && mouseY < cy + ch) {
+                        return backpackBase + i;
+                    }
+                }
+            }
+            // Ground-loot grid (up to 8 cells, indices 21..28 on the wire).
+            final UiComponent cInvExt = UiAtlas.componentOf("panel.hud.inv_ext");
+            final int[][] lootCells = UiAtlas.gridCells("panel.hud.inv_ext.grid");
+            if (cInvExt != null && lootCells != null
+                    && this.spriteHudInvExtX > 0 && this.spriteHudInvExtY > 0) {
+                final int groundBase = MoveItemPacket.groundLootBase();
+                for (int i = 0; i < lootCells.length; i++) {
+                    final int[] cell = lootCells[i];
+                    final int cx = (int)(this.spriteHudInvExtX + (cell[0] - cInvExt.getX()) * s);
+                    final int cy = (int)(this.spriteHudInvExtY + (cell[1] - cInvExt.getY()) * s);
+                    final int cw = (int)(cell[2] * s);
+                    final int ch = (int)(cell[3] * s);
+                    if (mouseX >= cx && mouseX < cx + cw && mouseY >= cy && mouseY < cy + ch) {
+                        return groundBase + i;
+                    }
+                }
+            }
+            return -1;
+        }
+
+        // Legacy sidebar fallback. Pre-Phase-1B layout (4 equipment, 2 bag
+        // rows of 4, 2 loot rows of 4). Kept so the game still renders if
+        // the atlas fails to load. Indices match the wire protocol where
+        // possible — equipment 0..4 (only 4 hit-tested), backpack 5..12
+        // (only 8 hit-tested via i+5), ground loot 21..28.
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
         if (mouseX < startX || mouseX > OpenRealmGame.width) return -1;
-
-        // Find which slot column the cursor is over by hit-testing each
-        // possible column rect (slotX is non-uniform vs startX since we
-        // center the row inside the panel).
         int col = -1;
         for (int c = 0; c < 4; c++) {
             int sx = this.slotX(c);
             if (mouseX >= sx && mouseX < sx + SLOT_SIZE) { col = c; break; }
         }
         if (col < 0) return -1;
-
         if (mouseY >= this.layoutEquipY && mouseY < this.layoutEquipY + SLOT_SIZE) return col;
-        if (mouseY >= this.layoutBag1Y  && mouseY < this.layoutBag1Y  + SLOT_SIZE) return 4 + col;
-        if (mouseY >= this.layoutBag2Y  && mouseY < this.layoutBag2Y  + SLOT_SIZE) return 8 + col;
+        if (mouseY >= this.layoutBag1Y  && mouseY < this.layoutBag1Y  + SLOT_SIZE)
+            return Player.EQUIPMENT_SLOT_COUNT + col;
+        if (mouseY >= this.layoutBag2Y  && mouseY < this.layoutBag2Y  + SLOT_SIZE)
+            return Player.EQUIPMENT_SLOT_COUNT + 4 + col;
         int gl0 = this.groundLootRowY(0);
         int gl1 = this.groundLootRowY(1);
-        if (mouseY >= gl0 && mouseY < gl0 + SLOT_SIZE) return 20 + col;
-        if (mouseY >= gl1 && mouseY < gl1 + SLOT_SIZE) return 24 + col;
+        final int groundBase = MoveItemPacket.groundLootBase();
+        if (mouseY >= gl0 && mouseY < gl0 + SLOT_SIZE) return groundBase + col;
+        if (mouseY >= gl1 && mouseY < gl1 + SLOT_SIZE) return groundBase + 4 + col;
         return -1;
     }
 
@@ -2382,7 +2508,7 @@ public class PlayerUI {
         // dropzones). Without this, drag-drop into the forge silently
         // fell through to executeDrop's normal swap path and the forge
         // slots stayed empty no matter what the player tried.
-        if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex <= 19) {
+        if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex <= 20) {
             final int mx = com.badlogic.gdx.Gdx.input.getX();
             final int my = com.badlogic.gdx.Gdx.input.getY();
             final Slots srcSlot = this.inventory[fromIndex];
@@ -2407,7 +2533,7 @@ public class PlayerUI {
         // Inventory→storage moves go through PotionStorageMovePacket, not
         // the normal MoveItemPacket pipeline, because the storage state
         // lives off-inventory on the server.
-        if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex <= 19) {
+        if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex <= 20) {
             final int mx = com.badlogic.gdx.Gdx.input.getX();
             final int my = com.badlogic.gdx.Gdx.input.getY();
             if (this.potionStorageWindow.tryAcceptDrop(mx, my, fromIndex)) {
@@ -2415,10 +2541,17 @@ public class PlayerUI {
             }
         }
 
-        boolean fromIsGround = fromIndex >= 20 && fromIndex <= 27;
-        boolean targetIsGround = targetIndex >= 20 && targetIndex <= 27;
-        boolean fromIsEquip = fromIndex >= 0 && fromIndex <= 3;
-        boolean targetIsEquip = targetIndex >= 0 && targetIndex <= 3;
+        // Wire protocol (Phase 1B): equipment 0..4 (5 slots), backpack
+        // 5..20, ground loot 21..28. Was stuck on the pre-Phase-1B 4-slot
+        // equipment layout — backpack[15] (slot 20) was classified as
+        // ground loot, and equipment[4] (ring) was classified as
+        // backpack. Both broke drag-drop on the affected slots.
+        boolean fromIsGround = fromIndex >= MoveItemPacket.groundLootBase()
+                && fromIndex < MoveItemPacket.groundLootBase() + 8;
+        boolean targetIsGround = targetIndex >= MoveItemPacket.groundLootBase()
+                && targetIndex < MoveItemPacket.groundLootBase() + 8;
+        boolean fromIsEquip = fromIndex >= 0 && fromIndex < Player.EQUIPMENT_SLOT_COUNT;
+        boolean targetIsEquip = targetIndex >= 0 && targetIndex < Player.EQUIPMENT_SLOT_COUNT;
 
         if (targetIndex == -1) {
             // Dropped outside any slot: drop item
@@ -2427,12 +2560,12 @@ public class PlayerUI {
             // Ground -> inventory/equip: pickup. HP/MP potions route to the
             // potion counters on the server; pinning targetSlot to a fixed
             // inventory index avoids the equip-validation path on slots 0-3.
-            final Slots srcSlot = this.groundLoot[fromIndex - 20];
+            final Slots srcSlot = this.groundLoot[fromIndex - MoveItemPacket.groundLootBase()];
             final GameItem srcItem = srcSlot != null ? srcSlot.getItem() : null;
             if (srcItem != null
                     && (srcItem.getItemId() == com.openrealm.game.entity.Player.HP_POTION_ITEM_ID
                      || srcItem.getItemId() == com.openrealm.game.entity.Player.MP_POTION_ITEM_ID)) {
-                this.playState.getRealmManager().moveItem(4, fromIndex, false, false);
+                this.playState.getRealmManager().moveItem(Player.EQUIPMENT_SLOT_COUNT, fromIndex, false, false);
             } else {
                 this.playState.getRealmManager().moveItem(targetIndex, fromIndex, false, false);
             }
@@ -2761,6 +2894,13 @@ public class PlayerUI {
         // ---- Pass 3: equipment slots (panel.hud.equipment_with_stats.0..4)
         //              + inventory grid (panel.hud.inv_only.grid). ----
         // Phase 1B: 5 equipment slots (weapon, armor, gauntlets, boots, ring).
+        // Cache panel origins so findSlotAtPositionByLayout (drop hit-test)
+        // can compute each slot's rectangle even when the slot is empty
+        // and has no Button to interrogate.
+        this.spriteHudEquipStatsX = (int) equipStatsX;
+        this.spriteHudEquipStatsY = (int) equipStatsY;
+        this.spriteHudInvOnlyX = (int) invOnlyX;
+        this.spriteHudInvOnlyY = (int) invOnlyY;
         for (int i = 0; i < Player.EQUIPMENT_SLOT_COUNT; i++) {
             final UiComponent eq = UiAtlas.componentOf("panel.hud.equipment_with_stats." + i);
             if (eq == null) continue;
@@ -2948,6 +3088,17 @@ public class PlayerUI {
      *  instead of the legacy off-screen slotX/groundLootRowY. */
     private int spriteHudInvExtX = 0;
     private int spriteHudInvExtY = 0;
+    /** Cached sprite-HUD invOnly (backpack) panel coords — drop-zone
+     *  hit-testing in findSlotAtPositionByLayout consults the atlas
+     *  grid cells relative to these to compute each backpack slot
+     *  rectangle, including empty slots that have no Button to
+     *  hit-test against. */
+    private int spriteHudInvOnlyX = 0;
+    private int spriteHudInvOnlyY = 0;
+    /** Cached sprite-HUD equipment-with-stats panel coords — same
+     *  reason as spriteHudInvOnly, but for the 5 equipment slots. */
+    private int spriteHudEquipStatsX = 0;
+    private int spriteHudEquipStatsY = 0;
     private int spriteHudNearbyPanelRight = 0; // outer chrome right edge — tooltip anchors here
     private int spriteHudNearbyPanelTop = 0;
     private int spriteHudNearbyPanelBottom = 0;
