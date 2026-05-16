@@ -1023,39 +1023,44 @@ public class TileManager {
                 boolean wW = wallSet.contains((row << 32) | ((col - 1) & 0xffffffffL));
                 boolean wE = wallSet.contains((row << 32) | ((col + 1) & 0xffffffffL));
 
+                // Wall extrusion bands. 6-8 thin 1px stripes per face instead
+                // of 3 chunky stripes — smoother alpha falloff so the wall→
+                // floor transition reads as a soft gradient instead of three
+                // discrete steps (which produced visible stair-step jaggies
+                // on diagonal wall layouts).
                 if (!wS) {
-                    int sideH = Math.max(Math.round(sz * 0.28f), 4);
-                    int bandH = Math.max(1, (int) Math.ceil(sideH / 3.0));
                     float xEnd = sz + (wE ? 0 : Math.round(sz * 0.18f));
-                    shapes.setColor(0f, 0f, 0f, 0.55f); shapes.rect(wx, wy + sz,             xEnd, bandH);
-                    shapes.setColor(0f, 0f, 0f, 0.32f); shapes.rect(wx, wy + sz + bandH,     xEnd, bandH);
-                    shapes.setColor(0f, 0f, 0f, 0.13f); shapes.rect(wx, wy + sz + 2 * bandH, xEnd, bandH);
+                    final float[] aS = { 0.55f, 0.46f, 0.36f, 0.27f, 0.20f, 0.14f, 0.09f, 0.05f };
+                    for (int k = 0; k < aS.length; k++) {
+                        shapes.setColor(0f, 0f, 0f, aS[k]);
+                        shapes.rect(wx, wy + sz + k, xEnd, 1);
+                    }
                 }
                 if (!wE) {
-                    int sideW = Math.max(Math.round(sz * 0.18f), 3);
-                    int bandW = Math.max(1, (int) Math.ceil(sideW / 3.0));
                     float startY = wy + (wN ? 0 : 2);
                     float h = (wy + sz) - startY;
-                    shapes.setColor(0f, 0f, 0f, 0.42f); shapes.rect(wx + sz,             startY, bandW, h);
-                    shapes.setColor(0f, 0f, 0f, 0.24f); shapes.rect(wx + sz + bandW,     startY, bandW, h);
-                    shapes.setColor(0f, 0f, 0f, 0.10f); shapes.rect(wx + sz + 2 * bandW, startY, bandW, h);
+                    final float[] aE = { 0.42f, 0.34f, 0.26f, 0.19f, 0.13f, 0.08f };
+                    for (int k = 0; k < aE.length; k++) {
+                        shapes.setColor(0f, 0f, 0f, aE[k]);
+                        shapes.rect(wx + sz + k, startY, 1, h);
+                    }
                 }
                 if (!wW) {
-                    int sideW = Math.max(Math.round(sz * 0.13f), 3);
-                    int bandW = Math.max(1, (int) Math.ceil(sideW / 3.0));
-                    shapes.setColor(0f, 0f, 0f, 0.32f); shapes.rect(wx - bandW,         wy, bandW, sz);
-                    shapes.setColor(0f, 0f, 0f, 0.18f); shapes.rect(wx - 2 * bandW,     wy, bandW, sz);
-                    shapes.setColor(0f, 0f, 0f, 0.08f); shapes.rect(wx - 3 * bandW,     wy, bandW, sz);
+                    final float[] aW = { 0.32f, 0.26f, 0.20f, 0.14f, 0.09f, 0.05f };
+                    for (int k = 0; k < aW.length; k++) {
+                        shapes.setColor(0f, 0f, 0f, aW[k]);
+                        shapes.rect(wx - 1 - k, wy, 1, sz);
+                    }
                 }
                 if (!wN) {
-                    int sideH = Math.max(Math.round(sz * 0.12f), 3);
-                    int bandH = Math.max(1, (int) Math.ceil(sideH / 3.0));
                     float xStart = wx + (wW ? 0 : 2);
                     float xEnd   = wx + sz - (wE ? 0 : 2);
                     float w = xEnd - xStart;
-                    shapes.setColor(0f, 0f, 0f, 0.28f); shapes.rect(xStart, wy - bandH,         w, bandH);
-                    shapes.setColor(0f, 0f, 0f, 0.15f); shapes.rect(xStart, wy - 2 * bandH,     w, bandH);
-                    shapes.setColor(0f, 0f, 0f, 0.06f); shapes.rect(xStart, wy - 3 * bandH,     w, bandH);
+                    final float[] aN = { 0.28f, 0.22f, 0.16f, 0.11f, 0.07f, 0.04f };
+                    for (int k = 0; k < aN.length; k++) {
+                        shapes.setColor(0f, 0f, 0f, aN[k]);
+                        shapes.rect(xStart, wy - 1 - k, w, 1);
+                    }
                 }
             }
             shapes.end();
@@ -1148,22 +1153,26 @@ public class TileManager {
     }
 
     /**
-     * Multi-strip texture-blend at base-tile type boundaries. For each
-     * in-sight base tile that has a different-type cardinal neighbor,
-     * emits 3 thin SpriteBatch.draw() calls using the NEIGHBOR'S sprite,
-     * with alpha falloff. The result is the neighbor's terrain visibly
-     * "bleeding" into this tile at the seam — real texture blending,
-     * not a darkening vignette. Mirrors the webclient PASS 1.5 loop.
-     * Stays inside the active SpriteBatch so we don't pay a state swap.
+     * Multi-strip texture-blend at base-tile type boundaries with per-
+     * segment RANDOM DEPTH. Each seam is split into SEAM_SEGMENTS narrow
+     * segments along its length; each segment gets a deterministic
+     * pseudo-random depth multiplier seeded by (col,row,segment,side)
+     * — same value every frame so the seam doesn't shimmer, but each
+     * segment varies independently so the seam looks irregular and
+     * organic instead of three clean uniform stripes (which read as
+     * "banding" at high-contrast terrain boundaries).
+     * Stays inside the active SpriteBatch (no state swap).
      */
     private void drawTileSeams(SpriteBatch batch, Vector2f posNormalized,
             float radiusSq, int ts, int mapW, int mapH) {
-        final int seamBand = Math.max(1, (int) Math.ceil(ts * 0.22f / 3.0));
-        final float[] stripeAlphas = { 0.55f, 0.32f, 0.13f };
+        final float[] stripeAlphas = { 0.62f, 0.36f, 0.15f };
         final int xMin = (int) (posNormalized.x - VIEWPORT_TILE_MIN);
         final int xMax = (int) (posNormalized.x + VIEWPORT_TILE_MIN);
         final int yMin = (int) (posNormalized.y - VIEWPORT_TILE_MIN);
         final int yMax = (int) (posNormalized.y + VIEWPORT_TILE_MIN);
+        final int segCount = 8;
+        final int baseDepthPx = Math.max(3, Math.round(ts * 0.26f));
+        final int segLen = Math.max(2, ts / segCount);
         final Object[][] baseBlocks = this.mapLayers.get(0).getBlocks();
         for (int x = xMin; x < xMax; x++) {
             for (int y = yMin; y < yMax; y++) {
@@ -1185,37 +1194,70 @@ public class TileManager {
                 if (!(dN || dS || dW || dE)) continue;
                 final float wx = here.getPos().getWorldVar().x;
                 final float wy = here.getPos().getWorldVar().y;
-                if (dN) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tN);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx, wy + k * seamBand, ts, seamBand);
-                    }
-                }
-                if (dS) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tS);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx, wy + ts - (k + 1) * seamBand, ts, seamBand);
-                    }
-                }
-                if (dW) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tW);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx + k * seamBand, wy, seamBand, ts);
-                    }
-                }
-                if (dE) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tE);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx + ts - (k + 1) * seamBand, wy, seamBand, ts);
-                    }
-                }
+                if (dN) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tN),
+                        x, y, 1, segCount, segLen, baseDepthPx, stripeAlphas, ts,
+                        SeamSide.NORTH, wx, wy);
+                if (dS) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tS),
+                        x, y, 2, segCount, segLen, baseDepthPx, stripeAlphas, ts,
+                        SeamSide.SOUTH, wx, wy);
+                if (dW) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tW),
+                        x, y, 3, segCount, segLen, baseDepthPx, stripeAlphas, ts,
+                        SeamSide.WEST, wx, wy);
+                if (dE) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tE),
+                        x, y, 4, segCount, segLen, baseDepthPx, stripeAlphas, ts,
+                        SeamSide.EAST, wx, wy);
             }
         }
         batch.setColor(1f, 1f, 1f, 1f);
+    }
+
+    private enum SeamSide { NORTH, SOUTH, WEST, EAST }
+
+    /**
+     * Emit the per-segment randomized fringe for one side of a tile. Each
+     * segment along the edge gets a depth = baseDepth * [0.35..1.40] so
+     * adjacent segments have visibly different fringe depths, breaking the
+     * banded look.
+     */
+    private void drawSeamFringe(SpriteBatch batch, TextureRegion tex,
+            int col, int row, int sideId, int segCount, int segLen,
+            int baseDepth, float[] stripeAlphas, int ts, SeamSide side,
+            float wx, float wy) {
+        if (tex == null) return;
+        for (int s = 0; s < segCount; s++) {
+            final float rnd = seamHash(col, row, s, sideId);
+            final int depth = Math.max(1, Math.round(baseDepth * (0.35f + rnd * 1.05f)));
+            final int bh = Math.max(1, (int) Math.ceil(depth / 3.0));
+            final boolean lastSeg = (s == segCount - 1);
+            for (int k = 0; k < 3; k++) {
+                batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                switch (side) {
+                    case NORTH:
+                        batch.draw(tex, wx + s * segLen, wy + k * bh,
+                                lastSeg ? (ts - s * segLen) : segLen, bh);
+                        break;
+                    case SOUTH:
+                        batch.draw(tex, wx + s * segLen, wy + ts - (k + 1) * bh,
+                                lastSeg ? (ts - s * segLen) : segLen, bh);
+                        break;
+                    case WEST:
+                        batch.draw(tex, wx + k * bh, wy + s * segLen,
+                                bh, lastSeg ? (ts - s * segLen) : segLen);
+                        break;
+                    case EAST:
+                        batch.draw(tex, wx + ts - (k + 1) * bh, wy + s * segLen,
+                                bh, lastSeg ? (ts - s * segLen) : segLen);
+                        break;
+                }
+            }
+        }
+    }
+
+    /** Cheap deterministic hash of (col, row, segment, side) -> [0..1]. */
+    private static float seamHash(int a, int b, int c, int d) {
+        int h = a * 374761393 + b * 668265263 + c * 2147483647 + d * 7919;
+        h ^= h >>> 13; h *= 1274126177; h ^= h >>> 16;
+        return ((h & 0xffff)) / 65535f;
     }
 
     /** Safe Tile.getTileId() lookup that returns 0 when the cell is null. */
