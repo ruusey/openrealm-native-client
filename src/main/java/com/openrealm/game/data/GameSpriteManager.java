@@ -65,6 +65,18 @@ public class GameSpriteManager {
     public static Map<String, Texture> TEXTURE_CACHE;
     public static Map<Integer, TextureRegion> TILE_SPRITES;
     public static Map<Integer, TextureRegion> ITEM_SPRITES;
+    /** Pre-baked seam-feather TextureRegions, indexed by tileId. Each
+     *  entry is a 4-element array [N, S, W, E] — the neighbor's pixels
+     *  with a linear-alpha gradient applied so when blitted as a seam
+     *  fringe it produces a smooth pixel-perfect blend with zero
+     *  banding. All variants share a single backing Texture (the
+     *  feather atlas), so SpriteBatch can batch every seam draw in
+     *  the per-frame seam pass into a single GL flush. Populated by
+     *  {@link #bakeTileFeathers()} once at boot. */
+    public static Map<Integer, TextureRegion[]> TILE_FEATHERS;
+    /** Backing Texture for all feather variants. Owned here so we can
+     *  dispose it on app shutdown. Created in bakeTileFeathers. */
+    public static Texture TILE_FEATHER_ATLAS;
     /** Source Pixmaps held in CPU memory parallel to the GPU textures
      *  in {@link #TEXTURE_CACHE}. SpriteRecolorCache reads from these
      *  to do per-pixel dye / enchantment work without having to re-
@@ -116,6 +128,146 @@ public class GameSpriteManager {
             subRegion.flip(false, true);
             GameSpriteManager.TILE_SPRITES.put(tileId, subRegion);
         }
+    }
+
+    /**
+     * Pre-bake seam-feather TextureRegions for every base tile, packed into
+     * a single shared atlas Texture so SpriteBatch can batch every per-
+     * frame seam draw into one GL flush. Each tile gets 4 variants (N/S/W/
+     * E); the variant contains the neighbor's pixels for that edge with a
+     * linear alpha gradient applied (opaque at the seam, transparent at
+     * the inner edge). Cost: ~10K pixel ops at boot. Replaces the
+     * runtime multi-stripe blend that produced visible banding and
+     * required 3 draws per seam side.
+     */
+    public static void bakeTileFeathers() {
+        if (TILE_SPRITES == null || PIXMAP_CACHE == null) return;
+        final float FEATHER_FRAC = 0.30f;
+
+        // Collect tiles that can be baked (have a source pixmap).
+        final List<Integer> tileIds = new ArrayList<>();
+        int maxRowW = 0;
+        int totalH = 0;
+        for (Integer tileId : GameDataManager.TILES.keySet()) {
+            final TileModel model = GameDataManager.TILES.get(tileId);
+            if (model == null) continue;
+            if (PIXMAP_CACHE.get(model.getSpriteKey()) == null) continue;
+            int sw = model.getSpriteSize();
+            int sh = model.getEffectiveSpriteHeight();
+            if (sw <= 0 || sh <= 0) continue;
+            int depthW = Math.max(2, Math.round(sw * FEATHER_FRAC));
+            int depthH = Math.max(2, Math.round(sh * FEATHER_FRAC));
+            // Per-tile atlas row: [N | S | W | E] laid horizontally.
+            int rowW = sw + sw + depthW + depthW;
+            int rowH = Math.max(sh, depthH);
+            maxRowW = Math.max(maxRowW, rowW);
+            totalH += rowH;
+            tileIds.add(tileId);
+        }
+        if (tileIds.isEmpty()) return;
+
+        final int atlasW = nextPow2(Math.max(32, maxRowW));
+        final int atlasH = nextPow2(Math.max(32, totalH));
+
+        final Pixmap atlas = new Pixmap(atlasW, atlasH, Pixmap.Format.RGBA8888);
+        atlas.setBlending(Pixmap.Blending.None);
+        atlas.setColor(0, 0, 0, 0);
+        atlas.fill();
+
+        TILE_FEATHERS = new HashMap<>();
+        int rowY = 0;
+        for (Integer tileId : tileIds) {
+            final TileModel model = GameDataManager.TILES.get(tileId);
+            final Pixmap srcPm = PIXMAP_CACHE.get(model.getSpriteKey());
+            final int sw = model.getSpriteSize();
+            final int sh = model.getEffectiveSpriteHeight();
+            final int srcX = model.getCol() * sw;
+            final int srcY = model.getRow() * sh;
+            final int depthW = Math.max(2, Math.round(sw * FEATHER_FRAC));
+            final int depthH = Math.max(2, Math.round(sh * FEATHER_FRAC));
+            final int rowH = Math.max(sh, depthH);
+            final TextureRegion[] variants = new TextureRegion[4];
+
+            // Lay out: [N at x=0, S at x=sw, W at x=2sw, E at x=2sw+depthW]
+            final int[] varAtlasX = { 0, sw, sw * 2, sw * 2 + depthW };
+            final int[] varW = { sw,    sw,    depthW, depthW };
+            final int[] varH = { depthH, depthH, sh,    sh     };
+            // Source sub-rect within the spritesheet:
+            //   N — neighbor's BOTTOM strip
+            //   S — neighbor's TOP strip
+            //   W — neighbor's RIGHT strip
+            //   E — neighbor's LEFT strip
+            final int[] varSrcOffX = { 0,             0,         sw - depthW, 0 };
+            final int[] varSrcOffY = { sh - depthH,   0,         0,           0 };
+
+            for (int dir = 0; dir < 4; dir++) {
+                final int outX = varAtlasX[dir];
+                final int outY = rowY;
+                final int w = varW[dir];
+                final int h = varH[dir];
+                final int sxOff = varSrcOffX[dir];
+                final int syOff = varSrcOffY[dir];
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        final int rgba = srcPm.getPixel(srcX + sxOff + x, srcY + syOff + y);
+                        // Linear alpha gradient: 1.0 at the seam edge,
+                        // 0.0 at the inner edge. Direction-specific.
+                        float t;
+                        switch (dir) {
+                            case 0: t = (float) y / (float) h; break;            // N: top opaque -> bottom transparent
+                            case 1: t = (float) (h - 1 - y) / (float) h; break;  // S: bottom opaque -> top transparent
+                            case 2: t = (float) x / (float) w; break;            // W: left opaque -> right transparent
+                            default: t = (float) (w - 1 - x) / (float) w; break; // E: right opaque -> left transparent
+                        }
+                        final int origA = rgba & 0xff;
+                        final int newA = Math.round(origA * (1f - t));
+                        final int outRgba = (rgba & 0xffffff00) | (newA & 0xff);
+                        atlas.drawPixel(outX + x, outY + y, outRgba);
+                    }
+                }
+                // Region is built against the atlas Texture (created
+                // below). The +true flip matches TILE_SPRITES so seams
+                // orient correctly when drawn via batch.draw under the
+                // Y-down world projection.
+                variants[dir] = new TextureRegion();
+                variants[dir].setRegion(outX, outY, w, h);
+                // Texture assigned after atlas Texture is created.
+            }
+            TILE_FEATHERS.put(tileId, variants);
+            rowY += rowH;
+        }
+
+        if (TILE_FEATHER_ATLAS != null) {
+            TILE_FEATHER_ATLAS.dispose();
+        }
+        TILE_FEATHER_ATLAS = new Texture(atlas);
+        TILE_FEATHER_ATLAS.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
+        atlas.dispose();
+
+        // Bind each TextureRegion to the atlas + flip Y. Have to do this
+        // after the Texture is created (TextureRegion needs a non-null
+        // Texture for the flip math to make sense).
+        for (TextureRegion[] variants : TILE_FEATHERS.values()) {
+            for (int dir = 0; dir < 4; dir++) {
+                final TextureRegion r = variants[dir];
+                final int rx = r.getRegionX();
+                final int ry = r.getRegionY();
+                final int rw = r.getRegionWidth();
+                final int rh = r.getRegionHeight();
+                r.setTexture(TILE_FEATHER_ATLAS);
+                r.setRegion(rx, ry, rw, rh);
+                r.flip(false, true);
+            }
+        }
+
+        log.info("[SPRITES] Baked tile feathers — {} tiles × 4 = {} variants in {}x{} atlas",
+                tileIds.size(), tileIds.size() * 4, atlasW, atlasH);
+    }
+
+    private static int nextPow2(int v) {
+        int p = 1;
+        while (p < v) p <<= 1;
+        return p;
     }
 
     public static SpriteSheet getSpriteSheet(SpriteModel spriteModel) {

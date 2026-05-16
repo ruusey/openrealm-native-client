@@ -1153,20 +1153,27 @@ public class TileManager {
     }
 
     /**
-     * Uniform 3-stripe texture-blend at base-tile type boundaries. For each
-     * in-sight base tile with a differing cardinal neighbor, emits 3 thin
-     * SpriteBatch.draw() calls per side using the NEIGHBOR'S sprite with
-     * alpha falloff (0.55 / 0.32 / 0.13). The neighbor terrain visibly
-     * bleeds into this tile at the seam — real texture blending. Stays
-     * inside the active SpriteBatch so we don't pay a state swap.
+     * Pre-baked feather seam-blend at base-tile type boundaries. For each
+     * in-sight base tile with a differing cardinal neighbor, draws ONE
+     * batch.draw per side using the pre-baked feather TextureRegion (the
+     * neighbor's pixels with a per-pixel linear alpha gradient baked in
+     * at boot). All feathers share a single backing Texture atlas so
+     * SpriteBatch batches every seam draw in this pass into one GL flush.
      *
-     * Per-segment randomization was tried and reverted — it both spiked
-     * draw counts and read as visual noise instead of natural blending.
+     * Was: 3 thin-stripe draws per side at fixed alpha steps (visible
+     * banding at high-contrast boundaries). Now: 1 draw per side with a
+     * smooth per-pixel alpha falloff. Net: same or fewer draws AND
+     * smoother visual.
      */
     private void drawTileSeams(SpriteBatch batch, Vector2f posNormalized,
             float radiusSq, int ts, int mapW, int mapH) {
-        final int seamBand = Math.max(1, (int) Math.ceil(ts * 0.22f / 3.0));
-        final float[] stripeAlphas = { 0.55f, 0.32f, 0.13f };
+        final Map<Integer, TextureRegion[]> feathers = GameSpriteManager.TILE_FEATHERS;
+        if (feathers == null) return;
+        // The feather TextureRegions were baked at SOURCE resolution
+        // (e.g. 8px tile -> 3px depth). When drawn at the rendered tile
+        // size (ts = 32px), we scale to ts × featherPx for proportional
+        // depth on screen.
+        final int featherPx = Math.max(2, Math.round(ts * 0.30f));
         final int xMin = (int) (posNormalized.x - VIEWPORT_TILE_MIN);
         final int xMax = (int) (posNormalized.x + VIEWPORT_TILE_MIN);
         final int yMin = (int) (posNormalized.y - VIEWPORT_TILE_MIN);
@@ -1193,36 +1200,23 @@ public class TileManager {
                 final float wx = here.getPos().getWorldVar().x;
                 final float wy = here.getPos().getWorldVar().y;
                 if (dN) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tN);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx, wy + k * seamBand, ts, seamBand);
-                    }
+                    final TextureRegion[] v = feathers.get(tN);
+                    if (v != null && v[0] != null) batch.draw(v[0], wx, wy,                       ts, featherPx);
                 }
                 if (dS) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tS);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx, wy + ts - (k + 1) * seamBand, ts, seamBand);
-                    }
+                    final TextureRegion[] v = feathers.get(tS);
+                    if (v != null && v[1] != null) batch.draw(v[1], wx, wy + ts - featherPx,      ts, featherPx);
                 }
                 if (dW) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tW);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx + k * seamBand, wy, seamBand, ts);
-                    }
+                    final TextureRegion[] v = feathers.get(tW);
+                    if (v != null && v[2] != null) batch.draw(v[2], wx, wy,                       featherPx, ts);
                 }
                 if (dE) {
-                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tE);
-                    if (tex != null) for (int k = 0; k < 3; k++) {
-                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                        batch.draw(tex, wx + ts - (k + 1) * seamBand, wy, seamBand, ts);
-                    }
+                    final TextureRegion[] v = feathers.get(tE);
+                    if (v != null && v[3] != null) batch.draw(v[3], wx + ts - featherPx, wy,      featherPx, ts);
                 }
             }
         }
-        batch.setColor(1f, 1f, 1f, 1f);
     }
 
     /** Safe Tile.getTileId() lookup that returns 0 when the cell is null. */
