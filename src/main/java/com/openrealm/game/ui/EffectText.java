@@ -16,7 +16,11 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class EffectText {
-    private static final float velY = -1.40f;
+    // Slowed ~15% (was -1.40f). Both the float-up speed AND the lifetime
+    // are driven by this single constant — animationDistance starts at 45
+    // and counts down by velY/tick, so a smaller magnitude buys longer
+    // read time without changing the visual range.
+    private static final float velY = -1.20f;
 
     private Vector2f sourcePos;
     private TextEffect effect;
