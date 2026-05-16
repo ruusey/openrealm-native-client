@@ -217,6 +217,17 @@ public class GameLauncher {
         config.setResizable(true);
         config.useVsync(true);
         config.setForegroundFPS(144);
+        // 4× MSAA on the back buffer. Catches geometric edges drawn through
+        // ShapeRenderer (wall extrusion bands, healthbars, tile-seam
+        // vignettes) and any rotated sprite quads. Doesn't anti-alias the
+        // INSIDE of nearest-neighbor sprite textures — that's preserved
+        // pixel art and we want it crisp — but it kills the per-pixel
+        // jaggies that show up on any straight line rendered at a
+        // non-orthogonal angle. Sample count 4 is the modern sweet spot
+        // for cost vs quality.
+        // Lwjgl3BufferConfig args: rBits, gBits, bBits, aBits, depthBits,
+        // stencilBits, samples — defaults are 8/8/8/8/16/0/0.
+        config.setBackBufferConfig(8, 8, 8, 8, 16, 0, 4);
         // OS window / taskbar icon. setWindowIcon takes a list of sizes; LibGDX
         // picks the closest match per platform (Windows wants 16/32, macOS
         // dock prefers larger, Linux varies). One 300×300 PNG is enough — the

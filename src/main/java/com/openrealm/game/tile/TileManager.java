@@ -963,6 +963,18 @@ public class TileManager {
             }
         }
 
+        // Pass 1.5: Base-tile edge texture blending. For each in-sight base
+        // tile, sample the 4 cardinal neighbors' tile types; if a neighbor
+        // differs, draw 3 thin strips of the NEIGHBOR'S sprite extending
+        // into this tile from the shared edge, with decreasing alpha. The
+        // alpha falloff simulates a gradient mask without needing a real
+        // mask texture, and using the neighbor's actual sprite as the
+        // source means the seam shows the neighbor's terrain "bleeding"
+        // into this tile — real visual blending, not a darkening vignette.
+        // Stays inside the active SpriteBatch (no ShapeRenderer state
+        // swap) by emitting batch.draw() calls per strip.
+        drawTileSeams(batch, posNormalized, radiusSq, ts, mapW, mapH);
+
         // Pass 2: Render wall tiles with 3D effect (shadow + side face + shader outline)
         if (!wallTiles.isEmpty()) {
             // Shadow: small offset, flush with tile bottom
@@ -1134,7 +1146,84 @@ public class TileManager {
 
         this.releaseMapLock();
     }
-    
+
+    /**
+     * Multi-strip texture-blend at base-tile type boundaries. For each
+     * in-sight base tile that has a different-type cardinal neighbor,
+     * emits 3 thin SpriteBatch.draw() calls using the NEIGHBOR'S sprite,
+     * with alpha falloff. The result is the neighbor's terrain visibly
+     * "bleeding" into this tile at the seam — real texture blending,
+     * not a darkening vignette. Mirrors the webclient PASS 1.5 loop.
+     * Stays inside the active SpriteBatch so we don't pay a state swap.
+     */
+    private void drawTileSeams(SpriteBatch batch, Vector2f posNormalized,
+            float radiusSq, int ts, int mapW, int mapH) {
+        final int seamBand = Math.max(1, (int) Math.ceil(ts * 0.22f / 3.0));
+        final float[] stripeAlphas = { 0.55f, 0.32f, 0.13f };
+        final int xMin = (int) (posNormalized.x - VIEWPORT_TILE_MIN);
+        final int xMax = (int) (posNormalized.x + VIEWPORT_TILE_MIN);
+        final int yMin = (int) (posNormalized.y - VIEWPORT_TILE_MIN);
+        final int yMax = (int) (posNormalized.y + VIEWPORT_TILE_MIN);
+        final Object[][] baseBlocks = this.mapLayers.get(0).getBlocks();
+        for (int x = xMin; x < xMax; x++) {
+            for (int y = yMin; y < yMax; y++) {
+                if (x < 0 || y < 0 || x >= mapW || y >= mapH) continue;
+                final float dx = x - posNormalized.x;
+                final float dy = y - posNormalized.y;
+                if (dx * dx + dy * dy > radiusSq) continue;
+                final Tile here = (Tile) baseBlocks[y][x];
+                if (here == null) continue;
+                final int myType = here.getTileId();
+                final int tN = (y - 1 >= 0)   ? tileIdAt(baseBlocks, y - 1, x) : 0;
+                final int tS = (y + 1 < mapH) ? tileIdAt(baseBlocks, y + 1, x) : 0;
+                final int tW = (x - 1 >= 0)   ? tileIdAt(baseBlocks, y, x - 1) : 0;
+                final int tE = (x + 1 < mapW) ? tileIdAt(baseBlocks, y, x + 1) : 0;
+                final boolean dN = tN > 0 && tN != myType;
+                final boolean dS = tS > 0 && tS != myType;
+                final boolean dW = tW > 0 && tW != myType;
+                final boolean dE = tE > 0 && tE != myType;
+                if (!(dN || dS || dW || dE)) continue;
+                final float wx = here.getPos().getWorldVar().x;
+                final float wy = here.getPos().getWorldVar().y;
+                if (dN) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tN);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx, wy + k * seamBand, ts, seamBand);
+                    }
+                }
+                if (dS) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tS);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx, wy + ts - (k + 1) * seamBand, ts, seamBand);
+                    }
+                }
+                if (dW) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tW);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx + k * seamBand, wy, seamBand, ts);
+                    }
+                }
+                if (dE) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tE);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx + ts - (k + 1) * seamBand, wy, seamBand, ts);
+                    }
+                }
+            }
+        }
+        batch.setColor(1f, 1f, 1f, 1f);
+    }
+
+    /** Safe Tile.getTileId() lookup that returns 0 when the cell is null. */
+    private static int tileIdAt(Object[][] baseBlocks, int row, int col) {
+        final Tile t = (Tile) baseBlocks[row][col];
+        return t == null ? 0 : t.getTileId();
+    }
+
     public void releaseMapLock() {
     	this.mapLock.unlock();
     }
