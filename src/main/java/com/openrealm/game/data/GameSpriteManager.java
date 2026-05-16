@@ -175,6 +175,11 @@ public class GameSpriteManager {
         atlas.fill();
 
         TILE_FEATHERS = new HashMap<>();
+        // Per-tile atlas coords for the 4 variants, kept as raw ints so
+        // we can build TextureRegions AFTER the atlas Texture exists.
+        // TextureRegion.setRegion(int,int,int,int) calls texture.getWidth()
+        // internally — calling it before binding a Texture NPEs.
+        final java.util.Map<Integer, int[][]> regionCoords = new HashMap<>();
         int rowY = 0;
         for (Integer tileId : tileIds) {
             final TileModel model = GameDataManager.TILES.get(tileId);
@@ -186,7 +191,7 @@ public class GameSpriteManager {
             final int depthW = Math.max(2, Math.round(sw * FEATHER_FRAC));
             final int depthH = Math.max(2, Math.round(sh * FEATHER_FRAC));
             final int rowH = Math.max(sh, depthH);
-            final TextureRegion[] variants = new TextureRegion[4];
+            final int[][] coords = new int[4][4]; // [dir][x, y, w, h]
 
             // Lay out: [N at x=0, S at x=sw, W at x=2sw, E at x=2sw+depthW]
             final int[] varAtlasX = { 0, sw, sw * 2, sw * 2 + depthW };
@@ -243,15 +248,14 @@ public class GameSpriteManager {
                         atlas.drawPixel(outX + x, outY + y, outRgba);
                     }
                 }
-                // Region is built against the atlas Texture (created
-                // below). The +true flip matches TILE_SPRITES so seams
-                // orient correctly when drawn via batch.draw under the
-                // Y-down world projection.
-                variants[dir] = new TextureRegion();
-                variants[dir].setRegion(outX, outY, w, h);
-                // Texture assigned after atlas Texture is created.
+                // Stash coords; TextureRegions get constructed after the
+                // atlas Texture exists (next loop below).
+                coords[dir][0] = outX;
+                coords[dir][1] = outY;
+                coords[dir][2] = w;
+                coords[dir][3] = h;
             }
-            TILE_FEATHERS.put(tileId, variants);
+            regionCoords.put(tileId, coords);
             rowY += rowH;
         }
 
@@ -262,20 +266,20 @@ public class GameSpriteManager {
         TILE_FEATHER_ATLAS.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
         atlas.dispose();
 
-        // Bind each TextureRegion to the atlas + flip Y. Have to do this
-        // after the Texture is created (TextureRegion needs a non-null
-        // Texture for the flip math to make sense).
-        for (TextureRegion[] variants : TILE_FEATHERS.values()) {
+        // Now that the atlas Texture exists, construct TextureRegions
+        // bound to it. Y-flip to match TILE_SPRITES orientation so seam
+        // fringes render the right way up under the Y-down world camera.
+        for (java.util.Map.Entry<Integer, int[][]> e : regionCoords.entrySet()) {
+            final int[][] coords = e.getValue();
+            final TextureRegion[] variants = new TextureRegion[4];
             for (int dir = 0; dir < 4; dir++) {
-                final TextureRegion r = variants[dir];
-                final int rx = r.getRegionX();
-                final int ry = r.getRegionY();
-                final int rw = r.getRegionWidth();
-                final int rh = r.getRegionHeight();
-                r.setTexture(TILE_FEATHER_ATLAS);
-                r.setRegion(rx, ry, rw, rh);
+                final int[] c = coords[dir];
+                final TextureRegion r = new TextureRegion(
+                        TILE_FEATHER_ATLAS, c[0], c[1], c[2], c[3]);
                 r.flip(false, true);
+                variants[dir] = r;
             }
+            TILE_FEATHERS.put(e.getKey(), variants);
         }
 
         log.info("[SPRITES] Baked tile feathers — {} tiles × 4 = {} variants in {}x{} atlas",
