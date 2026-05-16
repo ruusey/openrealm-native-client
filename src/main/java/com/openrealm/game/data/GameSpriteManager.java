@@ -207,9 +207,18 @@ public class GameSpriteManager {
                 final int h = varH[dir];
                 final int sxOff = varSrcOffX[dir];
                 final int syOff = varSrcOffY[dir];
+                final boolean isVert = (dir < 2);
                 for (int y = 0; y < h; y++) {
                     for (int x = 0; x < w; x++) {
-                        final int rgba = srcPm.getPixel(srcX + sxOff + x, srcY + syOff + y);
+                        // FLIP the sample in the direction perpendicular to
+                        // the seam so the seam-adjacent pixel of the neighbor
+                        // ends up at the visible edge of the fringe. Without
+                        // this, the feather shows the WRONG part of the
+                        // neighbor at the seam (depthH-1 rows away), reading
+                        // as discontinuous / inverted blending.
+                        final int srcPxX = isVert ? x : (w - 1 - x);
+                        final int srcPxY = isVert ? (h - 1 - y) : y;
+                        final int rgba = srcPm.getPixel(srcX + sxOff + srcPxX, srcY + syOff + srcPxY);
                         // Linear alpha gradient: 1.0 at the seam edge,
                         // 0.0 at the inner edge. Direction-specific.
                         float t;

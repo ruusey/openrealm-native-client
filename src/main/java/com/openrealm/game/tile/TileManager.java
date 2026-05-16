@@ -1179,6 +1179,7 @@ public class TileManager {
         final int yMin = (int) (posNormalized.y - VIEWPORT_TILE_MIN);
         final int yMax = (int) (posNormalized.y + VIEWPORT_TILE_MIN);
         final Object[][] baseBlocks = this.mapLayers.get(0).getBlocks();
+        final Object[][] colBlocks  = this.mapLayers.get(1).getBlocks();
         for (int x = xMin; x < xMax; x++) {
             for (int y = yMin; y < yMax; y++) {
                 if (x < 0 || y < 0 || x >= mapW || y >= mapH) continue;
@@ -1187,15 +1188,25 @@ public class TileManager {
                 if (dx * dx + dy * dy > radiusSq) continue;
                 final Tile here = (Tile) baseBlocks[y][x];
                 if (here == null) continue;
+                // SKIP rule: no blending if THIS tile is a wall, and no
+                // blending across an edge whose neighbor is a wall. Walls
+                // are architectural — softening them with feathers reads
+                // as visual mush and conflicts with the wall extrusion
+                // bands drawn in Pass 2.
+                if (isWallCell(colBlocks, y, x, mapW, mapH)) continue;
                 final int myType = here.getTileId();
                 final int tN = (y - 1 >= 0)   ? tileIdAt(baseBlocks, y - 1, x) : 0;
                 final int tS = (y + 1 < mapH) ? tileIdAt(baseBlocks, y + 1, x) : 0;
                 final int tW = (x - 1 >= 0)   ? tileIdAt(baseBlocks, y, x - 1) : 0;
                 final int tE = (x + 1 < mapW) ? tileIdAt(baseBlocks, y, x + 1) : 0;
-                final boolean dN = tN > 0 && tN != myType;
-                final boolean dS = tS > 0 && tS != myType;
-                final boolean dW = tW > 0 && tW != myType;
-                final boolean dE = tE > 0 && tE != myType;
+                final boolean wN = isWallCell(colBlocks, y - 1, x, mapW, mapH);
+                final boolean wS = isWallCell(colBlocks, y + 1, x, mapW, mapH);
+                final boolean wW = isWallCell(colBlocks, y, x - 1, mapW, mapH);
+                final boolean wE = isWallCell(colBlocks, y, x + 1, mapW, mapH);
+                final boolean dN = tN > 0 && tN != myType && !wN;
+                final boolean dS = tS > 0 && tS != myType && !wS;
+                final boolean dW = tW > 0 && tW != myType && !wW;
+                final boolean dE = tE > 0 && tE != myType && !wE;
                 if (!(dN || dS || dW || dE)) continue;
                 final float wx = here.getPos().getWorldVar().x;
                 final float wy = here.getPos().getWorldVar().y;
@@ -1217,6 +1228,14 @@ public class TileManager {
                 }
             }
         }
+    }
+
+    /** True if the collision-layer cell at (row, col) is a wall. */
+    private static boolean isWallCell(Object[][] colBlocks, int row, int col, int mapW, int mapH) {
+        if (row < 0 || col < 0 || row >= mapH || col >= mapW) return false;
+        final Tile t = (Tile) colBlocks[row][col];
+        if (t == null || t.isVoid()) return false;
+        return t.getData() != null && t.getData().isWall();
     }
 
     /** Safe Tile.getTileId() lookup that returns 0 when the cell is null. */
