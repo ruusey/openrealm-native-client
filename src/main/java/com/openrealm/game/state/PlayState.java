@@ -24,6 +24,7 @@ import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.contants.StatusEffectType;
 import com.openrealm.game.model.TileModel;
 import com.openrealm.game.tile.Tile;
+import com.openrealm.game.tile.TileManager;
 import com.openrealm.game.tile.TileData;
 import com.openrealm.game.tile.TileMap;
 import com.openrealm.game.data.GameDataManager;
@@ -180,6 +181,16 @@ public class PlayState extends GameState {
      *  decays toward zero each frame so the user doesn't see a hop. */
     private float smoothingOffsetX = 0f;
     private float smoothingOffsetY = 0f;
+
+    /** Camera rotation around the player, radians. 0 = north-up. Held
+     *  continuously while Q (left, +) or E (right, -) is down; C snaps
+     *  back to 0. Mirrors webclient game.cameraAngle so muscle memory
+     *  carries between clients. The rotation is applied to the world
+     *  OrthographicCamera before tile/entity render; the input vx/vy is
+     *  pre-rotated by -cameraAngle so W still walks toward screen-north
+     *  regardless of how the world is turned. */
+    private float cameraAngle = 0f;
+    private static final float CAM_ROTATE_SPEED = 2.4f; // rad/sec while held
 
     public PlayState(GameStateManager gsm, Camera cam) {
         super(gsm);
@@ -796,6 +807,18 @@ public class PlayState extends GameState {
         key.plus.tick();
         key.minus.tick();
 
+        // Camera rotation — Q rotates left (counterclockwise on screen),
+        // E rotates right (clockwise), C snaps back to 0. Mirrors the
+        // webclient bindings (game.js controls.bindings.rotateLeft/Right
+        // = KeyQ/KeyE, resetCamera = KeyC). Held-key continuous rotation
+        // rather than per-press snap so the player can tune the angle to
+        // taste. Captured at frame-dt resolution — fine because the
+        // world projection is rebuilt every render() from cameraAngle.
+        final float camDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
+        if (key.q.down) this.cameraAngle += CAM_ROTATE_SPEED * camDt;
+        if (key.e.down) this.cameraAngle -= CAM_ROTATE_SPEED * camDt;
+        if (key.c.down) this.cameraAngle = 0f;
+
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
         if (player == null)
             return;
@@ -843,6 +866,19 @@ public class PlayState extends GameState {
                 float vy = (player.getIsDown()  ? 1f : 0f) - (player.getIsUp()   ? 1f : 0f);
                 final float mag = (float) Math.sqrt(vx * vx + vy * vy);
                 if (mag > 0f) { vx /= mag; vy /= mag; }
+
+                // Rotate screen-space input into world-space by -cameraAngle
+                // so W (screen-north) walks toward whatever the camera shows
+                // as north, even when the world has been rotated by Q/E.
+                // Matches webclient screenDirFlagsToWorldVector in main.js.
+                if (this.cameraAngle != 0f && (vx != 0f || vy != 0f)) {
+                    final float cs = (float) Math.cos(-this.cameraAngle);
+                    final float sn = (float) Math.sin(-this.cameraAngle);
+                    final float rvx = vx * cs - vy * sn;
+                    final float rvy = vx * sn + vy * cs;
+                    vx = rvx;
+                    vy = rvy;
+                }
 
                 // Per-tick pixel step. RotMG: tiles/sec = 4 + 5.6 * (spd/75).
                 float tilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
@@ -1522,9 +1558,26 @@ public class PlayState extends GameState {
         // web client's 2x desktop zoom.
         OpenRealmGame game = (OpenRealmGame) Gdx.app.getApplicationListener();
         if (game.getWorldCamera() != null) {
-            game.getWorldCamera().update();
-            batch.setProjectionMatrix(game.getWorldCamera().combined);
-            shapes.setProjectionMatrix(game.getWorldCamera().combined);
+            final com.badlogic.gdx.graphics.OrthographicCamera worldCam = game.getWorldCamera();
+            // Apply absolute camera rotation. up + direction are reset to
+            // the Y-down (setToOrtho(true)) basis every frame, then we
+            // rotate by cameraAngle in degrees — using rotate() directly
+            // without resetting would compound per frame. Sign matches
+            // the webclient: positive cameraAngle = world appears to
+            // rotate counterclockwise on screen (Q press direction).
+            if (this.cameraAngle != 0f) {
+                worldCam.up.set(0f, -1f, 0f);
+                worldCam.direction.set(0f, 0f, 1f);
+                worldCam.rotate((float) Math.toDegrees(this.cameraAngle), 0f, 0f, 1f);
+            } else {
+                // Cheap path when not rotated — avoid the basis reset
+                // every frame in the common case.
+                worldCam.up.set(0f, -1f, 0f);
+                worldCam.direction.set(0f, 0f, 1f);
+            }
+            worldCam.update();
+            batch.setProjectionMatrix(worldCam.combined);
+            shapes.setProjectionMatrix(worldCam.combined);
         }
         this.realmManager.getRealm().getTileManager().render(player, batch, shapes);
 
@@ -1654,21 +1707,72 @@ public class PlayState extends GameState {
             visibleEntities.get(i).updateEffectState();
         }
 
-        // Pass 1.5: Ground shadows under each visible entity. Drawn BEFORE
-        // entity bodies so the sprite stands on top of its own shadow,
-        // mirroring webclient renderer.js (drawEllipse(0, size/2 + size*0.08,
-        // size*0.4, size*0.12) at alpha 0.3). Adds visual weight + a hint
-        // of grounded perspective.
+        // Pass 1.5: Ground shadows. Drawn BEFORE entity bodies so the
+        // sprite stands on top of its own shadow, mirroring webclient
+        // renderer.js. Three categories share the pass:
+        //   - players + enemies (visibleEntities) at alpha 0.30
+        //   - decoration collision objects (trees, rocks, statues, river
+        //     stones) at alpha 0.25 — matches webclient decoration shadow
+        //   - portals + loot containers at alpha 0.35 — matches webclient
+        //     billboarded-object shadow
+        // ShapeRenderer state swap is paid once and amortized across all
+        // three loops, so adding the extra categories is essentially free
+        // vs the entities-only baseline.
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0f, 0f, 0f, 0.3f);
+        // Entities (players + enemies)
+        shapes.setColor(0f, 0f, 0f, 0.30f);
         for (int i = 0; i < visibleEntities.size(); i++) {
             final Entity ent = visibleEntities.get(i);
             final int s = ent.getSize() > 0 ? ent.getSize() : 32;
             final float wx = ent.getPos().getWorldVar().x + s * 0.5f;
             final float wy = ent.getPos().getWorldVar().y + s * 0.92f;
+            shapes.ellipse(wx - s * 0.4f, wy - s * 0.06f, s * 0.8f, s * 0.24f);
+        }
+        // Decoration collision objects (trees, rocks, river stones). The
+        // TileManager populates these buffers during its render() above;
+        // they're still valid here because we haven't yet entered the next
+        // frame. Smaller / lower-alpha shadow than entities so a forest of
+        // trees doesn't look like a forest of dark blobs.
+        final TileManager tm = this.realmManager.getRealm().getTileManager();
+        if (tm != null) {
+            shapes.setColor(0f, 0f, 0f, 0.25f);
+            final List<Tile> objTiles = tm.getObjectTilesView();
+            for (int i = 0; i < objTiles.size(); i++) {
+                final Tile t = objTiles.get(i);
+                final int s = t.getWidth() > 0 ? t.getWidth() : 32;
+                final float wx = t.getPos().getWorldVar().x + s * 0.5f;
+                final float wy = t.getPos().getWorldVar().y + s * 0.95f;
+                shapes.ellipse(wx - s * 0.32f, wy - s * 0.045f, s * 0.64f, s * 0.18f);
+            }
+            final List<Tile> overWater = tm.getOverWaterTilesView();
+            for (int i = 0; i < overWater.size(); i++) {
+                final Tile t = overWater.get(i);
+                final int s = t.getWidth() > 0 ? t.getWidth() : 32;
+                final float wx = t.getPos().getWorldVar().x + s * 0.5f;
+                final float wy = t.getPos().getWorldVar().y + s * 0.95f;
+                shapes.ellipse(wx - s * 0.32f, wy - s * 0.045f, s * 0.64f, s * 0.18f);
+            }
+        }
+        // Portals + loot containers — drawn LATER in the frame after this
+        // pass, but the ground shadow needs to render before everything
+        // else for the "sprite stands on shadow" stack. Pull the same
+        // collection the portal-render loop uses below.
+        shapes.setColor(0f, 0f, 0f, 0.35f);
+        for (Portal portal : this.realmManager.getRealm().getPortals().values()) {
+            if (portal.getPos() == null) continue;
+            final int s = 32;
+            final float wx = portal.getPos().getWorldVar().x + s * 0.5f;
+            final float wy = portal.getPos().getWorldVar().y + s * 0.92f;
+            shapes.ellipse(wx - s * 0.4f, wy - s * 0.06f, s * 0.8f, s * 0.24f);
+        }
+        for (LootContainer lc : this.realmManager.getRealm().getLoot().values()) {
+            if (lc.getPos() == null) continue;
+            final int s = 16;
+            final float wx = lc.getPos().getWorldVar().x + s * 0.5f;
+            final float wy = lc.getPos().getWorldVar().y + s * 0.92f;
             shapes.ellipse(wx - s * 0.4f, wy - s * 0.06f, s * 0.8f, s * 0.24f);
         }
         shapes.end();

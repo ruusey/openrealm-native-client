@@ -95,6 +95,8 @@ public class KeyHandler implements InputProcessor {
     public Key zero = new Key();
 
     public Key q = new Key();
+    public Key e = new Key();
+    public Key c = new Key();
     public Key t = new Key();
     public Key m = new Key();
     public Key plus = new Key();
@@ -138,6 +140,10 @@ public class KeyHandler implements InputProcessor {
         this.left.toggle(Gdx.input.isKeyPressed(Input.Keys.A));
         this.right.toggle(Gdx.input.isKeyPressed(Input.Keys.D));
         this.attack.toggle(Gdx.input.isKeyPressed(Input.Keys.SPACE));
+        // The legacy `menu` key field still binds to E for compatibility,
+        // but it has no consumers anywhere — the actual menu opens on
+        // M / Escape. Camera rotation uses Q (left) / E (right) like the
+        // webclient, tracked via the dedicated this.e Key below.
         this.menu.toggle(Gdx.input.isKeyPressed(Input.Keys.E));
         this.enter.toggle(Gdx.input.isKeyPressed(Input.Keys.ENTER));
         this.escape.toggle(Gdx.input.isKeyPressed(Input.Keys.ESCAPE));
@@ -156,6 +162,8 @@ public class KeyHandler implements InputProcessor {
         this.zero.toggle(Gdx.input.isKeyPressed(Input.Keys.NUM_0));
 
         this.q.toggle(Gdx.input.isKeyPressed(Input.Keys.Q));
+        this.e.toggle(Gdx.input.isKeyPressed(Input.Keys.E));
+        this.c.toggle(Gdx.input.isKeyPressed(Input.Keys.C));
         this.t.toggle(Gdx.input.isKeyPressed(Input.Keys.T));
         this.m.toggle(Gdx.input.isKeyPressed(Input.Keys.M));
         this.plus.toggle(Gdx.input.isKeyPressed(Input.Keys.PLUS) || Gdx.input.isKeyPressed(Input.Keys.EQUALS));

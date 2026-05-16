@@ -1153,26 +1153,24 @@ public class TileManager {
     }
 
     /**
-     * Multi-strip texture-blend at base-tile type boundaries with per-
-     * segment RANDOM DEPTH. Each seam is split into SEAM_SEGMENTS narrow
-     * segments along its length; each segment gets a deterministic
-     * pseudo-random depth multiplier seeded by (col,row,segment,side)
-     * — same value every frame so the seam doesn't shimmer, but each
-     * segment varies independently so the seam looks irregular and
-     * organic instead of three clean uniform stripes (which read as
-     * "banding" at high-contrast terrain boundaries).
-     * Stays inside the active SpriteBatch (no state swap).
+     * Uniform 3-stripe texture-blend at base-tile type boundaries. For each
+     * in-sight base tile with a differing cardinal neighbor, emits 3 thin
+     * SpriteBatch.draw() calls per side using the NEIGHBOR'S sprite with
+     * alpha falloff (0.55 / 0.32 / 0.13). The neighbor terrain visibly
+     * bleeds into this tile at the seam — real texture blending. Stays
+     * inside the active SpriteBatch so we don't pay a state swap.
+     *
+     * Per-segment randomization was tried and reverted — it both spiked
+     * draw counts and read as visual noise instead of natural blending.
      */
     private void drawTileSeams(SpriteBatch batch, Vector2f posNormalized,
             float radiusSq, int ts, int mapW, int mapH) {
-        final float[] stripeAlphas = { 0.62f, 0.36f, 0.15f };
+        final int seamBand = Math.max(1, (int) Math.ceil(ts * 0.22f / 3.0));
+        final float[] stripeAlphas = { 0.55f, 0.32f, 0.13f };
         final int xMin = (int) (posNormalized.x - VIEWPORT_TILE_MIN);
         final int xMax = (int) (posNormalized.x + VIEWPORT_TILE_MIN);
         final int yMin = (int) (posNormalized.y - VIEWPORT_TILE_MIN);
         final int yMax = (int) (posNormalized.y + VIEWPORT_TILE_MIN);
-        final int segCount = 8;
-        final int baseDepthPx = Math.max(3, Math.round(ts * 0.26f));
-        final int segLen = Math.max(2, ts / segCount);
         final Object[][] baseBlocks = this.mapLayers.get(0).getBlocks();
         for (int x = xMin; x < xMax; x++) {
             for (int y = yMin; y < yMax; y++) {
@@ -1194,76 +1192,59 @@ public class TileManager {
                 if (!(dN || dS || dW || dE)) continue;
                 final float wx = here.getPos().getWorldVar().x;
                 final float wy = here.getPos().getWorldVar().y;
-                if (dN) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tN),
-                        x, y, 1, segCount, segLen, baseDepthPx, stripeAlphas, ts,
-                        SeamSide.NORTH, wx, wy);
-                if (dS) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tS),
-                        x, y, 2, segCount, segLen, baseDepthPx, stripeAlphas, ts,
-                        SeamSide.SOUTH, wx, wy);
-                if (dW) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tW),
-                        x, y, 3, segCount, segLen, baseDepthPx, stripeAlphas, ts,
-                        SeamSide.WEST, wx, wy);
-                if (dE) drawSeamFringe(batch, GameSpriteManager.TILE_SPRITES.get(tE),
-                        x, y, 4, segCount, segLen, baseDepthPx, stripeAlphas, ts,
-                        SeamSide.EAST, wx, wy);
-            }
-        }
-        batch.setColor(1f, 1f, 1f, 1f);
-    }
-
-    private enum SeamSide { NORTH, SOUTH, WEST, EAST }
-
-    /**
-     * Emit the per-segment randomized fringe for one side of a tile. Each
-     * segment along the edge gets a depth = baseDepth * [0.35..1.40] so
-     * adjacent segments have visibly different fringe depths, breaking the
-     * banded look.
-     */
-    private void drawSeamFringe(SpriteBatch batch, TextureRegion tex,
-            int col, int row, int sideId, int segCount, int segLen,
-            int baseDepth, float[] stripeAlphas, int ts, SeamSide side,
-            float wx, float wy) {
-        if (tex == null) return;
-        for (int s = 0; s < segCount; s++) {
-            final float rnd = seamHash(col, row, s, sideId);
-            final int depth = Math.max(1, Math.round(baseDepth * (0.35f + rnd * 1.05f)));
-            final int bh = Math.max(1, (int) Math.ceil(depth / 3.0));
-            final boolean lastSeg = (s == segCount - 1);
-            for (int k = 0; k < 3; k++) {
-                batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
-                switch (side) {
-                    case NORTH:
-                        batch.draw(tex, wx + s * segLen, wy + k * bh,
-                                lastSeg ? (ts - s * segLen) : segLen, bh);
-                        break;
-                    case SOUTH:
-                        batch.draw(tex, wx + s * segLen, wy + ts - (k + 1) * bh,
-                                lastSeg ? (ts - s * segLen) : segLen, bh);
-                        break;
-                    case WEST:
-                        batch.draw(tex, wx + k * bh, wy + s * segLen,
-                                bh, lastSeg ? (ts - s * segLen) : segLen);
-                        break;
-                    case EAST:
-                        batch.draw(tex, wx + ts - (k + 1) * bh, wy + s * segLen,
-                                bh, lastSeg ? (ts - s * segLen) : segLen);
-                        break;
+                if (dN) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tN);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx, wy + k * seamBand, ts, seamBand);
+                    }
+                }
+                if (dS) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tS);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx, wy + ts - (k + 1) * seamBand, ts, seamBand);
+                    }
+                }
+                if (dW) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tW);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx + k * seamBand, wy, seamBand, ts);
+                    }
+                }
+                if (dE) {
+                    final TextureRegion tex = GameSpriteManager.TILE_SPRITES.get(tE);
+                    if (tex != null) for (int k = 0; k < 3; k++) {
+                        batch.setColor(1f, 1f, 1f, stripeAlphas[k]);
+                        batch.draw(tex, wx + ts - (k + 1) * seamBand, wy, seamBand, ts);
+                    }
                 }
             }
         }
-    }
-
-    /** Cheap deterministic hash of (col, row, segment, side) -> [0..1]. */
-    private static float seamHash(int a, int b, int c, int d) {
-        int h = a * 374761393 + b * 668265263 + c * 2147483647 + d * 7919;
-        h ^= h >>> 13; h *= 1274126177; h ^= h >>> 16;
-        return ((h & 0xffff)) / 65535f;
+        batch.setColor(1f, 1f, 1f, 1f);
     }
 
     /** Safe Tile.getTileId() lookup that returns 0 when the cell is null. */
     private static int tileIdAt(Object[][] baseBlocks, int row, int col) {
         final Tile t = (Tile) baseBlocks[row][col];
         return t == null ? 0 : t.getTileId();
+    }
+
+    /**
+     * Read-only view of the per-frame object-tile buffer (collision tiles
+     * that aren't walls — trees, rocks, statues, etc.). Populated during
+     * render() and remains valid until the NEXT render() call clears it.
+     * Used by PlayState's shadow pass so world objects get the same oval
+     * ground shadow as players/enemies, matching the webclient.
+     */
+    public List<Tile> getObjectTilesView() {
+        return this.objectTilesBuf;
+    }
+
+    /** Same for over-water collision tiles (river stones). */
+    public List<Tile> getOverWaterTilesView() {
+        return this.overWaterTilesBuf;
     }
 
     public void releaseMapLock() {
