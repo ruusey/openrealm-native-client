@@ -228,8 +228,17 @@ public class GameSpriteManager {
                             case 2: t = (float) x / (float) w; break;            // W: left opaque -> right transparent
                             default: t = (float) (w - 1 - x) / (float) w; break; // E: right opaque -> left transparent
                         }
+                        // Peak alpha = 0.5 at the seam (not 1.0). With 1.0
+                        // the neighbor's color FULLY replaced the base tile
+                        // at the seam pixel — looked inverted because the
+                        // grey tile showed blue at its right edge and the
+                        // water tile showed grey at its left edge. Capping
+                        // at 0.5 lets the base color always dominate; both
+                        // sides at the seam show a 50/50 mix instead of a
+                        // hard color override.
+                        final float PEAK_ALPHA = 0.5f;
                         final int origA = rgba & 0xff;
-                        final int newA = Math.round(origA * (1f - t));
+                        final int newA = Math.round(origA * PEAK_ALPHA * (1f - t));
                         final int outRgba = (rgba & 0xffffff00) | (newA & 0xff);
                         atlas.drawPixel(outX + x, outY + y, outRgba);
                     }
