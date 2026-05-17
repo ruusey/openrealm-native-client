@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.openrealm.game</groupId>
 	<artifactId>openrealm-native-client</artifactId>
-	<version>1.0.84</version>
+	<version>1.0.85</version>
 	<name>openrealm-native-client</name>
 	<description>Native Java desktop client for OpenRealm (LibGDX)</description>
 	<properties>
