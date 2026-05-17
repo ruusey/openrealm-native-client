@@ -60,6 +60,12 @@ public class PlayerChat {
      *  all CHAT_SIZE. Defaults to collapsed so chat is unobtrusive. */
     private boolean collapsed = false;
     private boolean lastTildeDown = false;
+    /** Edge-detect mouse-left for the toggle-button click handler. Webclient
+     *  ships a click-target on the chat panel (style.css #chat-toggle); user
+     *  reported the native client had only the BACKTICK key, which was easy
+     *  to miss. Tracking the previous down-state here keeps a held left-mouse
+     *  drag (common in combat) from re-toggling every frame. */
+    private boolean lastChatMouseDown = false;
     private PlayState state;
     // WHY: stash the KeyHandler from input() so render() can read caret/selection without changing the call signature.
     private KeyHandler lastKey;
@@ -123,6 +129,44 @@ public class PlayerChat {
             this.collapsed = !this.collapsed;
         }
         this.lastTildeDown = tildeDown;
+
+        // Mouse click on the toggle button — same toggle as backtick. Bounds
+        // must mirror the rect drawn in render(); kept in sync via the
+        // identical PANEL_X / PANEL_W / TOGGLE_W / TOGGLE_H constants below.
+        // Mouse coords from Gdx.input.getY() are already in flipped-ortho
+        // (y=0 at top), the same basis render() draws in, so we compare
+        // directly without inverting.
+        boolean mouseDown = mouse != null && mouse.isPressed(1);
+        if (mouseDown && !this.lastChatMouseDown) {
+            final boolean override = this.overrideX != null;
+            final int PANEL_X = override ? this.overrideX : 10;
+            final int PANEL_W = override ? this.overrideW
+                                         : (this.collapsed ? 360 : 600);
+            final int PANEL_BOTTOM_MARGIN = override
+                    ? (OpenRealmGame.height - (this.overrideY + this.overrideH))
+                    : 10;
+            final int INPUT_H  = 28;
+            final int MSG_H    = override
+                    ? Math.max(60, this.overrideH - INPUT_H)
+                    : 220;
+            final int TOGGLE_W = 22;
+            final int TOGGLE_H = 18;
+            final float screenBottom   = OpenRealmGame.height - PANEL_BOTTOM_MARGIN;
+            final float inputBoxTop    = screenBottom - INPUT_H;
+            final float msgBoxTop      = inputBoxTop - MSG_H;
+            // When collapsed the message box isn't drawn, but the toggle is
+            // pinned to where msgBoxTop WOULD be so the icon stays in the
+            // same screen slot as you re-expand.
+            final float toggleBoxTop   = msgBoxTop - TOGGLE_H;
+            final int toggleX = PANEL_X + PANEL_W - TOGGLE_W;
+            final int mx = mouse.getX();
+            final int my = mouse.getY();
+            if (mx >= toggleX && mx <= toggleX + TOGGLE_W
+                    && my >= toggleBoxTop && my <= toggleBoxTop + TOGGLE_H) {
+                this.collapsed = !this.collapsed;
+            }
+        }
+        this.lastChatMouseDown = mouseDown;
 
         if (key.captureMode) {
             String captured = key.getContent();

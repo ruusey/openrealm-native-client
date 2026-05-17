@@ -838,9 +838,19 @@ public class PlayState extends GameState {
         // rather than per-press snap so the player can tune the angle to
         // taste. Captured at frame-dt resolution — fine because the
         // world projection is rebuilt every render() from cameraAngle.
+        //
+        // Sign note: LibGDX's worldCam.rotate(-cameraAngle, 0,0,1) in
+        // render() inverts the visual direction relative to the PIXI
+        // worldLayer.rotation = +cameraAngle path on the web. With Q
+        // adding to cameraAngle (matching the web) the visible rotation
+        // came out reversed — the user-facing Q/E directions felt
+        // backwards. Flip the assignment here so Q/E match the visual
+        // CCW/CW the player expects. The input vector rotation in the
+        // movement block below still uses -cameraAngle, so screen-W
+        // continues to walk toward screen-up under any rotation.
         final float camDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
-        if (key.q.down) this.cameraAngle += CAM_ROTATE_SPEED * camDt;
-        if (key.e.down) this.cameraAngle -= CAM_ROTATE_SPEED * camDt;
+        if (key.q.down) this.cameraAngle -= CAM_ROTATE_SPEED * camDt;
+        if (key.e.down) this.cameraAngle += CAM_ROTATE_SPEED * camDt;
         if (key.c.down) this.cameraAngle = 0f;
 
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
@@ -1943,7 +1953,14 @@ public class PlayState extends GameState {
             final float iconH = 14f / WS;
             final float iconGap = 2f / WS;
             final float iconX = wx + (sSize * 0.5f) - (iconW * 0.5f);
-            final float bottomY = wy - 22f / WS; // just above the HP bar / name
+            // Stack the chips ABOVE the nameplate (not just above the HP bar).
+            // Nameplate is rendered later with the world batch at y =
+            // wy - 12 - layoutHeight, where layoutHeight ≈ 8 world units at
+            // the 0.5× font scale. Without this extra ~11 unit lift the
+            // bottommost chip sat directly behind the name glyphs and the
+            // later batch.draw painted the text on top of the icon — the
+            // exact "icons hidden behind name" symptom the user reported.
+            final float bottomY = wy - 22f / WS - 11f;
             int activeIdx = 0;
             for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
                 if (!hasEffectId(effs, def.effectId)) continue;
