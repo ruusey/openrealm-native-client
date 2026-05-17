@@ -241,14 +241,18 @@ public abstract class Entity extends GameObject {
      * fast at 144 FPS because it had no relation to actual locomotion.
      */
     /**
-     * Pixels of motion required per walk-frame swap. Web client uses 24
-     * with a 2-frame cycle (one stride per 48 px ≈ 1.5 tiles). Native
-     * spritesheets often have 4-frame walk cycles, so 24 px would swap
-     * 4 sprites per 1.5 tiles — visibly twice as fast as the web's gait.
-     * Bumped to 48 so a single full stride covers 4*48 = 192 px ≈ 6
-     * tiles, matching the perceived pace of the web client at any FPS.
+     * Pixels of motion required per walk-frame swap. Web client uses 48
+     * with a 2-frame cycle (one stride per 96 px ≈ 3 tiles). Native
+     * spritesheets often have 4-frame walk cycles, so to match the
+     * webclient's perceived gait we need 4*48 = 192 px per stride at
+     * the web's PX_PER_FRAME=24, OR keep the per-frame cost the same.
+     *
+     * Bumped 48 -> 96: every walk frame requires 96 px of travel. At
+     * 4-frame cycle that's 384 px per stride (~12 tiles), so even max-
+     * spd characters cycle at a calm pace rather than running 2x faster
+     * than their actual locomotion.
      */
-    private static final float PX_PER_FRAME = 48f;
+    private static final float PX_PER_FRAME = 96f;
     /** Webclient main.js ~2160: 80ms per attack frame. */
     private static final float ATTACK_FRAME_SECONDS = 0.08f;
     private float animDistance = 0f;
