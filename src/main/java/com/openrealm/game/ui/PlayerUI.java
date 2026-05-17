@@ -26,6 +26,7 @@ import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.ItemTooltip;
 import com.openrealm.game.model.ability.Ability;
+import com.openrealm.game.model.ability.PassiveAbility;
 import com.openrealm.game.model.AbilityTooltip;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.game.state.RealmTransitionState;
@@ -3006,6 +3007,41 @@ public class PlayerUI {
         this.spriteHudEquipStatsY = (int) equipStatsY;
         this.spriteHudInvOnlyX = (int) invOnlyX;
         this.spriteHudInvOnlyY = (int) invOnlyY;
+        // Equipment slot frames. The chrome sprite only has 4 slot frames
+        // baked in (pre-Phase-1B art), so the 5th equipment slot rendered
+        // its item floating in empty chrome. Draw a dark backdrop +
+        // border under EVERY equipment slot here so all 5 look uniform.
+        // Drawn via ShapeRenderer pass wrapped around the existing batch
+        // — the slight overdraw on slots 0-3 (where chrome already has
+        // a frame) is invisible at the alpha we use.
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < Player.EQUIPMENT_SLOT_COUNT; i++) {
+            final UiComponent eq = UiAtlas.componentOf("panel.hud.equipment_with_stats." + i);
+            if (eq == null) continue;
+            final float ex = equipStatsX + (eq.getX() - cEquipStats.getX()) * s;
+            final float ey = equipStatsY + (eq.getY() - cEquipStats.getY()) * s;
+            final float ew = eq.getW() * s;
+            final float eh = eq.getH() * s;
+            shapes.setColor(0.05f, 0.05f, 0.08f, 0.85f);
+            shapes.rect(ex, ey, ew, eh);
+        }
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        for (int i = 0; i < Player.EQUIPMENT_SLOT_COUNT; i++) {
+            final UiComponent eq = UiAtlas.componentOf("panel.hud.equipment_with_stats." + i);
+            if (eq == null) continue;
+            final float ex = equipStatsX + (eq.getX() - cEquipStats.getX()) * s;
+            final float ey = equipStatsY + (eq.getY() - cEquipStats.getY()) * s;
+            final float ew = eq.getW() * s;
+            final float eh = eq.getH() * s;
+            shapes.setColor(0.40f, 0.40f, 0.45f, 0.9f);
+            shapes.rect(ex, ey, ew, eh);
+        }
+        shapes.end();
+        batch.begin();
         for (int i = 0; i < Player.EQUIPMENT_SLOT_COUNT; i++) {
             final UiComponent eq = UiAtlas.componentOf("panel.hud.equipment_with_stats." + i);
             if (eq == null) continue;
@@ -3055,7 +3091,28 @@ public class PlayerUI {
             hotbarCellPx[i][2] = cw;
             hotbarCellPx[i][3] = ch;
             final Ability ab = (localPlayer != null) ? localPlayer.getActiveAbility(i) : null;
-            this.drawAbilityHudIcon(batch, ab, cx, cy, cw, ch);
+            if (ab != null) {
+                this.drawAbilityHudIcon(batch, ab, cx, cy, cw, ch);
+            } else if (localPlayer != null) {
+                // Slot might be bound to a PASSIVE rather than an active
+                // ability — typically slot 0 (the class passive). Webclient
+                // shows the passive's NAME as text in the cell (no
+                // dedicated passive iconography); mirror that so the
+                // hotbar line stays aligned across all 5 cells instead
+                // of looking 1-off when slot 0 is the passive.
+                final PassiveAbility pa = localPlayer.getSlottedPassive(i);
+                if (pa != null) {
+                    final String name = pa.getName() != null ? pa.getName() : "Passive";
+                    final float origScale = font.getData().scaleX;
+                    font.getData().setScale(0.7f);
+                    final GlyphLayout gl = new GlyphLayout(font, name,
+                            com.badlogic.gdx.graphics.Color.valueOf("e8d8b8"), cw - 2, 1, true);
+                    final float tx = cx + (cw - gl.width) * 0.5f;
+                    final float ty = cy + (ch + gl.height) * 0.5f;
+                    font.draw(batch, gl, tx, ty);
+                    font.getData().setScale(origScale);
+                }
+            }
         }
         // Stash for the cooldown/SP overlay pass below (drawn after batch.end()).
         this._lastHotbarCellPx = hotbarCellPx;
