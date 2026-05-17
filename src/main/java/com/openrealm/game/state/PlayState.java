@@ -499,35 +499,53 @@ public class PlayState extends GameState {
         final float halfSize = p.getSize() / 2f;
         scratch.x = p.getPos().x + halfSize;
         scratch.y = p.getPos().y + halfSize;
-        if (!this.getRealmManager().getRealm().getTileManager().collisionTile(p, p.getDx(), 0)
-                && !this.getRealmManager().getRealm().getTileManager().collidesXLimit(p, p.getDx())
-                && !this.getRealmManager().getRealm().getTileManager().isVoidTile(scratch, p.getDx(), 0)) {
+        final TileManager tm = this.getRealmManager().getRealm().getTileManager();
+        final float dx = p.getDx();
+        final float dy = p.getDy();
+
+        // Resolve axis-blocked state UPFRONT (no pos mutation yet) so the
+        // diagonal corner-cut prevention below can also see the
+        // both-axes-free case. Webclient parity: game.js _checkCollision
+        // path runs all three queries (x-only, y-only, diagonal) before
+        // committing any motion.
+        boolean xBlocked = tm.collisionTile(p, dx, 0)
+                || tm.collidesXLimit(p, dx)
+                || tm.isVoidTile(scratch, dx, 0);
+        boolean yBlocked = tm.collisionTile(p, 0, dy)
+                || tm.collidesYLimit(p, dy)
+                || tm.isVoidTile(scratch, 0, dy);
+
+        // Diagonal corner-cutting prevention (mirrors webclient game.js
+        // simulateTick lines 522-528). When neither axis is blocked but
+        // the diagonal IS blocked, the player would otherwise clip through
+        // a wall corner. Block the axis with the smaller |delta| so the
+        // player slides along the larger axis instead — same heuristic
+        // the server uses.
+        if (!xBlocked && !yBlocked && dx != 0f && dy != 0f) {
+            if (tm.collisionTile(p, dx, dy) || tm.isVoidTile(scratch, dx, dy)) {
+                if (Math.abs(dx) >= Math.abs(dy)) yBlocked = true;
+                else xBlocked = true;
+            }
+        }
+
+        if (!xBlocked) {
             p.xCol = false;
-            if (p.getDx() != 0.0f) {
-                if (this.getRealmManager().getRealm().getTileManager().collidesSlowTile(p)) {
-                    p.getPos().x += p.getDx() / 3.0f;
-                } else {
-                    p.getPos().x += p.getDx();
-                }
+            if (dx != 0f) {
+                if (tm.collidesSlowTile(p)) p.getPos().x += dx / 3.0f;
+                else                         p.getPos().x += dx;
             }
         } else {
             p.xCol = true;
         }
 
-        // Refresh the scratch vector after the X-axis update — pos may have
-        // moved.
+        // Refresh scratch after the X-axis update — pos may have moved.
         scratch.x = p.getPos().x + halfSize;
         scratch.y = p.getPos().y + halfSize;
-        if (!this.getRealmManager().getRealm().getTileManager().collisionTile(p, 0, p.getDy())
-                && !this.getRealmManager().getRealm().getTileManager().collidesYLimit(p, p.getDy())
-                && !this.getRealmManager().getRealm().getTileManager().isVoidTile(scratch, 0, p.getDy())) {
+        if (!yBlocked) {
             p.yCol = false;
-            if (p.getDy() != 0.0f) {
-                if (this.getRealmManager().getRealm().getTileManager().collidesSlowTile(p)) {
-                    p.getPos().y += p.getDy() / 3.0f;
-                } else {
-                    p.getPos().y += p.getDy();
-                }
+            if (dy != 0f) {
+                if (tm.collidesSlowTile(p)) p.getPos().y += dy / 3.0f;
+                else                         p.getPos().y += dy;
             }
         } else {
             p.yCol = true;
@@ -625,12 +643,18 @@ public class PlayState extends GameState {
                 this.smoothingOffsetY *= scale;
             }
         } else {
-            // Agreement — revert to the saved pos so there's zero visible
-            // change. This is the common case when ping is stable and
-            // physics lines up; without it the render would briefly show
-            // the saved pos shifted by sub-pixel rounding noise.
-            local.getPos().x = savedX;
-            local.getPos().y = savedY;
+            // Under 2 px: still adopt the REPLAY result, not the saved
+            // prediction. Even tiny per-ack diffs (0.5-2 px from float
+            // rounding, slow-tile edges, status-effect timing) compound
+            // across every ack; clinging to savedX/Y let the client drift
+            // ~5-10 px per minute until it eventually crossed the 2 px
+            // threshold mid-game and visibly snapped, then resumed
+            // drifting. Always trusting the replay keeps the client
+            // anchored to the server's authoritative position — under
+            // identical physics on both sides replay essentially equals
+            // saved within float noise, so there's no visible jerk.
+            local.getPos().x = replayX;
+            local.getPos().y = replayY;
         }
 
         local.setLastProcessedInputSeq(ackSeq);
@@ -881,8 +905,12 @@ public class PlayState extends GameState {
                 }
 
                 // Per-tick pixel step. RotMG: tiles/sec = 4 + 5.6 * (spd/75).
+                // Status modifiers MUST match webclient game.js simulateTick
+                // exactly so client + server (and replay) all agree on the
+                // step magnitude per tick.
                 float tilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
                 if (player.hasEffect(StatusEffectType.SPEEDY)) tilesPerSec *= 1.5f;
+                if (player.hasEffect(StatusEffectType.SLOWED)) tilesPerSec *= 0.5f;
                 final float pxPerTick = tilesPerSec * 32.0f / TICK_RATE;
 
                 // Save preTick BEFORE we drain — this is the lerp's "from".
@@ -1907,12 +1935,17 @@ public class PlayState extends GameState {
             // so status icons don't oscillate against the moving sprite.
             final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
             final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
-            // Chip size matches webclient: 40x14 with a 2px gap.
-            final float iconW = 40f;
-            final float iconH = 14f;
-            final float iconGap = 2f;
+            // Webclient chips are 40x14 SCREEN pixels. Native renders here
+            // through the world camera which has WORLD_SCALE=2× zoom — so
+            // 40 world units = 80 actual pixels. Divide by WORLD_SCALE to
+            // match the webclient's on-screen size. Same for the vertical
+            // gap and the bottom-anchor offset.
+            final float WS = OpenRealmGame.WORLD_SCALE;
+            final float iconW = 40f / WS;
+            final float iconH = 14f / WS;
+            final float iconGap = 2f / WS;
             final float iconX = wx + (sSize * 0.5f) - (iconW * 0.5f);
-            final float bottomY = wy - 22f; // just above the HP bar / name
+            final float bottomY = wy - 22f / WS; // just above the HP bar / name
             int activeIdx = 0;
             for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
                 if (!hasEffectId(effs, def.effectId)) continue;
@@ -1941,7 +1974,9 @@ public class PlayState extends GameState {
         if (!_statusChipLayout.isEmpty()) {
             batch.begin();
             final float prevScale = font.getData().scaleX;
-            font.getData().setScale(0.45f);
+            // Font scale also halved (chips are now 1/WORLD_SCALE size so
+            // text-to-chip ratio stays the same as the previous tuning).
+            font.getData().setScale(0.45f / OpenRealmGame.WORLD_SCALE);
             for (int idx = 0; idx < _statusChipLayout.size(); idx++) {
                 final float[] r = _statusChipLayout.get(idx);
                 final String label = _statusChipLabels.get(idx);

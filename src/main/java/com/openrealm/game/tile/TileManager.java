@@ -1173,7 +1173,7 @@ public class TileManager {
         // (e.g. 8px tile -> 3px depth). When drawn at the rendered tile
         // size (ts = 32px), we scale to ts × featherPx for proportional
         // depth on screen.
-        final int featherPx = Math.max(2, Math.round(ts * 0.30f));
+        final int featherPx = Math.max(2, Math.round(ts * 0.20f));
         final int xMin = (int) (posNormalized.x - VIEWPORT_TILE_MIN);
         final int xMax = (int) (posNormalized.x + VIEWPORT_TILE_MIN);
         final int yMin = (int) (posNormalized.y - VIEWPORT_TILE_MIN);

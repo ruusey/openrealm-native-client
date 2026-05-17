@@ -142,7 +142,10 @@ public class GameSpriteManager {
      */
     public static void bakeTileFeathers() {
         if (TILE_SPRITES == null || PIXMAP_CACHE == null) return;
-        final float FEATHER_FRAC = 0.30f;
+        // Depth = 20% of tile dimension (was 30%). Reduced ~1/3 because
+        // standalone single tiles were being visually swallowed by the
+        // blend on every side. Narrower fringe = tile interior dominates.
+        final float FEATHER_FRAC = 0.20f;
 
         // Collect tiles that can be baked (have a source pixmap).
         final List<Integer> tileIds = new ArrayList<>();
