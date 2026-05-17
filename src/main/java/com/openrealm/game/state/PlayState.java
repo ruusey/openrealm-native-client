@@ -1562,13 +1562,20 @@ public class PlayState extends GameState {
             // Apply absolute camera rotation. up + direction are reset to
             // the Y-down (setToOrtho(true)) basis every frame, then we
             // rotate by cameraAngle in degrees — using rotate() directly
-            // without resetting would compound per frame. Sign matches
-            // the webclient: positive cameraAngle = world appears to
-            // rotate counterclockwise on screen (Q press direction).
+            // without resetting would compound per frame.
+            //
+            // SIGN: PIXI worldLayer.rotation = +angle rotates content
+            // visually in one direction; LibGDX camera.rotate(+angle, 0,
+            // 0, 1) rotates the CAMERA in the same direction, which
+            // makes the WORLD appear to rotate in the OPPOSITE direction
+            // on screen. To match webclient visuals (Q = left rotate),
+            // negate the angle when applying to the camera. Movement
+            // input rotation in input() still uses -cameraAngle (same
+            // formula as the webclient) and now aligns correctly.
             if (this.cameraAngle != 0f) {
                 worldCam.up.set(0f, -1f, 0f);
                 worldCam.direction.set(0f, 0f, 1f);
-                worldCam.rotate((float) Math.toDegrees(this.cameraAngle), 0f, 0f, 1f);
+                worldCam.rotate(-(float) Math.toDegrees(this.cameraAngle), 0f, 0f, 1f);
             } else {
                 // Cheap path when not rotated — avoid the basis reset
                 // every frame in the common case.

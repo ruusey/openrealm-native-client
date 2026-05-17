@@ -3034,12 +3034,17 @@ public class PlayerUI {
         // from the ability's own sprite fields (spriteKey/row/col), matching
         // every other data type. Cooldown overlay + SP pips drawn in a
         // post-pass below (shape renderer needs to switch out of batch).
+        // Phase 1B grew the hotbar from 4 → 5 slots (panel.hud.equipment.grid
+        // is cols=5). The cap and the post-pass cell buffer used to be
+        // hard-coded at 4 which silently dropped the 5th ability slot from
+        // both rendering and the cooldown / SP overlay pass.
+        final int HOTBAR_SLOT_COUNT = 5;
         final int[][] hotbarCells = UiAtlas.gridCells("panel.hud.equipment.grid");
         final Player localPlayer = (this.playState != null) ? this.playState.getPlayer() : null;
         // Per-slot cell coords captured so the post-pass can paint cooldown
         // overlays + SP pips without re-computing the layout.
-        final float[][] hotbarCellPx = new float[4][4]; // [slot] = {x, y, w, h}
-        for (int i = 0; i < hotbarCells.length && i < 4; i++) {
+        final float[][] hotbarCellPx = new float[HOTBAR_SLOT_COUNT][4]; // [slot] = {x, y, w, h}
+        for (int i = 0; i < hotbarCells.length && i < HOTBAR_SLOT_COUNT; i++) {
             final int[] cell = hotbarCells[i];
             final float cx = hotbarX + (cell[0] - cHotbar.getX()) * s;
             final float cy = hotbarY + (cell[1] - cHotbar.getY()) * s;
