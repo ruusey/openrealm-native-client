@@ -702,9 +702,9 @@ public class CharacterSelectState extends GameState {
         if (c.getStats() != null) {
             font.setColor(0.75f, 0.70f, 0.60f, 1f);
             font.draw(batch,
-                    String.format("HP %d  MP %d  ATT %d  DEF %d  SPD %d  DEX %d  VIT %d  WIS %d",
+                    String.format("HP %d  MP %d  STR %d  DEF %d  SPD %d  DEX %d  VIT %d  WIS %d",
                         nz(c.getStats().getHp()), nz(c.getStats().getMp()),
-                        nz(c.getStats().getAtt()), nz(c.getStats().getDef()),
+                        nz(c.getStats().getStr()), nz(c.getStats().getDef()),
                         nz(c.getStats().getSpd()), nz(c.getStats().getDex()),
                         nz(c.getStats().getVit()), nz(c.getStats().getWis())),
                     textX, line2Y);

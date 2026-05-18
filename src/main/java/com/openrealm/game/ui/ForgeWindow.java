@@ -85,7 +85,7 @@ public class ForgeWindow {
      *  server uses it to pull the stat / shard data). Mirrors the
      *  ForgeEnchantPacket field layout. */
     @Setter private int crystalItemId = -1;
-    /** Stat id encoded by the selected crystal (0=VIT 1=WIS 2=HP 3=MP 4=ATT 5=DEF 6=SPD 7=DEX). */
+    /** Stat id encoded by the selected crystal (0=VIT 1=WIS 2=HP 3=MP 4=STR 5=DEF 6=SPD 7=DEX). */
     @Setter private int crystalStatId = -1;
 
     /** Pixels the user has painted in this session. Each entry is {x, y, statId, color-rgb}. */
@@ -641,7 +641,7 @@ public class ForgeWindow {
             case 1: return new Color(0.55f, 0.30f, 0.85f, 1f); // WIS — purple
             case 2: return new Color(0.85f, 0.20f, 0.20f, 1f); // HP  — red
             case 3: return new Color(0.20f, 0.40f, 0.95f, 1f); // MP  — blue
-            case 4: return new Color(0.85f, 0.60f, 0.10f, 1f); // ATT — gold
+            case 4: return new Color(0.85f, 0.60f, 0.10f, 1f); // STR — gold
             case 5: return new Color(0.55f, 0.55f, 0.65f, 1f); // DEF — silver
             case 6: return new Color(0.20f, 0.85f, 0.45f, 1f); // SPD — green
             case 7: return new Color(0.95f, 0.85f, 0.30f, 1f); // DEX — yellow

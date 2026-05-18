@@ -66,7 +66,7 @@ public class ItemTooltip {
     private static final Color GEM_COLOR = new Color(0.94f, 0.75f, 0.38f, 1f);
     private static final Color AFFIX_COLOR = new Color(0.75f, 0.63f, 0.88f, 1f);
 
-    private static final String[] STAT_LABELS = {"VIT","WIS","HP","MP","ATT","DEF","SPD","DEX"};
+    private static final String[] STAT_LABELS = {"VIT","WIS","HP","MP","STR","DEF","SPD","DEX"};
     private static final String[] STATUS_EFFECT_NAMES = {
         "Invisible","Healing","Paralyzed","Stunned","Speedy","Healed","Invincible","",
         "None","Teleported","","Dazed","","","Damaging","Stasis",
@@ -286,7 +286,7 @@ public class ItemTooltip {
             List<String> statParts = new ArrayList<>();
             this.addStat(statParts, "HP", this.stats.getHp());
             this.addStat(statParts, "MP", this.stats.getMp());
-            this.addStat(statParts, "ATT", this.stats.getAtt());
+            this.addStat(statParts, "STR", this.stats.getStr());
             this.addStat(statParts, "DEF", this.stats.getDef());
             this.addStat(statParts, "SPD", this.stats.getSpd());
             this.addStat(statParts, "DEX", this.stats.getDex());

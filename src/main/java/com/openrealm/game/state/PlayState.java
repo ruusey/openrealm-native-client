@@ -678,7 +678,7 @@ public class PlayState extends GameState {
             return;
 
         if (!isEnemy) {
-            damage = (short) (damage + player.getStats().getAtt());
+            damage = (short) (damage + player.getStats().getStr());
         }
         Bullet b = new Bullet(Realm.RANDOM.nextLong(), projectileId, src, dest, size, magnitude, range, damage, isEnemy);
         b.setFlags(flags);
@@ -692,7 +692,7 @@ public class PlayState extends GameState {
             return -1;
 
         if (!isEnemy) {
-            damage = (short) (damage + player.getStats().getAtt());
+            damage = (short) (damage + player.getStats().getStr());
         }
         Bullet b = new Bullet(Realm.RANDOM.nextLong(), projectileId, src, angle, size, magnitude, range, damage, isEnemy);
         b.setAmplitude(amplitude);
@@ -719,7 +719,7 @@ public class PlayState extends GameState {
 
         final float baseAngle = Bullet.getAngle(source, dest);
         final SpriteSheet sheet = GameSpriteManager.getSpriteSheet(group);
-        final short atkBonus = (short) player.getStats().getAtt();
+        final short atkBonus = (short) player.getStats().getStr();
         final Realm realm = this.realmManager.getRealm();
 
         // MultiShot / extra-projectile gems: count PROJECTILE_COUNT (effectType=2)
@@ -2401,9 +2401,9 @@ public class PlayState extends GameState {
         new StatusEffectIconDef(StatusEffectType.VULNERABLE.effectId,   "Vuln",   0xCC4080),
         new StatusEffectIconDef(StatusEffectType.GROUNDED.effectId,     "Grnd",   0x806040),
         new StatusEffectIconDef(StatusEffectType.MARKED_FOR_LOOT.effectId, "Mark", 0xFFD840),
-        // Heavy Buffer "Guiding Light" aura — split into two icons so ATT
+        // Heavy Buffer "Guiding Light" aura — split into two icons so STR
         // and DEX each show as their own pip above the player's head.
-        new StatusEffectIconDef(StatusEffectType.EMPOWERED_ATT.effectId, "Atk+",  0xFFAA44),
+        new StatusEffectIconDef(StatusEffectType.EMPOWERED_STR.effectId, "Atk+",  0xFFAA44),
         new StatusEffectIconDef(StatusEffectType.EMPOWERED_DEX.effectId, "Dex+",  0xFFD060),
     };
 

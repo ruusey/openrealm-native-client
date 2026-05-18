@@ -59,7 +59,7 @@ public class SorcererScepterScript extends UseableItemScriptBase {
 
         // Base damage from item's damage field (min-max roll) + attack stat
         short baseDamage = (abilityItem.getDamage() != null) ? abilityItem.getDamage().getInRange() : 100;
-        baseDamage += player.getComputedStats().getAtt();
+        baseDamage += player.getComputedStats().getStr();
 
         final Vector2f playerCenter = player.getPos().clone(player.getSize() / 2, player.getSize() / 2);
         // Initial target: nearest enemy to where the user clicked, not the player

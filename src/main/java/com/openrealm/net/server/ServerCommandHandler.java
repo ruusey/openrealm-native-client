@@ -189,8 +189,8 @@ public class ServerCommandHandler {
         case "mp":
             target.getStats().setMp(valueToSet);
             break;
-        case "att":
-            target.getStats().setAtt(valueToSet);
+        case "str":
+            target.getStats().setStr(valueToSet);
             break;
         case "def":
             target.getStats().setDef(valueToSet);

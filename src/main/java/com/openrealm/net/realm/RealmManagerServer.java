@@ -1802,7 +1802,7 @@ public class RealmManagerServer implements Runnable {
 			for (final Projectile p : group.getProjectiles()) {
 				final short offset = (short) (p.getSize() / (short) 2);
 				short rolledDamage = abilityItem.getDamage().getInRange();
-				rolledDamage += player.getComputedStats().getAtt();
+				rolledDamage += player.getComputedStats().getStr();
 				if (p.getPositionMode() != ProjectilePositionMode.TARGET_PLAYER) {
 					source = dest;
 				}
@@ -1823,7 +1823,7 @@ public class RealmManagerServer implements Runnable {
 
 				final short offset = (short) (p.getSize() / (short) 2);
 				short rolledDamage = abilityItem.getDamage().getInRange();
-				rolledDamage += player.getComputedStats().getAtt();
+				rolledDamage += player.getComputedStats().getStr();
 				Bullet ab2 = this.addProjectile(realmId, 0l, player.getId(), abilityItem.getDamage().getProjectileGroupId(),
 						p.getProjectileId(), dest.clone(-offset, -offset), Float.parseFloat(p.getAngle()), p.getSize(),
 						p.getMagnitude(), p.getRange(), rolledDamage, false, p.getFlags(), p.getAmplitude(),
@@ -2322,7 +2322,7 @@ public class RealmManagerServer implements Runnable {
 		}
 
 		if (!isEnemy && player != null) {
-			damage = (short) (damage + player.getStats().getAtt());
+			damage = (short) (damage + player.getStats().getStr());
 		}
 
 		final long idToUse = id == 0l ? Realm.RANDOM.nextLong() : id;
@@ -2350,7 +2350,7 @@ public class RealmManagerServer implements Runnable {
 
 		final ProjectileGroup pg = GameDataManager.PROJECTILE_GROUPS.get(projectileGroupId);
 		if (!isEnemy && player != null) {
-			damage = (short) (damage + player.getStats().getAtt());
+			damage = (short) (damage + player.getStats().getStr());
 		}
 
 		final long idToUse = id == 0l ? Realm.RANDOM.nextLong() : id;

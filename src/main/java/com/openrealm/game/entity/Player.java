@@ -251,7 +251,7 @@ public class Player extends Entity {
 		this.stats.setHp(stats.getHp().shortValue());
 		this.stats.setMp(stats.getMp().shortValue());
 		this.stats.setDef(stats.getDef().shortValue());
-		this.stats.setAtt(stats.getAtt().shortValue());
+		this.stats.setStr(stats.getStr().shortValue());
 		this.stats.setSpd(stats.getSpd().shortValue());
 		this.stats.setDex(stats.getDex().shortValue());
 		this.stats.setVit(stats.getVit().shortValue());
@@ -280,7 +280,7 @@ public class Player extends Entity {
 	public CharacterStatsDto serializeStats() {
 		return CharacterStatsDto.builder().xp(this.getExperience()).hp(Integer.valueOf((int) this.stats.getHp()))
 				.mp(Integer.valueOf((int) this.stats.getMp())).def(Integer.valueOf((int) this.stats.getDef()))
-				.att(Integer.valueOf((int) this.stats.getAtt())).spd(Integer.valueOf((int) this.stats.getSpd()))
+				.str(Integer.valueOf((int) this.stats.getStr())).spd(Integer.valueOf((int) this.stats.getSpd()))
 				.dex(Integer.valueOf((int) this.stats.getDex())).vit(Integer.valueOf((int) this.stats.getVit()))
 				.wis(Integer.valueOf((int) this.stats.getWis())).hpPotions(this.hpPotions).mpPotions(this.mpPotions)
 				.dyeId(Integer.valueOf(this.dyeId))
@@ -489,7 +489,7 @@ public class Player extends Entity {
 			if (item != null) {
 				stats = stats.concat(item.getStats());
 				// Pixel-forge enchantments: each entry adds +deltaValue to the
-				// matching stat. statId order: 0=VIT 1=WIS 2=HP 3=MP 4=ATT 5=DEF 6=SPD 7=DEX
+				// matching stat. statId order: 0=VIT 1=WIS 2=HP 3=MP 4=STR 5=DEF 6=SPD 7=DEX
 				if (item.getEnchantments() != null && !item.getEnchantments().isEmpty()) {
 					for (Enchantment e : item.getEnchantments()) {
 						final short delta = e.getDeltaValue();
@@ -498,7 +498,7 @@ public class Player extends Entity {
 						case 1: stats.setWis((short) (stats.getWis() + delta)); break;
 						case 2: stats.setHp(stats.getHp() + delta); break;
 						case 3: stats.setMp((short) (stats.getMp() + delta)); break;
-						case 4: stats.setAtt((short) (stats.getAtt() + delta)); break;
+						case 4: stats.setStr((short) (stats.getStr() + delta)); break;
 						case 5: stats.setDef((short) (stats.getDef() + delta)); break;
 						case 6: stats.setSpd((short) (stats.getSpd() + delta)); break;
 						case 7: stats.setDex((short) (stats.getDex() + delta)); break;
@@ -962,7 +962,7 @@ public class Player extends Entity {
 			maxed = this.stats.getDef() >= maxStats.getDef();
 			break;
 		case 3:
-			maxed = this.stats.getAtt() >= maxStats.getAtt();
+			maxed = this.stats.getStr() >= maxStats.getStr();
 			break;
 		case 4:
 			maxed = this.stats.getSpd() >= maxStats.getSpd();
@@ -988,7 +988,7 @@ public class Player extends Entity {
 		} else if (((item.getStats().getMp() > 0) && this.isStatMaxed(1))
 				|| ((item.getStats().getDef() > 0) && this.isStatMaxed(2))) {
 			canConsume = false;
-		} else if (((item.getStats().getAtt() > 0) && this.isStatMaxed(3))
+		} else if (((item.getStats().getStr() > 0) && this.isStatMaxed(3))
 				|| ((item.getStats().getSpd() > 0) && this.isStatMaxed(4))) {
 			canConsume = false;
 		} else if (((item.getStats().getDex() > 0) && this.isStatMaxed(5))

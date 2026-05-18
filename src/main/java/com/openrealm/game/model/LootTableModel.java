@@ -25,7 +25,7 @@ public class LootTableModel {
     private Map<String, Float> drops;
     private Map<String, Float> portalDrops;
 
-    // Shard itemIds 800..807 (vit, wis, hp, mp, att, def, spd, dex)
+    // Shard itemIds 800..807 (vit, wis, hp, mp, str, def, spd, dex)
     private static final int SHARD_ITEM_BASE = 800;
     // Essence itemIds 816..819 (weapon, ability, armor, ring)
     private static final int ESSENCE_ITEM_BASE = 816;

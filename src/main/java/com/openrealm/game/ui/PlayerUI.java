@@ -949,7 +949,7 @@ public class PlayerUI {
 
         // Party member cooldown-strip cells (cached by renderPartyMembers).
         // Each entry encodes [x, y, w, h, abilityId, investedSp, vit, wis,
-        // hp, mp, att, def, spd, dex] — the trailing 8 floats are the
+        // hp, mp, str, def, spd, dex] — the trailing 8 floats are the
         // member's computed stats so stat-scaled damage in the tooltip
         // can use THEIR numbers instead of falling back to base damage.
         if (!this._lastPartyAbilityCells.isEmpty()) {
@@ -969,7 +969,7 @@ public class PlayerUI {
                                     .wis((short) cell[7])
                                     .hp ((int)   cell[8])
                                     .mp ((short) cell[9])
-                                    .att((short) cell[10])
+                                    .str((short) cell[10])
                                     .def((short) cell[11])
                                     .spd((short) cell[12])
                                     .dex((short) cell[13])
@@ -2071,7 +2071,7 @@ public class PlayerUI {
             final int sWis = netStats != null ? netStats.getWis() : 0;
             final int sHp  = netStats != null ? netStats.getHp()  : 0;
             final int sMp  = netStats != null ? netStats.getMp()  : 0;
-            final int sAtt = netStats != null ? netStats.getAtt() : 0;
+            final int sStr = netStats != null ? netStats.getStr() : 0;
             final int sDef = netStats != null ? netStats.getDef() : 0;
             final int sSpd = netStats != null ? netStats.getSpd() : 0;
             final int sDex = netStats != null ? netStats.getDex() : 0;
@@ -2091,7 +2091,7 @@ public class PlayerUI {
                             ? invested[i] : 0;
                     this._lastPartyAbilityCells.add(new float[] {
                             cx, cdY, cdCellSize, cdCellSize, (float) aid, (float) inv,
-                            sVit, sWis, sHp, sMp, sAtt, sDef, sSpd, sDex
+                            sVit, sWis, sHp, sMp, sStr, sDef, sSpd, sDex
                     });
                     if (ab.getSpriteKey() != null && !ab.getSpriteKey().isEmpty()) {
                         final int spriteSize = ab.getSpriteSize() > 0 ? ab.getSpriteSize() : 8;
@@ -2812,7 +2812,7 @@ public class PlayerUI {
 
         Stats stats = this.playState.getPlayer().getComputedStats();
         font.setColor(this.playState.getPlayer().isStatMaxed(3) ? Color.YELLOW : Color.WHITE);
-        font.draw(batch, "ATT " + stats.getAtt(), textX, startY);
+        font.draw(batch, "STR " + stats.getStr(), textX, startY);
         font.setColor(this.playState.getPlayer().isStatMaxed(4) ? Color.YELLOW : Color.WHITE);
         font.draw(batch, "SPD " + stats.getSpd(), textX, startY + (1 * yOffset));
         font.setColor(this.playState.getPlayer().isStatMaxed(6) ? Color.YELLOW : Color.WHITE);
@@ -3358,18 +3358,18 @@ public class PlayerUI {
         final int textXcol1 = startX + colW;
         final int startY  = statsY + 12;
 
-        // Stat order: ATT, DEF, SPD, DEX, VIT, WIS — same as before.
+        // Stat order: STR, DEF, SPD, DEX, VIT, WIS — same as before.
         // Layout (column-major so left col = first 3, right col = last 3):
-        //   ATT   DEX
+        //   STR   DEX
         //   DEF   VIT
         //   SPD   WIS
         final int[]    statMaxedIdx = {  3,    6,    4,    5,    2,    7  };
-        final String[] statLabels   = { "ATT", "DEF", "SPD", "DEX", "VIT", "WIS" };
-        final int[] computedVals = { computed.getAtt(), computed.getDef(),
+        final String[] statLabels   = { "STR", "DEF", "SPD", "DEX", "VIT", "WIS" };
+        final int[] computedVals = { computed.getStr(), computed.getDef(),
                 computed.getSpd(), computed.getDex(), computed.getVit(),
                 computed.getWis() };
         final int[] baseVals = (base != null)
-                ? new int[] { base.getAtt(), base.getDef(), base.getSpd(),
+                ? new int[] { base.getStr(), base.getDef(), base.getSpd(),
                               base.getDex(), base.getVit(), base.getWis() }
                 : computedVals;
 

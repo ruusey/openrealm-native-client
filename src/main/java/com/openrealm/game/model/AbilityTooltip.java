@@ -229,7 +229,7 @@ public class AbilityTooltip {
                 case 1: statVal = stats.getWis(); break;
                 case 2: statVal = stats.getHp();  break;
                 case 3: statVal = stats.getMp();  break;
-                case 4: statVal = stats.getAtt(); break;
+                case 4: statVal = stats.getStr(); break;
                 case 5: statVal = stats.getDef(); break;
                 case 6: statVal = stats.getSpd(); break;
                 case 7: statVal = stats.getDex(); break;
