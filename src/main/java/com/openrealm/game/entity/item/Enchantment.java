@@ -17,7 +17,7 @@ public class Enchantment {
     public static final byte STAT_WIS = 1;
     public static final byte STAT_HP = 2;
     public static final byte STAT_MP = 3;
-    public static final byte STAT_ATT = 4;
+    public static final byte STAT_STR = 4;
     public static final byte STAT_DEF = 5;
     public static final byte STAT_SPD = 6;
     public static final byte STAT_DEX = 7;
@@ -28,29 +28,7 @@ public class Enchantment {
     private byte pixelY;
     private int pixelColor;
 
-    @Builder.Default
-    private byte effectType = 0;
-    @Builder.Default
-    private byte param1 = 0;
-    @Builder.Default
-    private short magnitude = 0;
-    @Builder.Default
-    private int durationMs = 0;
-
-    public Enchantment(byte statId, byte deltaValue, byte pixelX, byte pixelY, int pixelColor) {
-        this.statId = statId;
-        this.deltaValue = deltaValue;
-        this.pixelX = pixelX;
-        this.pixelY = pixelY;
-        this.pixelColor = pixelColor;
-        this.effectType = 0;
-        this.param1 = statId;
-        this.magnitude = deltaValue;
-        this.durationMs = 0;
-    }
-
     public Enchantment clone() {
-        return new Enchantment(this.statId, this.deltaValue, this.pixelX, this.pixelY,
-                this.pixelColor, this.effectType, this.param1, this.magnitude, this.durationMs);
+        return new Enchantment(this.statId, this.deltaValue, this.pixelX, this.pixelY, this.pixelColor);
     }
 }

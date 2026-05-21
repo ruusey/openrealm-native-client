@@ -58,13 +58,19 @@ public class GameItem extends SpriteModel {
     @Builder.Default
     private List<AttributeModifier> attributeModifiers = new ArrayList<>();
     @Builder.Default
-    private byte gemEffectType = -1;
+    private byte itemClass = 0;
     @Builder.Default
-    private byte gemParam1 = 0;
+    private byte archetypeId = 0;
     @Builder.Default
-    private short gemMagnitude = 0;
+    private byte gemstoneType = 0;
     @Builder.Default
-    private int gemDurationMs = 0;
+    private byte gemPixelX = 0;
+    @Builder.Default
+    private byte gemPixelY = 0;
+    @Builder.Default
+    private int gemPixelColor = 0;
+    @Builder.Default
+    private byte scalingStat = 4;
 
     public GameItem() {
         this.uid = UUID.randomUUID().toString();
@@ -77,10 +83,13 @@ public class GameItem extends SpriteModel {
         this.enchantments = new ArrayList<>();
         this.rarity = 0;
         this.attributeModifiers = new ArrayList<>();
-        this.gemEffectType = -1;
-        this.gemParam1 = 0;
-        this.gemMagnitude = 0;
-        this.gemDurationMs = 0;
+        this.itemClass = 0;
+        this.archetypeId = 0;
+        this.gemstoneType = 0;
+        this.gemPixelX = 0;
+        this.gemPixelY = 0;
+        this.gemPixelColor = 0;
+        this.scalingStat = 4;
     }
 
     @Override
@@ -91,8 +100,10 @@ public class GameItem extends SpriteModel {
                 .stackable(this.stackable).maxStack(this.maxStack).category(this.category)
                 .forgeStatId(this.forgeStatId).forgeSlotId(this.forgeSlotId).stackCount(this.stackCount)
                 .rarity(this.rarity)
-                .gemEffectType(this.gemEffectType).gemParam1(this.gemParam1)
-                .gemMagnitude(this.gemMagnitude).gemDurationMs(this.gemDurationMs);
+                .itemClass(this.itemClass).archetypeId(this.archetypeId)
+                .gemstoneType(this.gemstoneType)
+                .gemPixelX(this.gemPixelX).gemPixelY(this.gemPixelY).gemPixelColor(this.gemPixelColor)
+                .scalingStat(this.scalingStat);
 
         if (this.damage != null) {
             builder = builder.damage(this.damage.clone());
@@ -142,8 +153,6 @@ public class GameItem extends SpriteModel {
                 enchDtos.add(EnchantmentDto.builder()
                         .statId(e.getStatId()).deltaValue(e.getDeltaValue())
                         .pixelX(e.getPixelX()).pixelY(e.getPixelY()).pixelColor(e.getPixelColor())
-                        .effectType(e.getEffectType()).param1(e.getParam1())
-                        .magnitude(e.getMagnitude()).durationMs(e.getDurationMs())
                         .build());
             }
         } else {
@@ -160,7 +169,12 @@ public class GameItem extends SpriteModel {
         }
         return GameItemRefDto.builder().itemId(this.itemId).slotIdx(idx).itemUuid(this.uid)
                 .stackCount(this.stackCount).enchantments(enchDtos)
-                .rarity(this.rarity).attributeModifiers(modDtos).build();
+                .rarity(this.rarity).attributeModifiers(modDtos)
+                .gemstoneType(this.gemstoneType)
+                .gemPixelX(this.gemPixelX)
+                .gemPixelY(this.gemPixelY)
+                .gemPixelColor(this.gemPixelColor)
+                .build();
     }
 
     public NetGameItemRef asNetGameItemRef(int idx) {
@@ -178,18 +192,12 @@ public class GameItem extends SpriteModel {
         if (gameItem.getEnchantments() != null && !gameItem.getEnchantments().isEmpty()) {
             final List<Enchantment> loaded = new ArrayList<>(gameItem.getEnchantments().size());
             for (EnchantmentDto e : gameItem.getEnchantments()) {
-                final byte statId = e.getStatId() == null ? 0 : e.getStatId();
-                final byte delta = e.getDeltaValue() == null ? 0 : e.getDeltaValue();
-                final byte effectType = e.getEffectType() == null ? 0 : e.getEffectType();
-                final byte param1 = e.getParam1() == null ? statId : e.getParam1();
-                final short magnitude = e.getMagnitude() == null ? (short) delta : e.getMagnitude();
                 loaded.add(new Enchantment(
-                        statId, delta,
+                        e.getStatId() == null ? 0 : e.getStatId(),
+                        e.getDeltaValue() == null ? 0 : e.getDeltaValue(),
                         e.getPixelX() == null ? 0 : e.getPixelX(),
                         e.getPixelY() == null ? 0 : e.getPixelY(),
-                        e.getPixelColor() == null ? 0 : e.getPixelColor(),
-                        effectType, param1, magnitude,
-                        e.getDurationMs() == null ? 0 : e.getDurationMs()));
+                        e.getPixelColor() == null ? 0 : e.getPixelColor()));
             }
             item.setEnchantments(loaded);
         } else {
@@ -207,6 +215,10 @@ public class GameItem extends SpriteModel {
             item.setAttributeModifiers(new ArrayList<>());
         }
         item.setRarity(gameItem.getRarity() == null ? 0 : gameItem.getRarity());
+        if (gameItem.getGemstoneType() != null)  item.setGemstoneType(gameItem.getGemstoneType());
+        if (gameItem.getGemPixelX() != null)     item.setGemPixelX(gameItem.getGemPixelX());
+        if (gameItem.getGemPixelY() != null)     item.setGemPixelY(gameItem.getGemPixelY());
+        if (gameItem.getGemPixelColor() != null) item.setGemPixelColor(gameItem.getGemPixelColor());
         GameDataManager.loadSpriteModel(item);
         return item;
     }
@@ -220,7 +232,6 @@ public class GameItem extends SpriteModel {
         return item;
     }
 
-    /** Convenience: max enchantments allowed by current rarity. */
     public int getMaxEnchantments() {
         return Rarity.slotsFor(this.rarity);
     }

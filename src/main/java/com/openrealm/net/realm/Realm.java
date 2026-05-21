@@ -1791,7 +1791,7 @@ public class Realm {
             if (dist < currentBestDist) {
                 currentBestDist = dist;
                 best = new Player(d.enemyId, decoy.getPos().clone(),
-                        decoy.getSize(), CharacterClass.TRICKSTER);
+                        decoy.getSize(), CharacterClass.NINJA);
             }
         }
         return best;

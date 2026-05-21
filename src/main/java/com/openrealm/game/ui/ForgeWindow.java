@@ -55,9 +55,9 @@ public class ForgeWindow {
     public static final int CANVAS_PIXEL_SIZE = 16;   // each grid cell is 16 device px
     public static final int CANVAS_RENDER_SIZE = CANVAS_PIXELS * CANVAS_PIXEL_SIZE; // 256 px
     // Upper sanity bound. The actual cap shown on screen and enforced when
-    // painting is rarity-driven (currentMaxEnchantments()) — Common = 1,
-    // Mythical = 6. Mirrors webclient slotsForItem() in forge.js.
-    public static final int MAX_ENCHANTMENTS = 6;
+    // painting is rarity-driven (currentMaxEnchantments()) — Mundane = 0,
+    // Legendary = 5. Mirrors webclient slotsForItem() in forge.js.
+    public static final int MAX_ENCHANTMENTS = 5;
 
     private boolean visible = false;
 

@@ -728,17 +728,10 @@ public class PlayState extends GameState {
         // SAME angle as the server-side bullet — otherwise findMatchingPredictedBullet
         // pairs the cursor-aligned predicted bullet with one of the off-center
         // server bullets, leaving the player visibly out of the spread center.
+        // Multishot is a gemstone now — Multishot Gem (typeId 3) grants +2.
         int extraProjectiles = 0;
-        if (weapon.getEnchantments() != null) {
-            for (com.openrealm.game.entity.item.Enchantment e : weapon.getEnchantments()) {
-                // PROJECTILE_COUNT == 2; also accept legacy enchants where
-                // effectType wasn't persisted (defaulted to 0) but param1
-                // happened to encode the project-count flag — defensive in
-                // case some MongoDB rows pre-date the effectType column.
-                if (e.getEffectType() == 2) {
-                    extraProjectiles += e.getMagnitude();
-                }
-            }
+        if (weapon.getGemstoneType() == 3) {
+            extraProjectiles = 2;
         }
         final int totalBullets = 1 + extraProjectiles;
         final float SPREAD = 0.12f;
@@ -2585,18 +2578,6 @@ public class PlayState extends GameState {
         // Phase 4 bespoke effects — each dispatches to a self-contained
         // renderer that manages its own shape begin/end. Mirrors the
         // procedural rendering done in the webclient renderer.js.
-        if (type == CreateEffectPacket.EFFECT_REALITY_TEAR) {
-            renderRealityTear(shapes, cx, cy, maxRadius, t);
-            return;
-        }
-        if (type == CreateEffectPacket.EFFECT_PHANTOM_STRIKE) {
-            renderPhantomStrike(shapes, cx, cy, maxRadius, t);
-            return;
-        }
-        if (type == CreateEffectPacket.EFFECT_STASIS_LOCK) {
-            renderStasisLock(shapes, cx, cy, maxRadius, t);
-            return;
-        }
         if (type == CreateEffectPacket.EFFECT_SANCTUARY_DOME) {
             renderSanctuaryDome(shapes, cx, cy, maxRadius, t);
             return;
@@ -2639,10 +2620,6 @@ public class PlayState extends GameState {
         }
         if (type == CreateEffectPacket.EFFECT_FROST_NOVA) {
             renderFrostNova(shapes, cx, cy, maxRadius, t);
-            return;
-        }
-        if (type == CreateEffectPacket.EFFECT_HUNTERS_RETICLE) {
-            renderHuntersReticle(shapes, cx, cy, maxRadius, t);
             return;
         }
         if (type == CreateEffectPacket.EFFECT_POISON_CLOUD) {
@@ -2807,7 +2784,6 @@ public class PlayState extends GameState {
         case CreateEffectPacket.EFFECT_BRACE_STANCE:      r = 0.70f; g = 0.85f; b = 0.95f; break;
         case CreateEffectPacket.EFFECT_FROST_NOVA:        r = 0.60f; g = 0.90f; b = 1.00f; break;
         case CreateEffectPacket.EFFECT_BLINK_GLYPH:       r = 0.75f; g = 0.45f; b = 1.00f; break;
-        case CreateEffectPacket.EFFECT_HUNTERS_RETICLE:   r = 1.00f; g = 0.30f; b = 0.30f; break;
         case CreateEffectPacket.EFFECT_POISON_CLOUD:      r = 0.38f; g = 0.78f; b = 0.20f; break;
         case CreateEffectPacket.EFFECT_LIFE_DRAIN:        r = 0.85f; g = 0.10f; b = 0.30f; break;
         case CreateEffectPacket.EFFECT_BONE_SPIKES:       r = 0.92f; g = 0.90f; b = 0.78f; break;
@@ -2833,9 +2809,6 @@ public class PlayState extends GameState {
         case CreateEffectPacket.EFFECT_BLADE_STORM:       r = 0.90f; g = 0.85f; b = 0.85f; break;
         // Phase 3 (post-rework) bespoke effects — until the native renderer
         // ports the procedural shape for each, paint a distinctive ring.
-        case CreateEffectPacket.EFFECT_REALITY_TEAR:      r = 0.55f; g = 0.20f; b = 1.00f; break;
-        case CreateEffectPacket.EFFECT_PHANTOM_STRIKE:    r = 0.30f; g = 0.06f; b = 0.30f; break;
-        case CreateEffectPacket.EFFECT_STASIS_LOCK:       r = 0.55f; g = 0.85f; b = 1.00f; break;
         case CreateEffectPacket.EFFECT_SANCTUARY_DOME:    r = 1.00f; g = 0.85f; b = 0.35f; break;
         case CreateEffectPacket.EFFECT_VAMPIRIC_LATCH:    r = 0.85f; g = 0.10f; b = 0.30f; break;
         // Heavy class kit FX — Debuffer (silver/red), Buffer (gold), DPS (dust).
@@ -3522,204 +3495,6 @@ public class PlayState extends GameState {
      * 6 jagged radial cracks rotating outward, 10 orbiting void shards.
      * Procedural port of renderer.js case 48 for native LibGDX.
      */
-    private void renderRealityTear(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
-        if (radius <= 0) return;
-        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
-        final long now = System.currentTimeMillis();
-        // Disc + violet glow
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.04f, 0.00f, 0.06f, alpha);
-        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
-        shapes.setColor(0.50f, 0.19f, 1.00f, alpha * 0.35f);
-        drawCircle(shapes, cx, cy, radius, 48);
-        shapes.end();
-        // Radial cracks
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        Gdx.gl.glLineWidth(3f);
-        shapes.setColor(1.00f, 0.38f, 1.00f, alpha * 0.95f);
-        final int cracks = 6;
-        for (int i = 0; i < cracks; i++) {
-            final float a = (i / (float) cracks) * (float) Math.PI * 2f + now * 0.0012f;
-            final float innerR = radius * 0.5f;
-            final float outerR = radius * 1.15f;
-            final float midA = a + 0.15f;
-            final float midR = radius * 0.8f;
-            final float jx = cx + (float) Math.cos(a) * innerR;
-            final float jy = cy + (float) Math.sin(a) * innerR;
-            final float mx = cx + (float) Math.cos(midA) * midR;
-            final float my = cy + (float) Math.sin(midA) * midR;
-            final float ex = cx + (float) Math.cos(a) * outerR;
-            final float ey = cy + (float) Math.sin(a) * outerR;
-            shapes.line(jx, jy, mx, my);
-            shapes.line(mx, my, ex, ey);
-        }
-        Gdx.gl.glLineWidth(1f);
-        shapes.setColor(0.50f, 0.19f, 1.00f, alpha * 0.5f);
-        drawCircleOutline(shapes, cx, cy, radius * 0.85f, 64);
-        shapes.end();
-        // Orbiting shards + bright core
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        final int shards = 10;
-        for (int i = 0; i < shards; i++) {
-            final float seed = i * 0.473f;
-            final float orbA = seed * (float) Math.PI * 2f + now * 0.0035f;
-            final float orbR = radius * (0.4f + 0.55f * ((seed * 13f) % 1f));
-            final float px = cx + (float) Math.cos(orbA) * orbR;
-            final float py = cy + (float) Math.sin(orbA) * orbR;
-            shapes.setColor(1.00f, 0.38f, 1.00f, alpha * 0.9f);
-            drawCircle(shapes, px, py, 4f, 12);
-            shapes.setColor(0.04f, 0.00f, 0.06f, alpha);
-            drawCircle(shapes, px, py, 2.2f, 10);
-        }
-        shapes.setColor(1f, 1f, 1f, alpha);
-        drawCircle(shapes, cx, cy, 4f, 16);
-        shapes.setColor(1.00f, 0.38f, 1.00f, alpha * 0.85f);
-        drawCircle(shapes, cx, cy, 9f, 18);
-        shapes.end();
-    }
-
-    /**
-     * Rogue Phantom Strike — initial shadow-flash on first 30% of life,
-     * then 6 radial bone-rib "hands" with knuckle joints + finger fans,
-     * crimson eye-glint skull at center.
-     */
-    private void renderPhantomStrike(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
-        if (radius <= 0) return;
-        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
-        final long now = System.currentTimeMillis();
-        // Shadow flash
-        if (t < 0.30f) {
-            final float flashT = t / 0.30f;
-            final float fr = radius * (0.3f + flashT * 0.9f);
-            shapes.begin(ShapeRenderer.ShapeType.Line);
-            Gdx.gl.glLineWidth(5f);
-            shapes.setColor(0.10f, 0.03f, 0.13f, (1 - flashT) * 0.95f);
-            drawCircleOutline(shapes, cx, cy, fr, 48);
-            shapes.end();
-            Gdx.gl.glLineWidth(1f);
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0.63f, 0.06f, 0.19f, (1 - flashT) * 0.45f);
-            drawCircle(shapes, cx, cy, fr * 0.5f, 32);
-            shapes.end();
-        }
-        // 6 bone-rib hands
-        final int hands = 6;
-        final float handLen = radius * 0.9f;
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        Gdx.gl.glLineWidth(3f);
-        shapes.setColor(0.94f, 0.92f, 0.86f, alpha * 0.95f);
-        for (int i = 0; i < hands; i++) {
-            final float a = (i / (float) hands) * (float) Math.PI * 2f - (float) Math.PI / 2f + now * 0.0005f;
-            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
-            final float wx = cx + cosA * radius * 0.15f;
-            final float wy = cy + sinA * radius * 0.15f;
-            final float fx = cx + cosA * handLen;
-            final float fy = cy + sinA * handLen;
-            shapes.line(wx, wy, fx, fy);
-            Gdx.gl.glLineWidth(2f);
-            shapes.setColor(0.63f, 0.06f, 0.19f, alpha * 0.55f);
-            for (int f = -1; f <= 1; f++) {
-                final float fA = a + f * 0.18f;
-                shapes.line(fx, fy,
-                        cx + (float) Math.cos(fA) * (handLen + 8f),
-                        cy + (float) Math.sin(fA) * (handLen + 8f));
-            }
-            Gdx.gl.glLineWidth(3f);
-            shapes.setColor(0.94f, 0.92f, 0.86f, alpha * 0.95f);
-        }
-        Gdx.gl.glLineWidth(1f);
-        shapes.end();
-        // Knuckle joints + skull center
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.94f, 0.92f, 0.86f, alpha);
-        for (int i = 0; i < hands; i++) {
-            final float a = (i / (float) hands) * (float) Math.PI * 2f - (float) Math.PI / 2f + now * 0.0005f;
-            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
-            for (int k = 1; k <= 3; k++) {
-                final float jr = radius * 0.15f + k * (handLen - radius * 0.15f) / 4f;
-                drawCircle(shapes, cx + cosA * jr, cy + sinA * jr, 3f, 8);
-            }
-        }
-        shapes.setColor(0.10f, 0.03f, 0.13f, alpha);
-        drawCircle(shapes, cx, cy, 10f, 20);
-        shapes.setColor(0.63f, 0.06f, 0.19f, alpha);
-        drawCircle(shapes, cx - 3f, cy - 1f, 1.8f, 8);
-        drawCircle(shapes, cx + 3f, cy - 1f, 1.8f, 8);
-        shapes.end();
-    }
-
-    /**
-     * Sorcerer/Mystic Stasis Lock — frozen clock face: 12 hour-marks,
-     * slow-ticking hour + minute arms, 8 ice spikes around the perimeter,
-     * deep-blue ground halo.
-     */
-    private void renderStasisLock(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
-        if (radius <= 0) return;
-        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
-        final long now = System.currentTimeMillis();
-        // Ground halo + outer ring + inner ring
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.06f, 0.13f, 0.25f, alpha * 0.5f);
-        drawCircle(shapes, cx, cy, radius, 48);
-        shapes.setColor(0.50f, 0.75f, 1.00f, alpha * 0.25f);
-        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        Gdx.gl.glLineWidth(3f);
-        shapes.setColor(0.88f, 0.96f, 1.00f, alpha * 0.95f);
-        drawCircleOutline(shapes, cx, cy, radius, 64);
-        Gdx.gl.glLineWidth(2f);
-        shapes.setColor(0.50f, 0.75f, 1.00f, alpha * 0.85f);
-        drawCircleOutline(shapes, cx, cy, radius * 0.85f, 64);
-        // 12 tick marks
-        for (int i = 0; i < 12; i++) {
-            final float a = (i / 12f) * (float) Math.PI * 2f - (float) Math.PI / 2f;
-            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
-            final float inner = i % 3 == 0 ? radius * 0.78f : radius * 0.83f;
-            shapes.line(cx + cosA * inner, cy + sinA * inner,
-                        cx + cosA * radius * 0.95f, cy + sinA * radius * 0.95f);
-        }
-        // Hour + minute hands (slow ticks)
-        Gdx.gl.glLineWidth(4f);
-        shapes.setColor(0.88f, 0.96f, 1.00f, alpha);
-        final float minuteA = now * 0.0004f - (float) Math.PI / 2f;
-        shapes.line(cx, cy, cx + (float) Math.cos(minuteA) * radius * 0.65f,
-                            cy + (float) Math.sin(minuteA) * radius * 0.65f);
-        Gdx.gl.glLineWidth(3f);
-        shapes.setColor(0.50f, 0.75f, 1.00f, alpha);
-        final float hourA = now * 0.0001f - (float) Math.PI / 2f;
-        shapes.line(cx, cy, cx + (float) Math.cos(hourA) * radius * 0.4f,
-                            cy + (float) Math.sin(hourA) * radius * 0.4f);
-        Gdx.gl.glLineWidth(1f);
-        shapes.end();
-        // Ice spikes around perimeter
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        final int spikes = 8;
-        for (int i = 0; i < spikes; i++) {
-            final float a = (i / (float) spikes) * (float) Math.PI * 2f + (float) Math.PI / spikes;
-            final float cosA = (float) Math.cos(a), sinA = (float) Math.sin(a);
-            final float tip = radius * 1.15f;
-            final float base = radius * 0.95f;
-            final float halfWidth = 6f;
-            final float pA = a + (float) Math.PI / 2f;
-            final float px = (float) Math.cos(pA), py = (float) Math.sin(pA);
-            shapes.setColor(0.88f, 0.96f, 1.00f, alpha);
-            shapes.triangle(
-                    cx + cosA * tip, cy + sinA * tip,
-                    cx + cosA * base + px * halfWidth, cy + sinA * base + py * halfWidth,
-                    cx + cosA * base - px * halfWidth, cy + sinA * base - py * halfWidth);
-        }
-        // Center hub
-        shapes.setColor(0.88f, 0.96f, 1.00f, alpha);
-        drawCircle(shapes, cx, cy, 4f, 16);
-        shapes.end();
-    }
-
-    /**
-     * Priest/Paladin Sanctuary Dome — translucent golden dome, 8 rising
-     * light pillars, central holy cross. Long visual life (5s) tied to
-     * the INVINCIBLE buff.
-     */
     private void renderSanctuaryDome(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.90f ? 1.0f : 1.0f - (t - 0.90f) * 10f;
@@ -4374,62 +4149,6 @@ public class PlayState extends GameState {
      * Hunter Reticle — red 4-corner crosshair sweeping inward toward the
      * target, with center cross-tick lock indicator.
      * Procedural port of renderer.js case 21.
-     */
-    private void renderHuntersReticle(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
-        if (radius <= 0) return;
-        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
-        // Faint marker fill
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(1.00f, 0.13f, 0.19f, alpha * 0.10f);
-        drawCircle(shapes, cx, cy, radius, 48);
-        shapes.end();
-        // Corner brackets converging inward
-        final float reach = radius * (1.0f - 0.35f * t);
-        final float len   = radius * 0.28f;
-        final int[][] corners = { {-1,-1}, {1,-1}, {-1,1}, {1,1} };
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        for (int[] c : corners) {
-            final float dx = c[0], dy = c[1];
-            final float bx = cx + dx * reach;
-            final float by = cy + dy * reach;
-            // Outer dark trace
-            Gdx.gl.glLineWidth(6f);
-            shapes.setColor(0.50f, 0.00f, 0.06f, alpha * 0.85f);
-            shapes.line(bx - dx * len, by, bx, by);
-            shapes.line(bx, by, bx, by - dy * len);
-            // Bright red
-            Gdx.gl.glLineWidth(4f);
-            shapes.setColor(1.00f, 0.13f, 0.19f, alpha);
-            shapes.line(bx - dx * len, by, bx, by);
-            shapes.line(bx, by, bx, by - dy * len);
-            // White highlight
-            Gdx.gl.glLineWidth(2f);
-            shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
-            shapes.line(bx - dx * len, by, bx, by);
-            shapes.line(bx, by, bx, by - dy * len);
-        }
-        // Center cross (gap around middle)
-        Gdx.gl.glLineWidth(3f);
-        shapes.setColor(1.00f, 0.44f, 0.50f, alpha);
-        shapes.line(cx - 14, cy, cx - 4, cy);
-        shapes.line(cx + 4, cy,  cx + 14, cy);
-        shapes.line(cx, cy - 14, cx, cy - 4);
-        shapes.line(cx, cy + 4,  cx, cy + 14);
-        Gdx.gl.glLineWidth(1f);
-        shapes.end();
-        // Center dot
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(1.00f, 0.13f, 0.19f, alpha);
-        drawCircle(shapes, cx, cy, 3.5f, 12);
-        shapes.setColor(1f, 1f, 1f, alpha);
-        drawCircle(shapes, cx, cy, 1.5f, 8);
-        shapes.end();
-    }
-
-    /**
-     * Druid / Necromancer Poison Cloud — sickly green bubbling toxic cloud
-     * with 9 orbiting bubble blobs of varying radii.
-     * Procedural port of renderer.js case 22.
      */
     private void renderPoisonCloud(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;

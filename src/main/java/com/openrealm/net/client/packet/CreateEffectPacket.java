@@ -86,8 +86,7 @@ public class CreateEffectPacket extends Packet {
 	public static final short EFFECT_FROST_NOVA   = 19;
 	/** Wizard Blink — violet runic glyph at origin + destination. */
 	public static final short EFFECT_BLINK_GLYPH  = 20;
-	/** Archer Hunter's Mark — red 4-corner crosshair sweeping in. */
-	public static final short EFFECT_HUNTERS_RETICLE = 21;
+	// effect id 21 retired (was EFFECT_HUNTERS_RETICLE — Archer Hunter's Mark)
 	public static final short EFFECT_POISON_CLOUD    = 22;
 	public static final short EFFECT_LIFE_DRAIN      = 23;
 	public static final short EFFECT_BONE_SPIKES     = 24;
@@ -122,12 +121,8 @@ public class CreateEffectPacket extends Packet {
 	 *  cursor point. Tier byte selects shuriken sprite. radius is the
 	 *  spiral's outer edge. */
 	public static final short EFFECT_BLADE_BLENDER   = 47;
-	/** Sorcerer Reality Tear — jagged black void rift with violet edges. */
-	public static final short EFFECT_REALITY_TEAR    = 48;
-	/** Rogue Assassinate / Phantom Strike — shadow afterimage + bone hands. */
-	public static final short EFFECT_PHANTOM_STRIKE  = 49;
-	/** Mystic / Sorcerer Stasis Lock — frozen-time clock with ticking arms. */
-	public static final short EFFECT_STASIS_LOCK     = 50;
+	// effect ids 48-50 retired (were EFFECT_REALITY_TEAR / EFFECT_PHANTOM_STRIKE /
+	// EFFECT_STASIS_LOCK — tied to the old Sorcerer/Rogue/Mystic classes).
 	/** Priest / Paladin Sanctuary — golden dome with light pillars + holy cross. */
 	public static final short EFFECT_SANCTUARY_DOME  = 51;
 	/** Necromancer Vampirism — red life-drain tendrils to each enemy in range. */

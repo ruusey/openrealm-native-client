@@ -58,7 +58,14 @@ public enum StatusEffectType {
     EMPOWERED_STR((short) 34),
     /** Heavy Buffer "Guiding Light" aura — DEX half. Always applied with
      *  EMPOWERED_STR so the player sees two distinct icons above their head. */
-    EMPOWERED_DEX((short) 35);
+    EMPOWERED_DEX((short) 35),
+    /** Bleed DoT — server ticks fixed damage per second on the holder. */
+    BLEEDING((short) 36),
+    /** Attack-speed buff — distinct from BERSERK so short bursts don't
+     *  collide with the broader buff. */
+    FURY((short) 37),
+    /** Source-scoped vulnerability — +X% damage from caster's party only. */
+    WITHER((short) 38);
 
     public static Map<Short, StatusEffectType> map = new HashMap<>();
     static {

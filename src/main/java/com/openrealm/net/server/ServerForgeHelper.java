@@ -53,9 +53,9 @@ public class ServerForgeHelper {
     };
 
     // Upper sanity bound. Actual per-item cap is rarity-driven via
-    // GameItem.getMaxEnchantments() (1..6, matches Rarity.gemSlots and the
-    // webclient's slotsForItem() in forge.js). Mythical items get 6 slots.
-    public static final int MAX_ENCHANTMENTS_PER_ITEM = 6;
+    // GameItem.getMaxEnchantments() (0..5, matches Rarity.crystalSlots and the
+    // webclient's slotsForItem() in forge.js). LEGENDARY items get 5 slots.
+    public static final int MAX_ENCHANTMENTS_PER_ITEM = 5;
     public static final int ENCHANT_ESSENCE_COST = 50;
     public static final int SHARDS_PER_CRYSTAL = 10;
     // HP and MP scale into the hundreds, so a +1 enchantment is essentially
@@ -209,7 +209,7 @@ public class ServerForgeHelper {
                     player.getId(), essence.getStackCount(), ENCHANT_ESSENCE_COST);
             return;
         }
-        // Enchantment cap — rarity-driven. Common = 1 slot, Mythical = 6.
+        // Enchantment cap — rarity-driven. Mundane = 0, Legendary = 5 crystals.
         List<Enchantment> existing = target.getEnchantments();
         if (existing == null) existing = new ArrayList<>();
         final int cap = target.getMaxEnchantments();

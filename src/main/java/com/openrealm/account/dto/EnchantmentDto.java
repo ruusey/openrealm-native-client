@@ -25,8 +25,4 @@ public class EnchantmentDto implements Serializable {
     private Byte pixelX;
     private Byte pixelY;
     private Integer pixelColor;
-    private Byte effectType;
-    private Byte param1;
-    private Short magnitude;
-    private Integer durationMs;
 }

@@ -30,6 +30,10 @@ public class GameItemRefDto extends TemporalDto {
     private List<EnchantmentDto> enchantments;
     private Byte rarity;
     private List<AttributeModifierDto> attributeModifiers;
+    private Byte gemstoneType;
+    private Byte gemPixelX;
+    private Byte gemPixelY;
+    private Integer gemPixelColor;
 
 
     public NetGameItemRef asNetGameItemRef() {

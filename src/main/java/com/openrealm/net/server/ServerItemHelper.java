@@ -50,12 +50,12 @@ public class ServerItemHelper {
                     item.getName(), slotIdx, item.getTargetSlot(), slotIdx);
             return false;
         }
-        final boolean classOk = CharacterClass.isValidUser(player, item.getTargetClass());
-        if (!classOk) {
-            log.warn("[canEquipInSlot] reject {} into slot {} — class mismatch: player.classId={} item.targetClass={}",
-                    item.getName(), slotIdx, player.getClassId(), item.getTargetClass());
-        }
-        return classOk;
+        // Class-compatibility is server-authoritative under the new modular
+        // ItemClass system (2026-05-18). The client allows the placement and
+        // lets the server reject it if the player class can't equip the
+        // item — keeps the native client free of the cross-repo class model
+        // it would otherwise need to load.
+        return true;
     }
 
     /**

@@ -69,10 +69,10 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 	// Appended fields (wire layout extended for rarity + modifiers + gem template).
 	private byte rarity;
 	private List<NetAttributeModifier> attributeModifiers;
-	private byte gemEffectType;
-	private byte gemParam1;
-	private short gemMagnitude;
-	private int gemDurationMs;
+	private byte gemstoneType;
+	private byte gemPixelX;
+	private byte gemPixelY;
+	private int gemPixelColor;
 
 	private static final NetStats STATS_SERIALIZER = new NetStats();
 	private static final NetDamage DAMAGE_SERIALIZER = new NetDamage();
@@ -131,10 +131,10 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		for (NetAttributeModifier m : mods) {
 			written += MODIFIER_SERIALIZER.write(m, stream);
 		}
-		stream.writeByte(v.gemEffectType); written += 1;
-		stream.writeByte(v.gemParam1); written += 1;
-		stream.writeShort(v.gemMagnitude); written += 2;
-		stream.writeInt(v.gemDurationMs); written += 4;
+		stream.writeByte(v.gemstoneType); written += 1;
+		stream.writeByte(v.gemPixelX); written += 1;
+		stream.writeByte(v.gemPixelY); written += 1;
+		stream.writeInt(v.gemPixelColor); written += 4;
 		return written;
 	}
 
@@ -171,10 +171,10 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		for (int i = 0; i < modCount; i++) {
 			item.attributeModifiers.add(MODIFIER_SERIALIZER.read(stream));
 		}
-		item.gemEffectType = stream.readByte();
-		item.gemParam1 = stream.readByte();
-		item.gemMagnitude = stream.readShort();
-		item.gemDurationMs = stream.readInt();
+		item.gemstoneType = stream.readByte();
+		item.gemPixelX = stream.readByte();
+		item.gemPixelY = stream.readByte();
+		item.gemPixelColor = stream.readInt();
 		return item;
 	}
 
@@ -205,15 +205,15 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		item.setForgeStatId(this.forgeStatId);
 		item.setForgeSlotId(this.forgeSlotId);
 		item.setRarity(this.rarity);
-		item.setGemEffectType(this.gemEffectType);
-		item.setGemParam1(this.gemParam1);
-		item.setGemMagnitude(this.gemMagnitude);
-		item.setGemDurationMs(this.gemDurationMs);
+		item.setGemstoneType(this.gemstoneType);
+		item.setGemPixelX(this.gemPixelX);
+		item.setGemPixelY(this.gemPixelY);
+		item.setGemPixelColor(this.gemPixelColor);
 		if (this.enchantments != null && !this.enchantments.isEmpty()) {
 			final List<Enchantment> out = new ArrayList<>(this.enchantments.size());
 			for (NetEnchantment ne : this.enchantments) {
 				out.add(new Enchantment(ne.getStatId(), ne.getDeltaValue(), ne.getPixelX(), ne.getPixelY(),
-						ne.getPixelColor(), ne.getEffectType(), ne.getParam1(), ne.getMagnitude(), ne.getDurationMs()));
+						ne.getPixelColor()));
 			}
 			item.setEnchantments(out);
 		} else {
@@ -261,9 +261,9 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		this.enchantments = new ArrayList<>();
 		this.rarity = 0;
 		this.attributeModifiers = new ArrayList<>();
-		this.gemEffectType = -1;
-		this.gemParam1 = 0;
-		this.gemMagnitude = 0;
-		this.gemDurationMs = 0;
+		this.gemstoneType = 0;
+		this.gemPixelX = 0;
+		this.gemPixelY = 0;
+		this.gemPixelColor = 0;
 	}
 }

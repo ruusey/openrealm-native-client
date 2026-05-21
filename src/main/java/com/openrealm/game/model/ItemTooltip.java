@@ -34,15 +34,14 @@ public class ItemTooltip {
 
     private int minDamage;
     private int maxDamage;
+    /** Which stat the weapon's damage scales off of (0..7). Default 4 = STR. */
+    private byte scalingStat = 4;
 
     private byte targetClass;
     private byte tier;
     private byte rarity;
     private String category;
-    private byte gemEffectType;
-    private byte gemParam1;
-    private short gemMagnitude;
-    private int gemDurationMs;
+    private byte gemstoneType;
 
     private Stats stats;
     private List<Enchantment> enchantments;
@@ -92,15 +91,13 @@ public class ItemTooltip {
             this.minDamage = item.getDamage().getMin();
             this.maxDamage = item.getDamage().getMax();
         }
+        this.scalingStat = item.getScalingStat();
 
         this.targetClass = item.getTargetClass();
         this.tier = item.getTier();
         this.rarity = item.getRarity();
         this.category = item.getCategory();
-        this.gemEffectType = item.getGemEffectType();
-        this.gemParam1 = item.getGemParam1();
-        this.gemMagnitude = item.getGemMagnitude();
-        this.gemDurationMs = item.getGemDurationMs();
+        this.gemstoneType = item.getGemstoneType();
         this.targetSlot = item.getTargetSlot();
         this.stats = item.getStats();
         this.enchantments = item.getEnchantments();
@@ -137,24 +134,17 @@ public class ItemTooltip {
         }
     }
 
-    /** Pure-int compatibility check — same rules as
-     *  {@link CharacterClass#isValidUser(com.openrealm.game.entity.Player, byte)}
-     *  but takes a classId so we can call it from tooltip code without a
-     *  Player instance handy. */
+    /**
+     * Tooltip-side compatibility hint. The new item system (2026-05-18) gates
+     * equip on {@link com.openrealm.game.entity.item.ItemClass} + the player
+     * class's allowed lists — that data lives server-side, so the tooltip
+     * can't compute the same answer locally. For now we treat exact classId
+     * matches as compatible and everything else as a soft "see server" — the
+     * server still authoritatively rejects bad equips via canEquip().
+     */
     private static boolean isCompatible(int viewerClassId, byte targetClass) {
-        final CharacterClass pc = CharacterClass.valueOf(viewerClassId);
-        if (pc == null) return false;
-        switch ((int) targetClass) {
-            case -1: return CharacterClass.isRobeClass(pc);
-            case -2: return CharacterClass.isLeatherClass(pc);
-            case -3: return CharacterClass.isHeavyClass(pc);
-            case -4: return true;
-            case -5: return CharacterClass.isStaffUser(pc);
-            case -6: return CharacterClass.isWandUser(pc);
-            case -7: return CharacterClass.isDaggerUser(pc);
-            case -8: return CharacterClass.isBowUser(pc);
-            default: return targetClass == (byte) viewerClassId;
-        }
+        if (targetClass < 0) return true;
+        return targetClass == (byte) viewerClassId;
     }
 
     /** Convert ARGB int to a libGDX Color. */
@@ -166,31 +156,13 @@ public class ItemTooltip {
         return new Color(r, g, b, a == 0f ? 1f : a);
     }
 
-    /** Plain-text effect description for an enchantment row. Mirrors the
-     *  describeEnchantment() helper on the web client. */
+    /** Plain-text effect description for an enchantment row. Enchantments are
+     *  pure stat-delta now — behavioral effects live on gemstones. */
     private static String describeEnchantment(Enchantment e) {
         if (e == null) return "";
-        final byte eff = e.getEffectType();
-        switch (eff) {
-            case 0: { // STAT_DELTA
-                final int sid = (e.getParam1() != 0 || e.getMagnitude() != 0) ? e.getParam1() : e.getStatId();
-                final int mag = (e.getMagnitude() != 0) ? e.getMagnitude() : e.getDeltaValue();
-                final String sign = mag > 0 ? "+" : "";
-                return sign + mag + " " + safeStat(sid);
-            }
-            case 1: // STAT_SCALE
-                return (e.getMagnitude() > 0 ? "+" : "") + e.getMagnitude() + "% " + safeStat(e.getParam1()) + " Scaling";
-            case 2: return "+" + e.getMagnitude() + " Projectile" + (e.getMagnitude() == 1 ? "" : "s");
-            case 3: return "+" + e.getMagnitude() + "% Projectile Damage";
-            case 4: {
-                final String name = (e.getParam1() >= 0 && e.getParam1() < STATUS_EFFECT_NAMES.length)
-                        ? STATUS_EFFECT_NAMES[e.getParam1()] : "Effect " + e.getParam1();
-                return name + " on hit (" + (e.getDurationMs() / 1000.0f) + "s)";
-            }
-            case 5: return e.getMagnitude() + "% Lifesteal";
-            case 6: return e.getMagnitude() + "% Crit Chance";
-            default: return "Unknown effect " + eff;
-        }
+        final int mag = e.getDeltaValue();
+        final String sign = mag > 0 ? "+" : "";
+        return sign + mag + " " + safeStat(e.getStatId());
     }
 
     private static String safeStat(int statId) {
@@ -198,21 +170,25 @@ public class ItemTooltip {
         return STAT_LABELS[statId];
     }
 
-    /** Color the dot/text by effect type — stat color for STAT_DELTA/SCALE,
-     *  fixed effect color for the others. Mirrors web client gem palette. */
     private static Color enchColor(Enchantment e) {
         if (e == null) return Color.WHITE;
-        final byte eff = e.getEffectType();
-        if (eff == 0 || eff == 1) {
-            return argbToColor(e.getPixelColor() == 0 ? 0xFFFFFFFF : e.getPixelColor());
-        }
-        switch (eff) {
-            case 2: return argbToColor(0xFFFFD700); // PROJECTILE_COUNT — gold
-            case 3: return argbToColor(0xFFFF4040); // PROJECTILE_DAMAGE — red
-            case 4: return argbToColor(0xFFA040FF); // ON_HIT_EFFECT — purple
-            case 5: return argbToColor(0xFF40FF80); // LIFESTEAL — green
-            case 6: return argbToColor(0xFFFFA000); // CRIT_CHANCE — orange
-            default: return Color.WHITE;
+        return argbToColor(e.getPixelColor() == 0 ? 0xFFFFFFFF : e.getPixelColor());
+    }
+
+    /** Display string for a socketed gemstone — keep in sync with the server's
+     *  GemstoneRegistry. */
+    private static String gemstoneName(byte typeId) {
+        switch (typeId) {
+            case 1: return "Vampiric Gem";
+            case 2: return "Crit Gem";
+            case 3: return "Multishot Gem";
+            case 4: return "Venom Gem";
+            case 5: return "Frost Gem";
+            case 6: return "Thorns Gem";
+            case 7: return "Crushing Gem";
+            case 8: return "Wisdom Scaling Gem";
+            case 9: return "Swift Scaling Gem";
+            default: return "Gem " + typeId;
         }
     }
 
@@ -278,7 +254,11 @@ public class ItemTooltip {
         lines.add(new TooltipLine("", null));
 
         if (this.maxDamage > 0) {
-            lines.add(new TooltipLine("Damage: " + this.minDamage + " - " + this.maxDamage, INFO_COLOR));
+            final String scalesWith = (this.scalingStat >= 0 && this.scalingStat < STAT_LABELS.length)
+                    ? STAT_LABELS[this.scalingStat] : "?";
+            lines.add(new TooltipLine(
+                    "Damage: " + this.minDamage + " - " + this.maxDamage + "  (scales with " + scalesWith + ")",
+                    INFO_COLOR));
         }
 
         // Stats
@@ -312,12 +292,14 @@ public class ItemTooltip {
             }
         }
 
-        // Gem template description (gem items in inventory show their pending effect).
-        if ("gem".equals(this.category) && this.gemEffectType >= 0) {
+        // Gem template description (gem items in inventory show which Gemstone
+        // they produce when forged) OR socketed gem on equipment.
+        if ("gem".equals(this.category) && this.gemstoneType != 0) {
             lines.add(new TooltipLine("", null));
-            final Enchantment preview = new Enchantment((byte) 0, (byte) 0, (byte) 0, (byte) 0, 0,
-                    this.gemEffectType, this.gemParam1, this.gemMagnitude, this.gemDurationMs);
-            lines.add(new TooltipLine("Gem Effect: " + describeEnchantment(preview), GEM_COLOR));
+            lines.add(new TooltipLine("Gem: " + gemstoneName(this.gemstoneType), GEM_COLOR));
+        } else if (this.gemstoneType != 0 && this.targetSlot >= 0 && this.targetSlot <= 3) {
+            lines.add(new TooltipLine("", null));
+            lines.add(new TooltipLine("Socketed: " + gemstoneName(this.gemstoneType), GEM_COLOR));
         }
 
         // Forged enchantments — one row per gem with its effect description.
