@@ -1369,26 +1369,32 @@ public class PlayState extends GameState {
         // the mouse button releases — the webclient instead refreshes a 0.3s
         // shootingAnim timer on every shot fire (main.js ~2205). We do the
         // equivalent below at the actual firing site via triggerAttackAnimation.
-        // WHY: store aim in WORLD coordinates (not screen pixels). updateAnimation
-        // compares aim against the player's world center to pick attack direction;
-        // mixing screen-pixel aim with world-pixel center under WORLD_SCALE=2
-        // made the comparison pivot off the wrong origin (cursor at the player's
-        // ACTUAL on-screen position registered as offset by half a screen).
-        final float aimInvScale = 1f / OpenRealmGame.WORLD_SCALE;
-        player.setAimX(mouse.getX() * aimInvScale + PlayState.map.x);
-        player.setAimY(mouse.getY() * aimInvScale + PlayState.map.y);
-        // Mouse -> world conversion: the world camera is zoomed 2× via
-        // OpenRealmGame.WORLD_SCALE, so 1 screen pixel == 1/WORLD_SCALE world
-        // pixels. Without dividing here, every shot/ability targets a world
-        // point twice as far from the player as the cursor visually points
-        // to — the aim drifts further off-target the further from screen
-        // center the cursor is.
+        // Screen → world conversion that accounts for cameraAngle. Mirrors
+        // webclient renderer.js getWorldCoords: subtract screen center, rotate
+        // by -cameraAngle, divide by WORLD_SCALE, add back the world-space
+        // pivot (player center). The previous formula
+        //   aim = mouse * invScale + PlayState.map
+        // was a pure translation that assumed an axis-aligned camera; under
+        // any non-zero cameraAngle it landed aim/shots on a world point that
+        // doesn't match where the cursor visually points, so basic attacks
+        // and abilities fired toward the wrong tile whenever Q/E had been
+        // pressed. WORLD_SCALE=2 ⇒ 1 screen px = 1/2 world px.
         final float invScale = 1f / OpenRealmGame.WORLD_SCALE;
+        final float screenCx = OpenRealmGame.width  * 0.5f;
+        final float screenCy = OpenRealmGame.height * 0.5f;
+        final float pivotWx = player.getPos().x + player.getSize() * 0.5f;
+        final float pivotWy = player.getPos().y + player.getSize() * 0.5f;
+        final float sdx = mouse.getX() - screenCx;
+        final float sdy = mouse.getY() - screenCy;
+        final float aimCs = (float) Math.cos(-this.cameraAngle);
+        final float aimSn = (float) Math.sin(-this.cameraAngle);
+        final float aimWx = pivotWx + (sdx * aimCs - sdy * aimSn) * invScale;
+        final float aimWy = pivotWy + (sdx * aimSn + sdy * aimCs) * invScale;
+        player.setAimX(aimWx);
+        player.setAimY(aimWy);
         if (clickingWorld && canShoot) {
             this.lastShotTick = System.currentTimeMillis();
-            Vector2f dest = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
-            dest.addX(PlayState.map.x);
-            dest.addY(PlayState.map.y);
+            Vector2f dest = new Vector2f(aimWx, aimWy);
             this.shotDestQueue.add(dest);
             // Webclient parity: each shot refreshes the attack animation hold
             // so the local player keeps cycling attack frames between rapid
@@ -1424,9 +1430,7 @@ public class PlayState extends GameState {
                     }
                 } else if (canUseAbility) {
                     try {
-                        Vector2f pos = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
-                        pos.addX(PlayState.map.x);
-                        pos.addY(PlayState.map.y);
+                        Vector2f pos = new Vector2f(aimWx, aimWy);
                         UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
                         this.realmManager.getClient().sendRemote(useAbility);
                         this.lastAbilityTick = System.currentTimeMillis();
@@ -1456,9 +1460,7 @@ public class PlayState extends GameState {
                 // Out of mana — skip both the send and the cooldown bump.
             } else {
                 try {
-                    Vector2f pos = new Vector2f(mouse.getX() * invScale, mouse.getY() * invScale);
-                    pos.addX(PlayState.map.x);
-                    pos.addY(PlayState.map.y);
+                    Vector2f pos = new Vector2f(aimWx, aimWy);
                     UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos);
                     this.realmManager.getClient().sendRemote(useAbility);
                     this.lastAbilityTick = System.currentTimeMillis();

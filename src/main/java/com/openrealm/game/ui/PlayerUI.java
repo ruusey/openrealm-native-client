@@ -58,6 +58,12 @@ import com.openrealm.game.graphics.SpriteRecolorCache;
 @Data
 @Slf4j
 public class PlayerUI {
+    /** Total cells in the bottom-center ability hotbar. Mirrors the webclient
+     *  layout (ui-widgets.updateAbilityBar): cell 0 = class passive (label),
+     *  cells 1..4 = active abilities bound via hotbarBindings[0..3]. Must
+     *  match panel.hud.equipment.grid.cols in ui-components.json. */
+    private static final int HOTBAR_SLOT_COUNT = 5;
+
     private boolean isTrading;
     private FillBars hp;
     private FillBars mp;
@@ -3066,15 +3072,18 @@ public class PlayerUI {
                     cx, cy, cell[2] * s, cell[3] * s);
         }
 
-        // Bottom-center hotbar (panel.hud.equipment) renders ABILITY icons
-        // from the ability's own sprite fields (spriteKey/row/col), matching
-        // every other data type. Cooldown overlay + SP pips drawn in a
-        // post-pass below (shape renderer needs to switch out of batch).
-        // Phase 1B grew the hotbar from 4 → 5 slots (panel.hud.equipment.grid
-        // is cols=5). The cap and the post-pass cell buffer used to be
-        // hard-coded at 4 which silently dropped the 5th ability slot from
-        // both rendering and the cooldown / SP overlay pass.
-        final int HOTBAR_SLOT_COUNT = 5;
+        // Bottom-center hotbar (panel.hud.equipment) — mirrors webclient
+        // ui-widgets.updateAbilityBar layout:
+        //   cell 0      → class passive (always-on, rendered as a NAME label
+        //                  since passives don't carry sprite coords)
+        //   cells 1..4  → active abilities bound via hotbarBindings[0..3];
+        //                  drawn via the standard spriteKey/row/col fields.
+        // The cooldown + SP-pip overlay pass below uses the same offset
+        // (overlay slot N reads hotbarBindings[N-1] / abilityCooldowns[N-1]).
+        // Earlier this class iterated cells 0..4 as if they were all active
+        // bindings, so the passive never appeared and slot 0 displayed an
+        // unrelated active ability whenever hotbarBindings[0] happened to
+        // resolve — neither matched the webclient.
         final int[][] hotbarCells = UiAtlas.gridCells("panel.hud.equipment.grid");
         final Player localPlayer = (this.playState != null) ? this.playState.getPlayer() : null;
         // Per-slot cell coords captured so the post-pass can paint cooldown
@@ -3090,17 +3099,10 @@ public class PlayerUI {
             hotbarCellPx[i][1] = cy;
             hotbarCellPx[i][2] = cw;
             hotbarCellPx[i][3] = ch;
-            final Ability ab = (localPlayer != null) ? localPlayer.getActiveAbility(i) : null;
-            if (ab != null) {
-                this.drawAbilityHudIcon(batch, ab, cx, cy, cw, ch);
-            } else if (localPlayer != null) {
-                // Slot might be bound to a PASSIVE rather than an active
-                // ability — typically slot 0 (the class passive). Webclient
-                // shows the passive's NAME as text in the cell (no
-                // dedicated passive iconography); mirror that so the
-                // hotbar line stays aligned across all 5 cells instead
-                // of looking 1-off when slot 0 is the passive.
-                final PassiveAbility pa = localPlayer.getSlottedPassive(i);
+            if (localPlayer == null) continue;
+            if (i == 0) {
+                // Cell 0 — class passive (always-on, not key-bound).
+                final PassiveAbility pa = localPlayer.getClassPassive();
                 if (pa != null) {
                     final String name = pa.getName() != null ? pa.getName() : "Passive";
                     final float origScale = font.getData().scaleX;
@@ -3111,6 +3113,14 @@ public class PlayerUI {
                     final float ty = cy + (ch + gl.height) * 0.5f;
                     font.draw(batch, gl, tx, ty);
                     font.getData().setScale(origScale);
+                }
+            } else {
+                // Cells 1..4 — active abilities. Binding index is offset by
+                // one because cell 0 is dedicated to the passive.
+                final int bindingIdx = i - 1;
+                final Ability ab = localPlayer.getActiveAbility(bindingIdx);
+                if (ab != null) {
+                    this.drawAbilityHudIcon(batch, ab, cx, cy, cw, ch);
                 }
             }
         }
@@ -3600,19 +3610,23 @@ public class PlayerUI {
         if (localPlayer == null || _lastHotbarCellPx == null) return;
         final long now = System.currentTimeMillis();
         final long[] cds = localPlayer.getAbilityCooldowns();
-        for (int slot = 0; slot < 4; slot++) {
+        // Start at cell 1 — cell 0 is the passive (no cooldown, no SP pips).
+        // bindingIdx = slot - 1 because hotbarBindings + abilityCooldowns are
+        // indexed against the 4 active slots only, mirroring the webclient.
+        for (int slot = 1; slot < HOTBAR_SLOT_COUNT; slot++) {
             final float[] cell = _lastHotbarCellPx[slot];
             if (cell == null) continue;
             final float cx = cell[0], cy = cell[1], cw = cell[2], ch = cell[3];
-            final Ability ab = localPlayer.getActiveAbility(slot);
+            final int bindingIdx = slot - 1;
+            final Ability ab = localPlayer.getActiveAbility(bindingIdx);
             if (ab == null) continue;
             // Cooldown overlay — dark fill from the TOP of the cell as the
             // CD ticks down. Webclient uses the same "drain from top" idiom
             // (height-based fill that shrinks over time).
-            if (cds != null && slot < cds.length && cds[slot] > now) {
+            if (cds != null && bindingIdx < cds.length && cds[bindingIdx] > now) {
                 final long base = ab.getBaseCooldownMs();
                 if (base > 0) {
-                    final long remain = Math.min(cds[slot] - now, base);
+                    final long remain = Math.min(cds[bindingIdx] - now, base);
                     final float frac = Math.max(0f, Math.min(1f, remain / (float) base));
                     shapes.setColor(0f, 0f, 0f, 0.62f);
                     shapes.rect(cx, cy + ch * (1f - frac), cw, ch * frac);

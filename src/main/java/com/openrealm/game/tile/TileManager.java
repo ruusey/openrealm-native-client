@@ -1149,6 +1149,18 @@ public class TileManager {
             t.render(batch);
         }
 
+        // Pass 7: Re-render wall tile sprites on top of the water/overWater
+        // passes. Pass 5 redraws water to keep the shadow pass from darkening
+        // it, but that same redraw also paints water OVER any wall sitting in
+        // a water-base cell — so a wall flanking a river got visually buried
+        // by the water repaint. Re-stamping just the wall sprite (the 3D
+        // shadow/highlight from Pass 2 already drew before the water repaint
+        // and doesn't need to be redone) restores walls-above-water depth
+        // ordering without disturbing the existing wall extrusion look.
+        for (Tile t : wallTiles) {
+            t.render(batch);
+        }
+
         this.releaseMapLock();
     }
 
