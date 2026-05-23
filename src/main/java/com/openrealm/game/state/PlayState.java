@@ -722,21 +722,29 @@ public class PlayState extends GameState {
         final short atkBonus = (short) player.getStats().getStr();
         final Realm realm = this.realmManager.getRealm();
 
-        // MultiShot / extra-projectile gems: count PROJECTILE_COUNT (effectType=2)
-        // enchantments on the equipped weapon. Server applies a centered fan in
-        // ServerGameLogic; mirror that here so the predicted shot lands at the
-        // SAME angle as the server-side bullet — otherwise findMatchingPredictedBullet
-        // pairs the cursor-aligned predicted bullet with one of the off-center
-        // server bullets, leaving the player visibly out of the spread center.
-        // Multishot is a gemstone now — Multishot Gem (typeId 3) grants +2.
-        int extraProjectiles = 0;
-        if (weapon.getGemstoneType() == 3) {
-            extraProjectiles = 2;
-        }
-        final int totalBullets = 1 + extraProjectiles;
-        final float SPREAD = 0.12f;
-        log.info("[shoot-predict] weapon='{}' projGroupId={} extraProjectiles={} totalBullets={} enchants={}",
-                weapon.getName(), projGroupId, extraProjectiles, totalBullets,
+        // Server's symmetric multishot fan — mirror exactly or predicted
+        // bullets dedup poorly against the authoritative spawn and the player
+        // sees ghosts. Sources of bullets per shot:
+        //   archetype.projectileCount (built-in fan)
+        //   MultishotGem (gemstoneType=3) → +2 extras
+        // Spread / range / piercing also pulled from the archetype so a
+        // pierce-archetype bow's predicted bullet carries PASS_THROUGH_ENEMIES
+        // and matches the server bullet's flag set.
+        final com.openrealm.game.model.WeaponArchetypeModel _archShot =
+                (weapon == null || weapon.getArchetypeId() <= 0 || com.openrealm.game.data.GameDataManager.WEAPON_ARCHETYPES == null)
+                        ? null
+                        : com.openrealm.game.data.GameDataManager.WEAPON_ARCHETYPES.get(weapon.getArchetypeId());
+        final int archCount  = (_archShot != null && _archShot.getProjectileCount() > 0)
+                ? _archShot.getProjectileCount() : 1;
+        final int gemMulti   = (weapon != null && weapon.getGemstoneType() == 3 /* MultishotGem */) ? 2 : 0;
+        final float SPREAD   = (_archShot != null && _archShot.getSpreadRad() > 0f)
+                ? _archShot.getSpreadRad() : 0.12f;
+        final float rangeMul = (_archShot != null && _archShot.getRangeMul() > 0f)
+                ? _archShot.getRangeMul() : 1.0f;
+        final boolean archPierces = _archShot != null && _archShot.isPiercing();
+        final int totalBullets = archCount + gemMulti;
+        log.info("[shoot-predict] weapon='{}' projGroupId={} archCount={} gemMulti={} totalBullets={} enchants={}",
+                weapon.getName(), projGroupId, archCount, gemMulti, totalBullets,
                 weapon.getEnchantments() == null ? 0 : weapon.getEnchantments().size());
 
         for (final com.openrealm.game.model.Projectile proj : group.getProjectiles()) {
@@ -768,17 +776,26 @@ public class PlayState extends GameState {
                 // later, leaving only the "phantom" central shot the user
                 // reported). Webclient parity: main.js spawnPredictedBullets
                 // passes projGroupId here too.
+                // Archetype range multiplier — staves outshoot daggers.
+                final float predictedRange = proj.getRange() * rangeMul;
                 final Bullet b = new Bullet(Realm.RANDOM.nextLong(), projGroupId, spawnPos,
-                        shootAngle + deltaA, proj.getSize(), proj.getMagnitude(), proj.getRange(),
+                        shootAngle + deltaA, proj.getSize(), proj.getMagnitude(), predictedRange,
                         rolledDamage, false);
                 b.setSrcEntityId(player.getId());
                 b.setAmplitude(proj.getAmplitude());
                 b.setFrequency(proj.getFrequency());
                 // Carry the projectile's behavior flags so dedup + hit
                 // prediction (PLAYER_PROJECTILE / PARAMETRIC / ORBITAL etc.)
-                // see the same trajectory as the server-side bullet.
-                if (proj.getFlags() != null) {
-                    b.setFlags(new ArrayList<>(proj.getFlags()));
+                // see the same trajectory as the server-side bullet. If the
+                // archetype declares piercing, add PASS_THROUGH_ENEMIES (25)
+                // when the projectile def doesn't already carry it.
+                final List<Short> baseFlags = proj.getFlags() != null
+                        ? new ArrayList<>(proj.getFlags()) : new ArrayList<>();
+                if (archPierces && !baseFlags.contains((short) 25)) {
+                    baseFlags.add((short) 25);
+                }
+                if (!baseFlags.isEmpty()) {
+                    b.setFlags(baseFlags);
                 }
                 if (proj.getEffects() != null) {
                     b.setEffects(proj.getEffects());
@@ -1291,6 +1308,19 @@ public class PlayState extends GameState {
         }
 
         double dex = (int) ((6.5 * (this.getPlayer().getComputedStats().getDex() + 17.3)) / 75);
+		// Weapon-archetype attack-speed multiplier (hammers swing slow,
+		// daggers fast). Mirrors ServerGameLogic.handlePlayerShoot. Applied
+		// BEFORE BERSERK so the +50% buff stacks consistently with archetype.
+		{
+			final com.openrealm.game.entity.item.GameItem _w = player.getInventory()[0];
+			final com.openrealm.game.model.WeaponArchetypeModel _archFR =
+					(_w == null || _w.getArchetypeId() <= 0 || com.openrealm.game.data.GameDataManager.WEAPON_ARCHETYPES == null)
+							? null
+							: com.openrealm.game.data.GameDataManager.WEAPON_ARCHETYPES.get(_w.getArchetypeId());
+			if (_archFR != null && _archFR.getAttackSpeedMul() > 0f) {
+				dex = dex * _archFR.getAttackSpeedMul();
+			}
+		}
 		// Client-side fire-rate prediction. BERSERK boosts attack speed by 50%
 		// (was SPEEDY pre-split). SPEEDY is movement-only now.
 		if (player.hasEffect(StatusEffectType.BERSERK)) {

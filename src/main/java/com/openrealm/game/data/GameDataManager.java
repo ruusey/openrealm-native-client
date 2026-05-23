@@ -29,6 +29,7 @@ import com.openrealm.game.model.MapModel;
 import com.openrealm.game.model.PortalModel;
 import com.openrealm.game.model.Projectile;
 import com.openrealm.game.model.ProjectileGroup;
+import com.openrealm.game.model.WeaponArchetypeModel;
 import com.openrealm.game.model.RealmEventModel;
 import com.openrealm.game.model.SetPieceModel;
 import com.openrealm.game.model.TerrainGenerationParameters;
@@ -44,6 +45,7 @@ public class GameDataManager {
 		.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
 	public static Map<Integer, ProjectileGroup>               PROJECTILE_GROUPS = null;
+	public static Map<Byte, WeaponArchetypeModel>             WEAPON_ARCHETYPES = null;
 	public static Map<Integer, GameItem>                      GAME_ITEMS = null;
 	public static Map<Integer, EnemyModel>                    ENEMIES = null;
 	public static Map<Integer, TileModel>                     TILES = null;
@@ -273,6 +275,30 @@ public class GameDataManager {
 		}
 		GameDataManager.log.info("Loading Projectile Groups... DONE");
 
+	}
+
+	private static void loadWeaponArchetypes(final boolean remote) throws Exception {
+		GameDataManager.log.info("Loading Weapon Archetypes...");
+		GameDataManager.WEAPON_ARCHETYPES = new HashMap<>();
+		String text;
+		if (remote) {
+			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/weapon-archetypes.json", null);
+		} else {
+			final InputStream in = GameDataManager.class.getClassLoader()
+					.getResourceAsStream("data/weapon-archetypes.json");
+			if (in == null) {
+				GameDataManager.log.warn("weapon-archetypes.json missing — shot prediction will fall back to baseline 1.0 multipliers");
+				return;
+			}
+			text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+		}
+		final WeaponArchetypeModel[] models =
+				GameDataManager.JSON_MAPPER.readValue(text, WeaponArchetypeModel[].class);
+		for (final WeaponArchetypeModel m : models) {
+			GameDataManager.WEAPON_ARCHETYPES.put(m.getId(), m);
+		}
+		GameDataManager.log.info("Loading Weapon Archetypes... DONE ({} entries)",
+				GameDataManager.WEAPON_ARCHETYPES.size());
 	}
 
 	private static void loadAnimations(final boolean remote) throws Exception {
@@ -564,6 +590,7 @@ public class GameDataManager {
 		// Load each data type independently so one failure doesn't prevent loading the rest
 		Runnable[] loaders = {
 			() -> { try { GameDataManager.loadProjectileGroups(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load projectile groups: {}", e.getMessage()); } },
+			() -> { try { GameDataManager.loadWeaponArchetypes(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load weapon archetypes: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadGameItems(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load game items: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadEnemies(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load enemies: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadTiles(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load tiles: {}", e.getMessage()); } },
