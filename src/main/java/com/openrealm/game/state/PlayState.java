@@ -169,8 +169,17 @@ public class PlayState extends GameState {
     private static final class PendingInput {
         final int seq;
         final float vx, vy, pxPerTick;
-        PendingInput(int seq, float vx, float vy, float pxPerTick) {
+        /** Snapshot of PARALYZED at send time. Captured per-input so replay
+         *  uses the exact effect state the server processed each input with —
+         *  without this, a paralyze landing between send and ack would make
+         *  the reconciler zero ALL queued inputs (movePlayer reads current
+         *  state), diverging from the server which advanced the inputs that
+         *  were sent BEFORE paralyze landed. SPEEDY / SLOWED are already
+         *  captured implicitly via pxPerTick (computed at send time). */
+        final boolean paralyzed;
+        PendingInput(int seq, float vx, float vy, float pxPerTick, boolean paralyzed) {
             this.seq = seq; this.vx = vx; this.vy = vy; this.pxPerTick = pxPerTick;
+            this.paralyzed = paralyzed;
         }
     }
 
@@ -487,10 +496,9 @@ public class PlayState extends GameState {
     }
 
     private void movePlayer(Player p) {
-        if (p.hasEffect(StatusEffectType.PARALYZED)) {
-            p.setDx(0);
-            p.setDy(0);
-        }
+        // PARALYZED check moved out — live-tick caller now applies it
+        // before invoking this method, and the reconcile-replay loop
+        // filters paralyzed-at-send-time inputs via PendingInput.paralyzed.
         // Reuse a single scratch vector for the center-offset queries
         // instead of pos.clone(...) — those clone calls were the largest
         // single allocation source on the per-frame other-player movement
@@ -604,9 +612,16 @@ public class PlayState extends GameState {
         local.getPos().x = ackPosX;
         local.getPos().y = ackPosY;
 
-        // Step 4: replay remaining unacked inputs.
+        // Step 4: replay remaining unacked inputs. Per-input paralyzed
+        // snapshot wins over the player's CURRENT paralyzed state — an
+        // input sent BEFORE paralyze landed still moves; one sent DURING
+        // paralyze stays frozen. Without this snapshot the replay reads
+        // current state for every iteration, mis-zeroing pre-paralyze
+        // inputs (or mis-moving during-paralyze inputs) and diverging
+        // from the server's actual per-tick decisions.
         synchronized (this.pendingInputs) {
             for (final PendingInput input : this.pendingInputs) {
+                if (input.paralyzed) continue;
                 local.setDx(input.vx * input.pxPerTick);
                 local.setDy(input.vy * input.pxPerTick);
                 this.movePlayer(local);
@@ -630,17 +645,26 @@ public class PlayState extends GameState {
             // pos stays at the replayed result so the next tick's collision
             // checks are correct, but the visible diff is absorbed into a
             // smoothing offset that the render path decays out over ~50 ms.
-            this.smoothingOffsetX += savedX - replayX;
-            this.smoothingOffsetY += savedY - replayY;
-            // Cap the smoothing offset so a long burst of corrections
-            // can't accumulate into a visible rubber-band.
-            final float magSq = this.smoothingOffsetX * this.smoothingOffsetX
-                    + this.smoothingOffsetY * this.smoothingOffsetY;
-            if (magSq > 36f /* 6 px cap */) {
-                final float mag = (float) Math.sqrt(magSq);
-                final float scale = 6f / mag;
-                this.smoothingOffsetX *= scale;
-                this.smoothingOffsetY *= scale;
+            //
+            // SET, don't ACCUMULATE: previously this was
+            //     smoothingOffsetX += (saved - replay)
+            // clamped at 6 px. At 30+ acks/sec each contributing ~0.5-2 px,
+            // the offset rode the 6 px cap continuously, producing a
+            // constant sticky-jitter feel during rapid input. Webclient
+            // parity: setting it to the current divergence lets the
+            // existing decay actually win between acks instead of fighting
+            // an accumulating new addition.
+            final float dx = savedX - replayX;
+            final float dy = savedY - replayY;
+            final float dmagSq = dx * dx + dy * dy;
+            final float CAP = 6f;
+            if (dmagSq > CAP * CAP) {
+                final float scale = CAP / (float) Math.sqrt(dmagSq);
+                this.smoothingOffsetX = dx * scale;
+                this.smoothingOffsetY = dy * scale;
+            } else {
+                this.smoothingOffsetX = dx;
+                this.smoothingOffsetY = dy;
             }
         } else {
             // Under 2 px: still adopt the REPLAY result, not the saved
@@ -952,10 +976,20 @@ public class PlayState extends GameState {
                     // Apply one tick of movement with collision check. We
                     // set dx/dy on the player and let movePlayer (the
                     // shared collision-aware integrator) advance pos.x/y
-                    // by exactly one tick worth.
-                    player.setDx(vx * pxPerTick);
-                    player.setDy(vy * pxPerTick);
-                    this.movePlayer(player);
+                    // by exactly one tick worth. PARALYZED short-circuits
+                    // movement entirely — handled here rather than inside
+                    // movePlayer so the reconcile-replay loop can call
+                    // movePlayer for non-paralyzed snapshot inputs even
+                    // while the player is currently paralyzed.
+                    final boolean paralyzedNow = player.hasEffect(StatusEffectType.PARALYZED);
+                    if (paralyzedNow) {
+                        player.setDx(0);
+                        player.setDy(0);
+                    } else {
+                        player.setDx(vx * pxPerTick);
+                        player.setDy(vy * pxPerTick);
+                        this.movePlayer(player);
+                    }
 
                     // Buffer this input for reconciliation replay. Capture
                     // pxPerTick so the replay uses the EXACT step magnitude
@@ -964,7 +998,8 @@ public class PlayState extends GameState {
                     // the replay to reproduce what the simulation actually
                     // did, not what it would do today.
                     synchronized (this.pendingInputs) {
-                        this.pendingInputs.addLast(new PendingInput(seq, vx, vy, pxPerTick));
+                        final boolean paralyzedAtSend = player.hasEffect(StatusEffectType.PARALYZED);
+                        this.pendingInputs.addLast(new PendingInput(seq, vx, vy, pxPerTick, paralyzedAtSend));
                         while (this.pendingInputs.size() > 128) {
                             this.pendingInputs.pollFirst();
                         }
