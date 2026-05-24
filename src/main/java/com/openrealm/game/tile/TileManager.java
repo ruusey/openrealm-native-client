@@ -1074,6 +1074,29 @@ public class TileManager {
                 t.render(batch);
             }
 
+            // Mask the sprite's baked-in bottom shadow on walls that have
+            // another wall directly south. Stretches the top of the source
+            // texture over the bottom third so a vertical column reads as
+            // one continuous wall instead of striped 3D blocks.
+            for (Tile t : wallTiles) {
+                final long row = t.getRow();
+                final long col = t.getCol();
+                if (!isWallAt.test(row + 1, col)) continue;
+                final TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
+                if (region == null) continue;
+                final int sz = t.getWidth();
+                if (sz <= 0) continue;
+                final float wx = t.getPos().getWorldVar().x;
+                final float wy = t.getPos().getWorldVar().y;
+                final int srcW = region.getRegionWidth();
+                final int srcH = region.getRegionHeight();
+                final int srcTopH = Math.max(1, srcH / 3);
+                final TextureRegion topSlice = new TextureRegion(region.getTexture(),
+                        region.getRegionX(), region.getRegionY(), srcW, srcTopH);
+                final float dstH = sz / 3f;
+                batch.draw(topSlice, wx, wy + sz - dstH, sz, dstH);
+            }
+
             // N + W highlights on edge walls (top-light from NW). Drawn
             // after the top tile so they sit on top of the wall texture's
             // edge. Colour tinted from the tile's own dominant color

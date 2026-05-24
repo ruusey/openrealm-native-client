@@ -201,6 +201,10 @@ public class PlayState extends GameState {
     private float cameraAngle = 0f;
     private static final float CAM_ROTATE_SPEED = 2.4f; // rad/sec while held
 
+    private long castRingExpiresAt = 0L;
+    private float castRingCx, castRingCy, castRingRadius;
+    private static final long CAST_RING_DURATION_MS = 700L;
+
     public PlayState(GameStateManager gsm, Camera cam) {
         super(gsm);
         PlayState.map = new Vector2f();
@@ -1427,7 +1431,7 @@ public class PlayState extends GameState {
                     mouse.getX(), mouse.getY());
             if (bindingIdx >= 0) {
                 try {
-                    final Vector2f pos = new Vector2f(aimWx, aimWy);
+                    final Vector2f pos = clampCastPos(player, bindingIdx, aimWx, aimWy);
                     final UseAbilityPacket useAbility = UseAbilityPacket.from(
                             this.getPlayer(), pos, bindingIdx);
                     this.realmManager.getClient().sendRemote(useAbility);
@@ -1468,7 +1472,7 @@ public class PlayState extends GameState {
                     }
                 } else if (canUseAbility) {
                     try {
-                        Vector2f pos = new Vector2f(aimWx, aimWy);
+                        Vector2f pos = clampCastPos(player, slot, aimWx, aimWy);
                         UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
                         this.realmManager.getClient().sendRemote(useAbility);
                         this.lastAbilityTick = System.currentTimeMillis();
@@ -1515,6 +1519,28 @@ public class PlayState extends GameState {
     @SuppressWarnings("unused")
     private CharacterClass currentPlayerCharacterClass() {
         return CharacterClass.valueOf(this.getPlayer().getClassId());
+    }
+
+    private Vector2f clampCastPos(Player p, int bindingIdx, float rawX, float rawY) {
+        final com.openrealm.game.model.ability.Ability ab = p.getActiveAbility(bindingIdx);
+        if (ab == null) return new Vector2f(rawX, rawY);
+        final int max = ab.getMaxCastRange();
+        final float cx = p.getPos().x + p.getSize() * 0.5f;
+        final float cy = p.getPos().y + p.getSize() * 0.5f;
+        if (max > 0) {
+            this.castRingCx = cx;
+            this.castRingCy = cy;
+            this.castRingRadius = max;
+            this.castRingExpiresAt = System.currentTimeMillis() + CAST_RING_DURATION_MS;
+        }
+        if (max < 0) return new Vector2f(rawX, rawY);
+        if (max == 0) return new Vector2f(cx, cy);
+        final float dx = rawX - cx;
+        final float dy = rawY - cy;
+        final float distSq = dx * dx + dy * dy;
+        if (distSq <= (float) max * max) return new Vector2f(rawX, rawY);
+        final float scale = max / (float) Math.sqrt(distSq);
+        return new Vector2f(cx + dx * scale, cy + dy * scale);
     }
 
     public GameItem getLootContainerItemByUid(String uid) {
@@ -1723,6 +1749,23 @@ public class PlayState extends GameState {
             shapes.setProjectionMatrix(worldCam.combined);
         }
         this.realmManager.getRealm().getTileManager().render(player, batch, shapes);
+
+        final long nowMs = System.currentTimeMillis();
+        if (this.castRingExpiresAt > nowMs && this.castRingRadius > 0f) {
+            final float remain = (this.castRingExpiresAt - nowMs) / (float) CAST_RING_DURATION_MS;
+            final float alpha = Math.max(0f, Math.min(1f, remain)) * 0.7f;
+            final float rx = this.castRingCx - Vector2f.worldX;
+            final float ry = this.castRingCy - Vector2f.worldY;
+            batch.end();
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            shapes.setColor(0.4f, 0.8f, 1.0f, alpha);
+            shapes.circle(rx, ry, this.castRingRadius, 48);
+            shapes.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+            batch.begin();
+        }
 
         GameObject[] gameObject = this.realmManager.getRealm()
                 .getGameObjectsInBounds(this.realmManager.getRealm().getTileManager().getRenderViewPort(player));
