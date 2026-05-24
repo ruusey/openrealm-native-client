@@ -865,26 +865,28 @@ public class PlayState extends GameState {
         key.plus.tick();
         key.minus.tick();
 
-        // Camera rotation — Q rotates left (counterclockwise on screen),
-        // E rotates right (clockwise), C snaps back to 0. Mirrors the
-        // webclient bindings (game.js controls.bindings.rotateLeft/Right
-        // = KeyQ/KeyE, resetCamera = KeyC). Held-key continuous rotation
-        // rather than per-press snap so the player can tune the angle to
-        // taste. Captured at frame-dt resolution — fine because the
-        // world projection is rebuilt every render() from cameraAngle.
+        // Camera rotation — viewport-relative, mirrors the webclient bindings
+        // exactly (game.js controls.bindings.rotateLeft = KeyQ, rotateRight =
+        // KeyE, resetCamera = KeyC). Held-key continuous rotation rather than
+        // per-press snap so the player can tune the angle to taste.
         //
-        // Sign note: LibGDX's worldCam.rotate(-cameraAngle, 0,0,1) in
-        // render() inverts the visual direction relative to the PIXI
-        // worldLayer.rotation = +cameraAngle path on the web. With Q
-        // adding to cameraAngle (matching the web) the visible rotation
-        // came out reversed — the user-facing Q/E directions felt
-        // backwards. Flip the assignment here so Q/E match the visual
-        // CCW/CW the player expects. The input vector rotation in the
-        // movement block below still uses -cameraAngle, so screen-W
-        // continues to walk toward screen-up under any rotation.
+        // Q rotates the VIEWPORT left (camera tilts left from the player's
+        // POV) which makes the WORLD appear to spin RIGHT on screen. E does
+        // the opposite. Concretely:
+        //   Q  →  cameraAngle += delta  →  world spins CW visually
+        //   E  →  cameraAngle -= delta  →  world spins CCW visually
+        // This sign convention matches the webclient (worldLayer.rotation =
+        // +cameraAngle, PIXI CW for positive in Y-down), and the camera apply
+        // below uses worldCam.rotate(-degrees(cameraAngle), 0,0,1) which
+        // produces the same visual under LibGDX setToOrtho(true). Keeping
+        // the convention identical means the movement rotation in the
+        // simulate loop (cos(-cameraAngle)) and the screen→world aim rotation
+        // (also cos(-cameraAngle)) all stay self-consistent — pressing W
+        // walks the player toward screen-north and the mouse cursor maps to
+        // the world tile it visually overlaps under any rotation.
         final float camDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
-        if (key.q.down) this.cameraAngle -= CAM_ROTATE_SPEED * camDt;
-        if (key.e.down) this.cameraAngle += CAM_ROTATE_SPEED * camDt;
+        if (key.q.down) this.cameraAngle += CAM_ROTATE_SPEED * camDt;
+        if (key.e.down) this.cameraAngle -= CAM_ROTATE_SPEED * camDt;
         if (key.c.down) this.cameraAngle = 0f;
 
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
