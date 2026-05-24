@@ -931,21 +931,30 @@ public class PlayerUI {
             }
         }
 
-        // Own hotbar — 4 cells whose pixel rects were captured by
-        // renderSpriteHud last frame. cellIdx is 1..4 ("Key N" subtitle).
+        // Own hotbar — 5 cells whose pixel rects were captured by
+        // renderSpriteHud last frame. Cell layout mirrors the webclient:
+        //   cell 0      → class passive (always-on, no Key-N subtitle)
+        //   cells 1..4  → active abilities, bindingIdx = cellIdx - 1
+        //                  → cellIdx == "Key N" subtitle in the tooltip
+        // The AbilityTooltip is built only for actives (it scales DAMAGE
+        // off the viewer's stats and shows MP / CD / cast / SP — none of
+        // which apply to a passive). Slot 0 hover is intentionally a
+        // no-op for now; the cell still displays the passive's name
+        // label so the player can read it at a glance.
         final Player local = (this.playState != null) ? this.playState.getPlayer() : null;
         if (local != null && this._lastHotbarCellPx != null) {
-            for (int slot = 0; slot < this._lastHotbarCellPx.length; slot++) {
+            for (int slot = 1; slot < this._lastHotbarCellPx.length; slot++) {
                 final float[] cell = this._lastHotbarCellPx[slot];
                 if (cell == null) continue;
                 if (mx >= cell[0] && mx < cell[0] + cell[2]
                         && my >= cell[1] && my < cell[1] + cell[3]) {
-                    final Ability ab = local.getActiveAbility(slot);
+                    final int bindingIdx = slot - 1;
+                    final Ability ab = local.getActiveAbility(bindingIdx);
                     if (ab == null) continue;
                     final int invested = AbilityTooltip.investedFor(local, ab);
                     final Stats stats = local.getStats();
                     this.activeAbilityTooltip = new AbilityTooltip(
-                            ab, slot + 1, invested, stats,
+                            ab, slot, invested, stats,
                             new Vector2f(tooltipX, 100), panelWidth);
                     this.activeTooltip = null;
                     return;
