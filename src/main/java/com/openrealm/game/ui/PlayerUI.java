@@ -198,6 +198,12 @@ public class PlayerUI {
      *  exclusive with activeTooltip — whichever surface gets the cursor
      *  first wins, and the other is cleared. */
     private AbilityTooltip activeAbilityTooltip = null;
+    /** Hover tooltip for the class-passive cell (hotbar cell 0). Same lifecycle
+     *  as {@link #activeAbilityTooltip} — reset every updateTooltip pass and
+     *  rebuilt iff the cursor is over cell 0. Two distinct fields rather than
+     *  one polymorphic surface because the passive description has no MP /
+     *  cooldown / SP machinery and uses different chrome colors. */
+    private com.openrealm.game.model.PassiveTooltip activePassiveTooltip = null;
     /** Per-cell rects captured during renderPartyMembers' cd-strip pass so
      *  updateTooltip can hit-test them on hover. Each entry encodes
      *  [x, y, w, h, abilityId, investedSp]. Cleared at the start of every
@@ -880,9 +886,10 @@ public class PlayerUI {
         int startX = OpenRealmGame.width - panelWidth;
         int tooltipX = startX - panelWidth - 8;
 
-        // Reset both tooltip surfaces — exactly one (or none) will be
+        // Reset all three tooltip surfaces — exactly one (or none) will be
         // re-armed below depending on what the cursor is hovering.
         this.activeAbilityTooltip = null;
+        this.activePassiveTooltip = null;
 
         // Check inventory slots (equipment + backpack)
         for (int i = 0; i < this.inventory.length; i++) {
@@ -942,6 +949,23 @@ public class PlayerUI {
         // no-op for now; the cell still displays the passive's name
         // label so the player can read it at a glance.
         final Player local = (this.playState != null) ? this.playState.getPlayer() : null;
+        // Cell 0 — class passive. Distinct tooltip surface (PassiveTooltip)
+        // since passives have no MP / CD / SP / damage breakdown.
+        if (local != null && this._lastHotbarCellPx != null && this._lastHotbarCellPx.length > 0) {
+            final float[] cell0 = this._lastHotbarCellPx[0];
+            if (cell0 != null
+                    && mx >= cell0[0] && mx < cell0[0] + cell0[2]
+                    && my >= cell0[1] && my < cell0[1] + cell0[3]) {
+                final PassiveAbility pa = local.getClassPassive();
+                if (pa != null) {
+                    this.activePassiveTooltip = new com.openrealm.game.model.PassiveTooltip(
+                            pa, local.getStats(),
+                            new Vector2f(tooltipX, 100), panelWidth);
+                    this.activeTooltip = null;
+                    return;
+                }
+            }
+        }
         if (local != null && this._lastHotbarCellPx != null) {
             for (int slot = 1; slot < this._lastHotbarCellPx.length; slot++) {
                 final float[] cell = this._lastHotbarCellPx[slot];
@@ -1035,6 +1059,44 @@ public class PlayerUI {
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
         return posX >= startX;
+    }
+
+    /** True iff the cursor sits over any cell of the bottom-center ability
+     *  hotbar (cells 0..4 — passive plus the four bindings). Used by
+     *  PlayState.input to suppress the basic-attack shot when the click
+     *  was intended for a hotbar cell, regardless of whether that cell is
+     *  the passive (no-op) or an active ability (fire). */
+    public boolean isHoveringHotbarCell(int mx, int my) {
+        if (this._lastHotbarCellPx == null) return false;
+        for (float[] cell : this._lastHotbarCellPx) {
+            if (cell == null) continue;
+            if (mx >= cell[0] && mx < cell[0] + cell[2]
+                    && my >= cell[1] && my < cell[1] + cell[3]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** If the cursor is over an active-ability hotbar cell (cells 1..4),
+     *  returns the corresponding hotbarBindings index (0..3). Returns -1
+     *  when over the passive cell (cell 0) or no cell at all — the caller
+     *  uses this to decide whether to send a UseAbilityPacket. Mirrors
+     *  the webclient ui-widgets click handler that calls
+     *  {@code __webclientFireAbilityFromUI(s)} where {@code s} is 0..3
+     *  for cells 1..4. */
+    public int getHotbarBindingAtScreen(int mx, int my) {
+        if (this._lastHotbarCellPx == null) return -1;
+        // Start at cell 1 — cell 0 is the passive and is not a fire target.
+        for (int slot = 1; slot < this._lastHotbarCellPx.length; slot++) {
+            final float[] cell = this._lastHotbarCellPx[slot];
+            if (cell == null) continue;
+            if (mx >= cell[0] && mx < cell[0] + cell[2]
+                    && my >= cell[1] && my < cell[1] + cell[3]) {
+                return slot - 1;
+            }
+        }
+        return -1;
     }
 
     private void sendTradeCommand(String command) {
@@ -1447,6 +1509,9 @@ public class PlayerUI {
         }
         if (this.activeAbilityTooltip != null) {
             this.activeAbilityTooltip.render(batch, shapes, font);
+        }
+        if (this.activePassiveTooltip != null) {
+            this.activePassiveTooltip.render(batch, shapes, font);
         }
 
         this.renderPlayerTooltip(batch, shapes, font);

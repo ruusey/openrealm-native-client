@@ -1365,7 +1365,16 @@ public class PlayState extends GameState {
 		}
         boolean canShoot = (System.currentTimeMillis() - this.lastShotTick) > (1000 / dex + 10);
         boolean canUseAbility = (System.currentTimeMillis() - this.lastAbilityTick) > 1000;
-        boolean clickingWorld = mouse.isPressed(1) && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()));
+        // Hotbar-cell hits steal the click — mirror the webclient where
+        // clicking an ability cell fires the bound ability at the cursor
+        // (cells 1..4) or is a no-op on the passive cell (cell 0). Without
+        // this suppression the basic-attack shot below would also fire on
+        // the same click, double-tapping the projectile pipeline.
+        final boolean hoveringHotbar = (this.pui != null)
+                && this.pui.isHoveringHotbarCell(mouse.getX(), mouse.getY());
+        boolean clickingWorld = mouse.isPressed(1)
+                && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))
+                && !hoveringHotbar;
         // WHY: do NOT call player.setAttacking(clickingWorld) here. That clobbers
         // the timer-driven attack flag and cuts the attack animation the instant
         // the mouse button releases — the webclient instead refreshes a 0.3s
@@ -1403,6 +1412,33 @@ public class PlayState extends GameState {
             // shots and for ~350ms after the last one.
             player.triggerAttackAnimation();
         }
+        // Mouse-click-on-hotbar-cell fires the bound ability at the cursor.
+        // Mirrors webclient ui-widgets.updateAbilityBar's click handler ->
+        // __webclientFireAbilityFromUI(s) -> castWithPrediction at the
+        // current cursor world coords. Edge-triggered (justPressed) so
+        // holding the click doesn't spam fires; cooldown still gates via
+        // canUseAbility. clickingWorld was already cleared above when the
+        // cursor sits over the hotbar, so the basic-attack path below
+        // won't double-fire on this same click.
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)
+                && this.pui != null
+                && canUseAbility) {
+            final int bindingIdx = this.pui.getHotbarBindingAtScreen(
+                    mouse.getX(), mouse.getY());
+            if (bindingIdx >= 0) {
+                try {
+                    final Vector2f pos = new Vector2f(aimWx, aimWy);
+                    final UseAbilityPacket useAbility = UseAbilityPacket.from(
+                            this.getPlayer(), pos, bindingIdx);
+                    this.realmManager.getClient().sendRemote(useAbility);
+                    this.lastAbilityTick = System.currentTimeMillis();
+                } catch (Exception e) {
+                    PlayState.log.error("Failed to send UseAbility packet from hotbar click for slot {}. Reason: {}",
+                            bindingIdx, e);
+                }
+            }
+        }
+
         // Phase 2C/2D — number-key hotbar mapping. Keys 1..4 fire the four
         // hotbar slots at the cursor; Shift+1..4 invests a skill point
         // into the bound ability (server enforces cap + pool). Mirrors
