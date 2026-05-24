@@ -1074,10 +1074,6 @@ public class TileManager {
                 t.render(batch);
             }
 
-            // Mask the sprite's baked-in bottom shadow on walls that have
-            // another wall directly south. Stretches the top of the source
-            // texture over the bottom third so a vertical column reads as
-            // one continuous wall instead of striped 3D blocks.
             for (Tile t : wallTiles) {
                 final long row = t.getRow();
                 final long col = t.getCol();
@@ -1090,11 +1086,10 @@ public class TileManager {
                 final float wy = t.getPos().getWorldVar().y;
                 final int srcW = region.getRegionWidth();
                 final int srcH = region.getRegionHeight();
-                final int srcTopH = Math.max(1, srcH / 3);
-                final TextureRegion topSlice = new TextureRegion(region.getTexture(),
-                        region.getRegionX(), region.getRegionY(), srcW, srcTopH);
-                final float dstH = sz / 3f;
-                batch.draw(topSlice, wx, wy + sz - dstH, sz, dstH);
+                final int srcHalfH = Math.max(1, srcH / 2);
+                final TextureRegion topHalf = new TextureRegion(region.getTexture(),
+                        region.getRegionX(), region.getRegionY(), srcW, srcHalfH);
+                batch.draw(topHalf, wx, wy, sz, sz);
             }
 
             // N + W highlights on edge walls (top-light from NW). Drawn
