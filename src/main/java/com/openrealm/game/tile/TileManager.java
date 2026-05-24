@@ -798,17 +798,19 @@ public class TileManager {
     }
 
     public void render(Player player, SpriteBatch batch, ShapeRenderer shapes) {
+        this.render(player, batch, shapes, 0f);
+    }
+
+    public void render(Player player, SpriteBatch batch, ShapeRenderer shapes, float cameraAngle) {
         this.acquireMapLock();
         final int playerSize = player.getSize() / 2;
         final Vector2f pos = player.getPos().clone(playerSize, playerSize);
         final int ts = this.getBaseLayer().getTileSize();
-        // Reuse the per-frame buffer instead of allocating a new Vector2f.
         final Vector2f posNormalized = this.posNormalizedBuf;
         posNormalized.x = pos.x / ts;
         posNormalized.y = pos.y / ts;
         this.normalizeToBounds(posNormalized);
 
-        // Lazy-allocate fog-of-war array sized to the current map.
         final int mapW = this.getBaseLayer().getWidth();
         final int mapH = this.getBaseLayer().getHeight();
         if (this.discovered == null || this.discoveredW != mapW || this.discoveredH != mapH) {
@@ -817,26 +819,41 @@ public class TileManager {
             this.discoveredH = mapH;
         }
 
-        // FOG-OF-WAR PASS: draw tiles that have previously been seen but
-        // are not currently inside the sight circle, dimmed at
-        // FOG_BRIGHTNESS. Bounded to the screen viewport rectangle so we
-        // don't iterate the whole map. This runs BEFORE the in-sight
-        // pass so the bright tiles drawn next overpaint any overlap.
         final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
         final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
-        final int screenTilesX = (int) Math.ceil(worldViewW / ts) + 2;
-        final int screenTilesY = (int) Math.ceil(worldViewH / ts) + 2;
-        // Derive the scan origin from the actual camera viewport (the
-        // world-space coord of the screen's top-left corner) rather than
-        // a player-centered window. The HUD panel on the right shifts
-        // map.x left by ~hudPanelWorldW/2, so a symmetric posNormalized-
-        // centered scan misses the rightmost ~3 visible tiles. Walls in
-        // that strip stayed out of wallTiles (and out of wallSet for
-        // adjacency) until the player moved close enough that the
-        // symmetric window covered them — visually that read as walls
-        // "popping" their 3D shadow only when you walked toward them.
-        final int sxMin = (int) Math.floor(Vector2f.worldX / ts);
-        final int syMin = (int) Math.floor(Vector2f.worldY / ts);
+
+        // Compute world-space AABB of the un-rotated screen rect rotated by
+        // -cameraAngle around the player; tile scans must cover this so
+        // diagonal corners of the rotated viewport aren't black.
+        final float vL = Vector2f.worldX, vT = Vector2f.worldY;
+        final float vR = vL + worldViewW,  vB = vT + worldViewH;
+        float scanMinX, scanMinY, scanMaxX, scanMaxY;
+        if (cameraAngle == 0f) {
+            scanMinX = vL; scanMinY = vT; scanMaxX = vR; scanMaxY = vB;
+        } else {
+            final float cx = pos.x, cy = pos.y;
+            final float cosA = (float) Math.cos(-cameraAngle);
+            final float sinA = (float) Math.sin(-cameraAngle);
+            float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY;
+            float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+            final float[] cxs = { vL, vR, vR, vL };
+            final float[] cys = { vT, vT, vB, vB };
+            for (int i = 0; i < 4; i++) {
+                final float dx = cxs[i] - cx, dy = cys[i] - cy;
+                final float rx = dx * cosA - dy * sinA + cx;
+                final float ry = dx * sinA + dy * cosA + cy;
+                if (rx < minX) minX = rx;
+                if (rx > maxX) maxX = rx;
+                if (ry < minY) minY = ry;
+                if (ry > maxY) maxY = ry;
+            }
+            scanMinX = minX; scanMinY = minY; scanMaxX = maxX; scanMaxY = maxY;
+        }
+
+        final int sxMin = (int) Math.floor(scanMinX / ts);
+        final int syMin = (int) Math.floor(scanMinY / ts);
+        final int screenTilesX = (int) Math.ceil((scanMaxX - scanMinX) / ts) + 2;
+        final int screenTilesY = (int) Math.ceil((scanMaxY - scanMinY) / ts) + 2;
         final float radiusSqInner = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
         batch.setColor(FOG_BRIGHTNESS, FOG_BRIGHTNESS, FOG_BRIGHTNESS, 1f);
         for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {

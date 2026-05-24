@@ -1689,6 +1689,9 @@ public class PlayState extends GameState {
     private float interpToX, interpToY;
     private boolean hasInterpAnchor = false;
 
+    private final com.badlogic.gdx.math.Matrix4 worldRotMatrix = new com.badlogic.gdx.math.Matrix4();
+    private final com.badlogic.gdx.math.Matrix4 worldRotMatrixIdt = new com.badlogic.gdx.math.Matrix4();
+
     /**
      * Reset the sub-tick interpolation anchor to the given position.
      * Called from {@code ClientGameLogic.handlePlayerPosAckClient} when
@@ -1721,34 +1724,28 @@ public class PlayState extends GameState {
         OpenRealmGame game = (OpenRealmGame) Gdx.app.getApplicationListener();
         if (game.getWorldCamera() != null) {
             final com.badlogic.gdx.graphics.OrthographicCamera worldCam = game.getWorldCamera();
-            // Apply absolute camera rotation. up + direction are reset to
-            // the Y-down (setToOrtho(true)) basis every frame, then we
-            // rotate by cameraAngle in degrees — using rotate() directly
-            // without resetting would compound per frame.
-            //
-            // SIGN: PIXI worldLayer.rotation = +angle rotates content
-            // visually in one direction; LibGDX camera.rotate(+angle, 0,
-            // 0, 1) rotates the CAMERA in the same direction, which
-            // makes the WORLD appear to rotate in the OPPOSITE direction
-            // on screen. To match webclient visuals (Q = left rotate),
-            // negate the angle when applying to the camera. Movement
-            // input rotation in input() still uses -cameraAngle (same
-            // formula as the webclient) and now aligns correctly.
-            if (this.cameraAngle != 0f) {
-                worldCam.up.set(0f, -1f, 0f);
-                worldCam.direction.set(0f, 0f, 1f);
-                worldCam.rotate(-(float) Math.toDegrees(this.cameraAngle), 0f, 0f, 1f);
-            } else {
-                // Cheap path when not rotated — avoid the basis reset
-                // every frame in the common case.
-                worldCam.up.set(0f, -1f, 0f);
-                worldCam.direction.set(0f, 0f, 1f);
-            }
+            worldCam.up.set(0f, -1f, 0f);
+            worldCam.direction.set(0f, 0f, 1f);
             worldCam.update();
             batch.setProjectionMatrix(worldCam.combined);
             shapes.setProjectionMatrix(worldCam.combined);
+
+            if (this.cameraAngle != 0f) {
+                final float halfSize = player.getSize() / 2f;
+                final float pivotX = player.getEffectiveRenderX() + halfSize - Vector2f.worldX;
+                final float pivotY = player.getEffectiveRenderY() + halfSize - Vector2f.worldY;
+                this.worldRotMatrix.idt();
+                this.worldRotMatrix.translate(pivotX, pivotY, 0f);
+                this.worldRotMatrix.rotate(0f, 0f, 1f, (float) Math.toDegrees(this.cameraAngle));
+                this.worldRotMatrix.translate(-pivotX, -pivotY, 0f);
+                batch.setTransformMatrix(this.worldRotMatrix);
+                shapes.setTransformMatrix(this.worldRotMatrix);
+            } else {
+                batch.setTransformMatrix(this.worldRotMatrixIdt);
+                shapes.setTransformMatrix(this.worldRotMatrixIdt);
+            }
         }
-        this.realmManager.getRealm().getTileManager().render(player, batch, shapes);
+        this.realmManager.getRealm().getTileManager().render(player, batch, shapes, this.cameraAngle);
 
         final long nowMs = System.currentTimeMillis();
         if (this.castRingExpiresAt > nowMs && this.castRingRadius > 0f) {
@@ -2231,13 +2228,12 @@ public class PlayState extends GameState {
             text.render(batch, font);
         }
 
-        // Switch to the UI camera (1:1 screen pixels) so PlayerUI's HUD
-        // layout uses window-pixel coords. Stays on UI camera for the
-        // rest of the frame.
         if (game.getUiCamera() != null) {
             game.getUiCamera().update();
             batch.setProjectionMatrix(game.getUiCamera().combined);
             shapes.setProjectionMatrix(game.getUiCamera().combined);
+            batch.setTransformMatrix(this.worldRotMatrixIdt);
+            shapes.setTransformMatrix(this.worldRotMatrixIdt);
         }
         this.pui.render(batch, shapes, font);
 
