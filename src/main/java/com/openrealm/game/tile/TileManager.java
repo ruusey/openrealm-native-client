@@ -977,34 +977,13 @@ public class TileManager {
 
         // Pass 2: Render wall tiles with 3D effect (shadow + side face + shader outline)
         if (!wallTiles.isEmpty()) {
-            // Build the wall-adjacency set FIRST so every sub-pass (shadow
-            // silhouette, side bands, highlights) can skip work for tiles
-            // whose corresponding neighbor is also a wall. Previously the
-            // set was built AFTER the silhouette pass, so the silhouette
-            // had no choice but to drop a +1/+1 ground-shadow on every
-            // single wall — including the middle walls of a vertical stack
-            // whose "ground below" is actually another wall. The resulting
-            // 1-px-tall dark sliver landed in the next wall's top edge and
-            // (combined with sprite-edge translucency) read as a visible
-            // horizontal stripe at every wall-to-wall seam in the column.
             java.util.HashSet<Long> wallSet = new java.util.HashSet<>(wallTiles.size() * 2);
             for (Tile t : wallTiles) {
-                int sz = t.getWidth();
-                if (sz <= 0) continue;
-                long col = (long) Math.floor(t.getPos().getWorldVar().x / sz);
-                long row = (long) Math.floor(t.getPos().getWorldVar().y / sz);
-                wallSet.add((row << 32) | (col & 0xffffffffL));
+                wallSet.add(((long) t.getRow() << 32) | (t.getCol() & 0xffffffffL));
             }
             final java.util.function.BiPredicate<Long, Long> isWallAt = (row, col) ->
                     wallSet.contains((row << 32) | (col & 0xffffffffL));
 
-            // Shadow: small offset, flush with tile bottom. SKIP for walls
-            // that have a wall to their south OR east — the shadow falls
-            // into that neighbor's footprint, which is itself a wall whose
-            // top/left edge has no "ground" to cast a shadow onto. Drawing
-            // the silhouette for those interior walls produced the dark-
-            // band-at-the-seam artifact in vertical stacks (and a faint
-            // right-edge bleed in horizontal stacks).
             ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
             batch.setColor(1, 1, 1, 0.25f);
             for (Tile t : wallTiles) {
@@ -1012,13 +991,13 @@ public class TileManager {
                 if (region == null) continue;
                 int sz = t.getWidth();
                 if (sz <= 0) continue;
-                float wx = t.getPos().getWorldVar().x;
-                float wy = t.getPos().getWorldVar().y;
-                long col = (long) Math.floor(wx / sz);
-                long row = (long) Math.floor(wy / sz);
+                final long row = t.getRow();
+                final long col = t.getCol();
                 final boolean wS = isWallAt.test(row + 1, col);
                 final boolean wE = isWallAt.test(row, col + 1);
-                if (wS || wE) continue; // neighbor wall already occupies the shadow target
+                if (wS || wE) continue;
+                float wx = t.getPos().getWorldVar().x;
+                float wy = t.getPos().getWorldVar().y;
                 batch.draw(region, wx + 1, wy + 1, sz, sz);
             }
             batch.setColor(1, 1, 1, 1);
@@ -1041,12 +1020,12 @@ public class TileManager {
                 if (sz <= 0) continue;
                 float wx = t.getPos().getWorldVar().x;
                 float wy = t.getPos().getWorldVar().y;
-                long col = (long) Math.floor(wx / sz);
-                long row = (long) Math.floor(wy / sz);
-                boolean wN = wallSet.contains(((row - 1) << 32) | (col & 0xffffffffL));
-                boolean wS = wallSet.contains(((row + 1) << 32) | (col & 0xffffffffL));
-                boolean wW = wallSet.contains((row << 32) | ((col - 1) & 0xffffffffL));
-                boolean wE = wallSet.contains((row << 32) | ((col + 1) & 0xffffffffL));
+                final long row = t.getRow();
+                final long col = t.getCol();
+                boolean wN = isWallAt.test(row - 1, col);
+                boolean wS = isWallAt.test(row + 1, col);
+                boolean wW = isWallAt.test(row, col - 1);
+                boolean wE = isWallAt.test(row, col + 1);
 
                 // Wall extrusion bands. 6-8 thin 1px stripes per face instead
                 // of 3 chunky stripes — smoother alpha falloff so the wall→
@@ -1109,10 +1088,10 @@ public class TileManager {
                 if (sz <= 0) continue;
                 float wx = t.getPos().getWorldVar().x;
                 float wy = t.getPos().getWorldVar().y;
-                long col = (long) Math.floor(wx / sz);
-                long row = (long) Math.floor(wy / sz);
-                boolean wN = wallSet.contains(((row - 1) << 32) | (col & 0xffffffffL));
-                boolean wW = wallSet.contains((row << 32) | ((col - 1) & 0xffffffffL));
+                final long row = t.getRow();
+                final long col = t.getCol();
+                boolean wN = isWallAt.test(row - 1, col);
+                boolean wW = isWallAt.test(row, col - 1);
                 final float[] hl = wallHighlightColor((int) t.getTileId());
                 if (!wN) {
                     shapes.setColor(hl[0], hl[1], hl[2], 0.20f); shapes.rect(wx, wy,     sz, 2);
