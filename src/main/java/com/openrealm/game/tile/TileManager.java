@@ -992,7 +992,6 @@ public class TileManager {
         // swap) by emitting batch.draw() calls per strip.
         drawTileSeams(batch, posNormalized, radiusSq, ts, mapW, mapH);
 
-        // Pass 2: Render wall tiles with 3D effect (shadow + side face + shader outline)
         if (!wallTiles.isEmpty()) {
             java.util.HashSet<Long> wallSet = new java.util.HashSet<>(wallTiles.size() * 2);
             for (Tile t : wallTiles) {
@@ -1001,24 +1000,9 @@ public class TileManager {
             final java.util.function.BiPredicate<Long, Long> isWallAt = (row, col) ->
                     wallSet.contains((row << 32) | (col & 0xffffffffL));
 
-            ShaderManager.applyEffect(batch, Sprite.EffectEnum.SILHOUETTE);
-            batch.setColor(1, 1, 1, 0.25f);
-            for (Tile t : wallTiles) {
-                TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
-                if (region == null) continue;
-                int sz = t.getWidth();
-                if (sz <= 0) continue;
-                final long row = t.getRow();
-                final long col = t.getCol();
-                final boolean wS = isWallAt.test(row + 1, col);
-                final boolean wE = isWallAt.test(row, col + 1);
-                if (wS || wE) continue;
-                float wx = t.getPos().getWorldVar().x;
-                float wy = t.getPos().getWorldVar().y;
-                batch.draw(region, wx + 1, wy + 1, sz, sz);
-            }
-            batch.setColor(1, 1, 1, 1);
-            ShaderManager.clearEffect(batch);
+            // (Silhouette pass removed — the sprite-shaped +1/+1 shadow leaked
+            // onto the SE corner ground at wall endpoints as a dark blob. The
+            // extrusion bands below already cast a clean ground shadow.)
 
             // Fake-3D wall extrusion. Mirrors the webclient (renderer.js
             // Pass 2 isWall block): solid black bands with an alpha gradient
