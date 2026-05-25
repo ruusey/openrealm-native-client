@@ -133,16 +133,26 @@ public class SpriteRecolorCache {
      */
     public static TextureRegion getEnchantedItemRegion(GameItem item) {
         if (item == null || item.getSpriteKey() == null) return null;
-        if (item.getEnchantments() == null || item.getEnchantments().isEmpty()) return null;
+        final boolean hasEnch = item.getEnchantments() != null && !item.getEnchantments().isEmpty();
+        final boolean hasGem  = item.getGemstoneType() != 0;
+        if (!hasEnch && !hasGem) return null;
         final int sw = item.getSpriteSize() > 0 ? item.getSpriteSize() : 8;
         final int sh = item.getEffectiveSpriteHeight() > 0 ? item.getEffectiveSpriteHeight() : sw;
 
         final StringBuilder sig = new StringBuilder();
         sig.append(item.getItemId()).append('#');
-        for (Enchantment e : item.getEnchantments()) {
-            sig.append(e.getPixelX() & 0xff).append(',')
-               .append(e.getPixelY() & 0xff).append(',')
-               .append(e.getPixelColor()).append('|');
+        if (hasEnch) {
+            for (Enchantment e : item.getEnchantments()) {
+                sig.append(e.getPixelX() & 0xff).append(',')
+                   .append(e.getPixelY() & 0xff).append(',')
+                   .append(e.getPixelColor()).append('|');
+            }
+        }
+        if (hasGem) {
+            sig.append('g').append(item.getGemstoneType()).append(',')
+               .append(item.getGemPixelX() & 0xff).append(',')
+               .append(item.getGemPixelY() & 0xff).append(',')
+               .append(item.getGemPixelColor());
         }
         final String key = sig.toString();
         final TextureRegion cached = ITEM_CACHE.get(key);
@@ -157,19 +167,13 @@ public class SpriteRecolorCache {
 
         // ARGB int from the wire format: same encoding as webclient's
         // forge.js argbToCss helper (alpha in high byte).
-        for (Enchantment e : item.getEnchantments()) {
-            final int argb = e.getPixelColor();
-            int a = (argb >>> 24) & 0xff;
-            if (a == 0) a = 0xff; // forge sometimes omits the alpha byte
-            final int r = (argb >>> 16) & 0xff;
-            final int g = (argb >>>  8) & 0xff;
-            final int b = (argb       ) & 0xff;
-            final int x = e.getPixelX() & 0xff;
-            final int y = e.getPixelY() & 0xff;
-            if (x < 0 || x >= sw || y < 0 || y >= sh) continue;
-            // Pixmap.setColor takes RGBA8888.
-            cell.setColor(((r & 0xff) << 24) | ((g & 0xff) << 16) | ((b & 0xff) << 8) | (a & 0xff));
-            cell.drawPixel(x, y);
+        if (hasEnch) {
+            for (Enchantment e : item.getEnchantments()) {
+                paintArgbPixel(cell, e.getPixelX() & 0xff, e.getPixelY() & 0xff, e.getPixelColor(), sw, sh);
+            }
+        }
+        if (hasGem) {
+            paintArgbPixel(cell, item.getGemPixelX() & 0xff, item.getGemPixelY() & 0xff, item.getGemPixelColor(), sw, sh);
         }
 
         final Texture tex = new Texture(cell);
@@ -179,6 +183,17 @@ public class SpriteRecolorCache {
         region.flip(false, true);
         ITEM_CACHE.put(key, region);
         return region;
+    }
+
+    private static void paintArgbPixel(Pixmap cell, int x, int y, int argb, int sw, int sh) {
+        if (x < 0 || x >= sw || y < 0 || y >= sh) return;
+        int a = (argb >>> 24) & 0xff;
+        if (a == 0) a = 0xff;
+        final int r = (argb >>> 16) & 0xff;
+        final int g = (argb >>>  8) & 0xff;
+        final int b = (argb       ) & 0xff;
+        cell.setColor(((r & 0xff) << 24) | ((g & 0xff) << 16) | ((b & 0xff) << 8) | (a & 0xff));
+        cell.drawPixel(x, y);
     }
 
     /** Mask-based recolor with luminance preservation, mirroring
