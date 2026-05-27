@@ -443,9 +443,9 @@ public class ServerGameLogic {
 		boolean canShoot = false;
 		if (realm.getPlayerLastShotTime().get(player.getId()) != null) {
 			double dex = (int) ((6.5 * (player.getComputedStats().getDex() + 17.3)) / 75);
-			// BERSERK = +50% fire rate. SPEEDY no longer affects fire rate
-			// (movement-only). Mirror of the server-side change.
-			if (player.hasEffect(StatusEffectType.BERSERK)) {
+			// BERSERK or FURY = +50% fire rate. SPEEDY no longer affects
+			// fire rate (movement-only).
+			if (player.hasEffect(StatusEffectType.BERSERK) || player.hasEffect(StatusEffectType.FURY)) {
 				dex = dex * 1.5;
 			}else if(player.hasEffect(StatusEffectType.DAZED)) {
 				dex = 1.0;

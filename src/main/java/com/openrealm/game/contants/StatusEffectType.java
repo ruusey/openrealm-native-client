@@ -65,7 +65,11 @@ public enum StatusEffectType {
      *  collide with the broader buff. */
     FURY((short) 37),
     /** Source-scoped vulnerability — +X% damage from caster's party only. */
-    WITHER((short) 38);
+    WITHER((short) 38),
+    /** Marker on the attacker: while active, basic-attack projectiles
+     *  apply POISONED + register a poison DoT on the enemy hit. Carrier
+     *  takes no damage from the marker itself. */
+    IMBUED_POISON((short) 39);
 
     public static Map<Short, StatusEffectType> map = new HashMap<>();
     static {
