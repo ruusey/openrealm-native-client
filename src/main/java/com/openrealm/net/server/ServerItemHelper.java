@@ -142,10 +142,13 @@ public class ServerItemHelper {
 
     public static void handleMoveItemPacket(RealmManagerServer mgr, Packet packet) throws Exception {
         final MoveItemPacket moveItemPacket = (MoveItemPacket) packet;
-        ServerItemHelper.log.info("[ItemMoveHelper] Recieved MoveItem Packet from player {}", moveItemPacket.getPlayerId());
+        final Player caller = mgr.getPlayerByRemoteAddress(packet.getSrcIp());
+        if (caller == null) return;
+        ServerItemHelper.log.info("[ItemMoveHelper] Recieved MoveItem Packet from player {}", caller.getId());
 
-        final Realm realm = mgr.findPlayerRealm(moveItemPacket.getPlayerId());
-        final Player player = realm.getPlayer(moveItemPacket.getPlayerId());
+        final Realm realm = mgr.findPlayerRealm(caller.getId());
+        if (realm == null) return;
+        final Player player = caller;
 
         final int fromIdx = moveItemPacket.getFromSlotIndex();
         final int targetIdx = moveItemPacket.getTargetSlotIndex();

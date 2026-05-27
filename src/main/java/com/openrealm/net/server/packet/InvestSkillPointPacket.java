@@ -5,7 +5,6 @@ import com.openrealm.net.Streamable;
 import com.openrealm.net.core.PacketId;
 import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.nettypes.SerializableByte;
-import com.openrealm.net.core.nettypes.SerializableLong;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -19,8 +18,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @PacketId(packetId = (byte) 40)
 public class InvestSkillPointPacket extends Packet {
-    @SerializableField(order = 0, type = SerializableLong.class)
-    private long playerId;
-    @SerializableField(order = 1, type = SerializableByte.class)
+    @SerializableField(order = 0, type = SerializableByte.class)
     private byte slot;
 }

@@ -671,8 +671,7 @@ public class PlayerUI {
                             || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
                     if (shiftHeld && item != null && item.isStackable() && item.getStackCount() > 1) {
                         try {
-                            final long pid = this.playState.getPlayer().getId();
-                            final SplitStackPacket pkt = new SplitStackPacket(pid, actualIdx);
+                            final SplitStackPacket pkt = new SplitStackPacket(actualIdx);
                             this.playState.getRealmManager().getClient().getOutboundPacketQueue().add(pkt);
                             log.info("[inv-rclick-split] slot={} itemId={} stack={}",
                                     actualIdx, item.getItemId(), item.getStackCount());
@@ -694,11 +693,10 @@ public class PlayerUI {
                             && item != null
                             && (item.isStackable() || "gem".equals(item.getCategory()))) {
                         try {
-                            final long pid = this.playState.getPlayer().getId();
                             // toIdx=-1 = auto-place sentinel; server picks
                             // first mergeable stack, else first empty slot.
                             final PotionStorageMovePacket pkt = new PotionStorageMovePacket(
-                                    pid, PotionStorageMovePacket.SIDE_INV, actualIdx,
+                                    PotionStorageMovePacket.SIDE_INV, actualIdx,
                                     PotionStorageMovePacket.SIDE_STORAGE, -1);
                             this.playState.getRealmManager().getClient().getOutboundPacketQueue().add(pkt);
                             log.info("[inv-rclick-quickstore] slot={} itemId={}",

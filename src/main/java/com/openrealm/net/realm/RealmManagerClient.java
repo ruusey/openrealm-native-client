@@ -202,9 +202,7 @@ public class RealmManagerClient implements Runnable {
             while (!this.shutdown) {
                 try {
                     long currentTime = Instant.now().toEpochMilli();
-                    long playerId = this.currentPlayerId;
-
-                    HeartbeatPacket pack = HeartbeatPacket.from(playerId, currentTime);
+                    HeartbeatPacket pack = HeartbeatPacket.from(currentTime);
                     // Record before send so PerfMetrics can match the
                     // returned echo to the original send timestamp.
                     com.openrealm.game.ui.PerfMetrics.get().recordHeartbeatSend(currentTime);
@@ -231,7 +229,7 @@ public class RealmManagerClient implements Runnable {
 
     public void moveItem(int toSlotIndex, int fromSlotIndex, boolean drop, boolean consume) {
         try {
-            MoveItemPacket moveItem = MoveItemPacket.from(this.state.getPlayer().getId(), (byte) toSlotIndex,
+            MoveItemPacket moveItem = MoveItemPacket.from((byte) toSlotIndex,
                     (byte) fromSlotIndex, drop, consume);
             this.getClient().sendRemote(moveItem);
         } catch (Exception e) {

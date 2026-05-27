@@ -238,7 +238,7 @@ public class StressTestClient implements Runnable {
             float[][] dirs = { {0f, -1f}, {1f, 0f}, {0f, 1f}, {-1f, 0f} };
             float vx = dirs[dirIdx][0];
             float vy = dirs[dirIdx][1];
-            PlayerMovePacket movePacket = new PlayerMovePacket(this.assignedPlayerId, this.moveTick, vx, vy);
+            PlayerMovePacket movePacket = new PlayerMovePacket(this.moveTick, vx, vy);
             this.outboundPacketQueue.add(movePacket);
 
             if (this.spamMode) {
@@ -248,7 +248,7 @@ public class StressTestClient implements Runnable {
                     float destX = (float) (Math.cos(Math.toRadians(angle)) * 200);
                     float destY = (float) (Math.sin(Math.toRadians(angle)) * 200);
                     PlayerShootPacket shootPacket = new PlayerShootPacket(
-                            RANDOM.nextLong(), this.assignedPlayerId, 0, destX, destY, 0, 0);
+                            RANDOM.nextLong(), 0, destX, destY, 0, 0);
                     this.outboundPacketQueue.add(shootPacket);
                 }
 
@@ -258,13 +258,13 @@ public class StressTestClient implements Runnable {
                     float range = 80 + RANDOM.nextFloat() * 120;
                     float abilityX = this.spawnX + (float) (Math.cos(Math.toRadians(angle)) * range);
                     float abilityY = this.spawnY + (float) (Math.sin(Math.toRadians(angle)) * range);
-                    this.outboundPacketQueue.add(new UseAbilityPacket(this.assignedPlayerId, abilityX, abilityY, (byte) 0));
+                    this.outboundPacketQueue.add(new UseAbilityPacket(abilityX, abilityY, (byte) 0));
                 }
             }
 
             // Send heartbeat periodically
             if (RANDOM.nextInt(20) == 0) {
-                HeartbeatPacket heartbeat = HeartbeatPacket.from(this.assignedPlayerId, System.currentTimeMillis());
+                HeartbeatPacket heartbeat = HeartbeatPacket.from(System.currentTimeMillis());
                 this.outboundPacketQueue.add(heartbeat);
             }
         } catch (Exception e) {

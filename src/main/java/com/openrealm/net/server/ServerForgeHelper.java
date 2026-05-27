@@ -67,10 +67,10 @@ public class ServerForgeHelper {
 
     public static void handleConsumeShardStack(RealmManagerServer mgr, Packet packet) throws Exception {
         final ConsumeShardStackPacket p = (ConsumeShardStackPacket) packet;
-        final Realm realm = mgr.findPlayerRealm(p.getPlayerId());
-        if (realm == null) return;
-        final Player player = realm.getPlayer(p.getPlayerId());
+        final Player player = mgr.getPlayerByRemoteAddress(packet.getSrcIp());
         if (player == null) return;
+        final Realm realm = mgr.findPlayerRealm(player.getId());
+        if (realm == null) return;
 
         final int slot = p.getFromSlotIndex();
         if (slot < 4 || slot >= player.getInventory().length) {
@@ -126,10 +126,10 @@ public class ServerForgeHelper {
 
     public static void handleInteractTile(RealmManagerServer mgr, Packet packet) throws Exception {
         final InteractTilePacket p = (InteractTilePacket) packet;
-        final Realm realm = mgr.findPlayerRealm(p.getPlayerId());
-        if (realm == null) return;
-        final Player player = realm.getPlayer(p.getPlayerId());
+        final Player player = mgr.getPlayerByRemoteAddress(packet.getSrcIp());
         if (player == null) return;
+        final Realm realm = mgr.findPlayerRealm(player.getId());
+        if (realm == null) return;
 
         // Validate proximity: player must be within ~3 tiles of the target tile
         final int tileSize = GlobalConstants.BASE_TILE_SIZE;
@@ -158,10 +158,10 @@ public class ServerForgeHelper {
 
     public static void handleForgeEnchant(RealmManagerServer mgr, Packet packet) throws Exception {
         final ForgeEnchantPacket p = (ForgeEnchantPacket) packet;
-        final Realm realm = mgr.findPlayerRealm(p.getPlayerId());
-        if (realm == null) return;
-        final Player player = realm.getPlayer(p.getPlayerId());
+        final Player player = mgr.getPlayerByRemoteAddress(packet.getSrcIp());
         if (player == null) return;
+        final Realm realm = mgr.findPlayerRealm(player.getId());
+        if (realm == null) return;
 
         final int targetSlot = p.getTargetItemSlot();
         final int crystalSlot = p.getCrystalSlotIndex();
@@ -259,10 +259,10 @@ public class ServerForgeHelper {
 
     public static void handleForgeDisenchant(RealmManagerServer mgr, Packet packet) throws Exception {
         final ForgeDisenchantPacket p = (ForgeDisenchantPacket) packet;
-        final Realm realm = mgr.findPlayerRealm(p.getPlayerId());
-        if (realm == null) return;
-        final Player player = realm.getPlayer(p.getPlayerId());
+        final Player player = mgr.getPlayerByRemoteAddress(packet.getSrcIp());
         if (player == null) return;
+        final Realm realm = mgr.findPlayerRealm(player.getId());
+        if (realm == null) return;
 
         final int targetSlot = p.getTargetItemSlot();
         if (targetSlot < 0 || targetSlot >= player.getInventory().length) return;

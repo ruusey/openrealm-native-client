@@ -216,7 +216,7 @@ public class ClientGameLogic {
 		GAME_OVER=true;
 		
 		try {
-			cli.getClient().sendRemote(new DeathAckPacket(cli.getState().getPlayer().getId()));
+			cli.getClient().sendRemote(new DeathAckPacket());
 			cli.getState().getRealmManager().shutdownClient();
 			cli.getState().gsm.add(GameStateManager.GAMEOVER);
 			cli.getState().gsm.pop(GameStateManager.PLAY);
@@ -1177,7 +1177,7 @@ public class ClientGameLogic {
 				cli.startHeartbeatThread();
 				// Tell the server we're ready to receive tiles
 				try {
-					cli.getClient().sendRemote(LoginAckPacket.from(player.getId()));
+					cli.getClient().sendRemote(LoginAckPacket.from());
 				} catch (Exception ex) {
 					log.error("[CLIENT] Failed to send LoginAck. Reason: {}", ex.getMessage());
 				}

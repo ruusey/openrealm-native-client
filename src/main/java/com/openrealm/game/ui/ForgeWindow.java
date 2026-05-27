@@ -514,7 +514,6 @@ public class ForgeWindow {
         try {
             int[] firstPx = this.paintedPixels.get(0);
             ForgeEnchantPacket packet = new ForgeEnchantPacket();
-            packet.setPlayerId(this.realmManager.getCurrentPlayerId());
             packet.setTargetItemSlot((byte) this.targetSlot);
             packet.setCrystalItemId(this.crystalItemId);
             packet.setCrystalSlotIndex((byte) this.crystalSlot);

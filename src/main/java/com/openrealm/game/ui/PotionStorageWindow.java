@@ -169,8 +169,7 @@ public class PotionStorageWindow {
     private void sendMove(byte fromSide, int fromIdx, byte toSide, int toIdx) {
         if (this.realmManager == null || this.playState == null || this.playState.getPlayer() == null) return;
         try {
-            final long pid = this.playState.getPlayer().getId();
-            final PotionStorageMovePacket p = new PotionStorageMovePacket(pid, fromSide, fromIdx, toSide, toIdx);
+            final PotionStorageMovePacket p = new PotionStorageMovePacket(fromSide, fromIdx, toSide, toIdx);
             this.realmManager.getClient().getOutboundPacketQueue().add(p);
         } catch (Exception e) {
             log.error("[PotionStorage] Failed to send move: {}", e.getMessage());

@@ -1162,19 +1162,19 @@ public class PlayState extends GameState {
                                 return;
                             }
                             UsePortalPacket usePortal = UsePortalPacket.toVault(
-                                    this.realmManager.getRealm().getRealmId(), this.getPlayerId());
+                                    this.realmManager.getRealm().getRealmId());
                             this.realmManager.getClient().sendRemote(usePortal);
                             this.realmManager.getRealm().loadMap(1);
                         } else {
                             UsePortalPacket usePortal = UsePortalPacket.from(closestPortal.getId(),
-                                    this.realmManager.getRealm().getRealmId(), this.getPlayerId());
+                                    this.realmManager.getRealm().getRealmId());
                             this.realmManager.getClient().sendRemote(usePortal);
                             this.realmManager.getRealm().loadMap(portalModel.getMapId());
                         }
                         // Flag that we're transitioning realms - next ObjectMovePacket should snap position
                         this.realmManager.setAwaitingRealmTransition(true);
                         // Tell server we're ready for tiles after map rebuild
-                        this.realmManager.getClient().sendRemote(LoginAckPacket.from(this.getPlayerId()));
+                        this.realmManager.getClient().sendRemote(LoginAckPacket.from());
                         this.lastPortalTick = System.currentTimeMillis();
                     }
                 } catch (Exception e) {
@@ -1191,11 +1191,11 @@ public class PlayState extends GameState {
                     && this.realmManager.getRealm().getMapId() != 29) {
                 try {
                     UsePortalPacket usePortal = UsePortalPacket.toNexus(
-                            this.realmManager.getRealm().getRealmId(), this.getPlayerId());
+                            this.realmManager.getRealm().getRealmId());
                     this.realmManager.getClient().sendRemote(usePortal);
                     this.realmManager.getRealm().loadMap(29);
                     this.realmManager.setAwaitingRealmTransition(true);
-                    this.realmManager.getClient().sendRemote(LoginAckPacket.from(this.getPlayerId()));
+                    this.realmManager.getClient().sendRemote(LoginAckPacket.from());
                     this.lastPortalTick = System.currentTimeMillis();
                 } catch (Exception e) {
                     PlayState.log.error("Failed to send Nexus UsePortalPacket", e.getMessage());
@@ -1204,11 +1204,11 @@ public class PlayState extends GameState {
             if (key.f1.clicked && canUsePortal) {
                 try {
                     if (this.realmManager.getRealm().getMapId() != 1) {
-                        UsePortalPacket usePortal = UsePortalPacket.toVault(this.realmManager.getRealm().getRealmId(), this.getPlayerId());
+                        UsePortalPacket usePortal = UsePortalPacket.toVault(this.realmManager.getRealm().getRealmId());
                         this.realmManager.getClient().sendRemote(usePortal);
                         this.realmManager.getRealm().loadMap(1);
                         this.realmManager.setAwaitingRealmTransition(true);
-                        this.realmManager.getClient().sendRemote(LoginAckPacket.from(this.getPlayerId()));
+                        this.realmManager.getClient().sendRemote(LoginAckPacket.from());
                         this.lastPortalTick = System.currentTimeMillis();
                     }
                 } catch (Exception e) {
@@ -1259,7 +1259,6 @@ public class PlayState extends GameState {
                     }
                     if (bestTx >= 0) {
                         InteractTilePacket pkt = new InteractTilePacket();
-                        pkt.setPlayerId(this.getPlayerId());
                         pkt.setTileX(bestTx);
                         pkt.setTileY(bestTy);
                         this.realmManager.getClient().sendRemote(pkt);
@@ -1459,8 +1458,7 @@ public class PlayState extends GameState {
                 if (shiftSp) {
                     try {
                         com.openrealm.net.server.packet.InvestSkillPointPacket pkt =
-                                new com.openrealm.net.server.packet.InvestSkillPointPacket(
-                                        this.getPlayer().getId(), (byte) slot);
+                                new com.openrealm.net.server.packet.InvestSkillPointPacket((byte) slot);
                         this.realmManager.getClient().sendRemote(pkt);
                         // Optimistic local mirror so the SP pip column updates
                         // immediately — server-authoritative state lands on
@@ -2451,7 +2449,7 @@ public class PlayState extends GameState {
             GameItem from = this.getPlayer().getInventory()[slotIndex];
             if (from == null) return;
             boolean consume = from.isConsumable();
-            MoveItemPacket moveItem = MoveItemPacket.from(this.getPlayer().getId(), from.getTargetSlot(), (byte) slotIndex, false, consume);
+            MoveItemPacket moveItem = MoveItemPacket.from(from.getTargetSlot(), (byte) slotIndex, false, consume);
             this.realmManager.getClient().sendRemote(moveItem);
         } catch (Exception e) {
             PlayState.log.error("Failed to send move item packet: {}", "No Item in slot");
