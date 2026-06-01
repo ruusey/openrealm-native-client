@@ -798,10 +798,6 @@ public class TileManager {
     }
 
     public void render(Player player, SpriteBatch batch, ShapeRenderer shapes) {
-        this.render(player, batch, shapes, 0f);
-    }
-
-    public void render(Player player, SpriteBatch batch, ShapeRenderer shapes, float cameraAngle) {
         this.acquireMapLock();
         final int playerSize = player.getSize() / 2;
         final Vector2f pos = player.getPos().clone(playerSize, playerSize);
@@ -822,33 +818,8 @@ public class TileManager {
         final float worldViewW = OpenRealmGame.width / OpenRealmGame.WORLD_SCALE;
         final float worldViewH = OpenRealmGame.height / OpenRealmGame.WORLD_SCALE;
 
-        // Compute world-space AABB of the un-rotated screen rect rotated by
-        // -cameraAngle around the player; tile scans must cover this so
-        // diagonal corners of the rotated viewport aren't black.
-        final float vL = Vector2f.worldX, vT = Vector2f.worldY;
-        final float vR = vL + worldViewW,  vB = vT + worldViewH;
-        float scanMinX, scanMinY, scanMaxX, scanMaxY;
-        if (cameraAngle == 0f) {
-            scanMinX = vL; scanMinY = vT; scanMaxX = vR; scanMaxY = vB;
-        } else {
-            final float cx = pos.x, cy = pos.y;
-            final float cosA = (float) Math.cos(-cameraAngle);
-            final float sinA = (float) Math.sin(-cameraAngle);
-            float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY;
-            float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
-            final float[] cxs = { vL, vR, vR, vL };
-            final float[] cys = { vT, vT, vB, vB };
-            for (int i = 0; i < 4; i++) {
-                final float dx = cxs[i] - cx, dy = cys[i] - cy;
-                final float rx = dx * cosA - dy * sinA + cx;
-                final float ry = dx * sinA + dy * cosA + cy;
-                if (rx < minX) minX = rx;
-                if (rx > maxX) maxX = rx;
-                if (ry < minY) minY = ry;
-                if (ry > maxY) maxY = ry;
-            }
-            scanMinX = minX; scanMinY = minY; scanMaxX = maxX; scanMaxY = maxY;
-        }
+        final float scanMinX = Vector2f.worldX, scanMinY = Vector2f.worldY;
+        final float scanMaxX = scanMinX + worldViewW, scanMaxY = scanMinY + worldViewH;
 
         final int sxMin = (int) Math.floor(scanMinX / ts);
         final int syMin = (int) Math.floor(scanMinY / ts);
@@ -1147,12 +1118,14 @@ public class TileManager {
             batch.begin();
 
             for (Tile t : objectTiles) {
+                t.renderOutline(batch);
                 t.render(batch);
             }
         }
 
         // Pass 4: Draw decorative (non-collision) tiles from collision layer
         for (Tile t : decorationTiles) {
+            t.renderOutline(batch);
             t.render(batch);
         }
 
@@ -1169,6 +1142,7 @@ public class TileManager {
         // bright pass to take over — exactly the user-reported
         // 'inverted viewport' behaviour.
         for (Tile t : overWaterTiles) {
+            t.renderOutline(batch);
             t.render(batch);
         }
 

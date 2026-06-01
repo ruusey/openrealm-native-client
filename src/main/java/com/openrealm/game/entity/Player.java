@@ -738,8 +738,8 @@ public class Player extends Entity {
 		final int rw = frame.getRegionWidth();
 		final int rh = frame.getRegionHeight();
 		if (refW <= 0 || refH <= 0 || rw <= 0 || rh <= 0) {
-			if (this.left) batch.draw(drawFrame, wx + rs, wy, -rs, rs);
-			else            batch.draw(drawFrame, wx, wy, rs, rs);
+			if (this.left) batch.draw(drawFrame, wx, wy, rs * 0.5f, rs * 0.5f, rs, rs, -1f, 1f, 0f);
+			else            batch.draw(drawFrame, wx, wy, rs * 0.5f, rs * 0.5f, rs, rs, 1f, 1f, 0f);
 			return;
 		}
 		final float unitX = (float) rs / refW;
@@ -748,9 +748,9 @@ public class Player extends Entity {
 		final float drawH = rh * unitY;
 		final float drawY = wy + rs - drawH;
 		if (this.left) {
-			batch.draw(drawFrame, wx + rs, drawY, -drawW, drawH);
+			batch.draw(drawFrame, wx + rs - drawW, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, -1f, 1f, 0f);
 		} else {
-			batch.draw(drawFrame, wx, drawY, drawW, drawH);
+			batch.draw(drawFrame, wx, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, 1f, 1f, 0f);
 		}
 	}
 

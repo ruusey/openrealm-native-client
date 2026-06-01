@@ -191,15 +191,6 @@ public class PlayState extends GameState {
     private float smoothingOffsetX = 0f;
     private float smoothingOffsetY = 0f;
 
-    /** Camera rotation around the player, radians. 0 = north-up. Held
-     *  continuously while Q (left, +) or E (right, -) is down; C snaps
-     *  back to 0. Mirrors webclient game.cameraAngle so muscle memory
-     *  carries between clients. The rotation is applied to the world
-     *  OrthographicCamera before tile/entity render; the input vx/vy is
-     *  pre-rotated by -cameraAngle so W still walks toward screen-north
-     *  regardless of how the world is turned. */
-    private float cameraAngle = 0f;
-    private static final float CAM_ROTATE_SPEED = 2.4f; // rad/sec while held
 
     private long castRingExpiresAt = 0L;
     private float castRingCx, castRingCy, castRingRadius;
@@ -869,30 +860,6 @@ public class PlayState extends GameState {
         key.plus.tick();
         key.minus.tick();
 
-        // Camera rotation — viewport-relative, mirrors the webclient bindings
-        // exactly (game.js controls.bindings.rotateLeft = KeyQ, rotateRight =
-        // KeyE, resetCamera = KeyC). Held-key continuous rotation rather than
-        // per-press snap so the player can tune the angle to taste.
-        //
-        // Q rotates the VIEWPORT left (camera tilts left from the player's
-        // POV) which makes the WORLD appear to spin RIGHT on screen. E does
-        // the opposite. Concretely:
-        //   Q  →  cameraAngle += delta  →  world spins CW visually
-        //   E  →  cameraAngle -= delta  →  world spins CCW visually
-        // This sign convention matches the webclient (worldLayer.rotation =
-        // +cameraAngle, PIXI CW for positive in Y-down), and the camera apply
-        // below uses worldCam.rotate(-degrees(cameraAngle), 0,0,1) which
-        // produces the same visual under LibGDX setToOrtho(true). Keeping
-        // the convention identical means the movement rotation in the
-        // simulate loop (cos(-cameraAngle)) and the screen→world aim rotation
-        // (also cos(-cameraAngle)) all stay self-consistent — pressing W
-        // walks the player toward screen-north and the mouse cursor maps to
-        // the world tile it visually overlaps under any rotation.
-        final float camDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
-        if (key.q.down) this.cameraAngle += CAM_ROTATE_SPEED * camDt;
-        if (key.e.down) this.cameraAngle -= CAM_ROTATE_SPEED * camDt;
-        if (key.c.down) this.cameraAngle = 0f;
-
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
         if (player == null)
             return;
@@ -940,19 +907,6 @@ public class PlayState extends GameState {
                 float vy = (player.getIsDown()  ? 1f : 0f) - (player.getIsUp()   ? 1f : 0f);
                 final float mag = (float) Math.sqrt(vx * vx + vy * vy);
                 if (mag > 0f) { vx /= mag; vy /= mag; }
-
-                // Rotate screen-space input into world-space by -cameraAngle
-                // so W (screen-north) walks toward whatever the camera shows
-                // as north, even when the world has been rotated by Q/E.
-                // Matches webclient screenDirFlagsToWorldVector in main.js.
-                if (this.cameraAngle != 0f && (vx != 0f || vy != 0f)) {
-                    final float cs = (float) Math.cos(-this.cameraAngle);
-                    final float sn = (float) Math.sin(-this.cameraAngle);
-                    final float rvx = vx * cs - vy * sn;
-                    final float rvy = vx * sn + vy * cs;
-                    vx = rvx;
-                    vy = rvy;
-                }
 
                 // Per-tick pixel step. RotMG: tiles/sec = 4 + 5.6 * (spd/75).
                 // Status modifiers MUST match webclient game.js simulateTick
@@ -1383,27 +1337,21 @@ public class PlayState extends GameState {
         // the mouse button releases — the webclient instead refreshes a 0.3s
         // shootingAnim timer on every shot fire (main.js ~2205). We do the
         // equivalent below at the actual firing site via triggerAttackAnimation.
-        // Screen → world conversion that accounts for cameraAngle. Mirrors
-        // webclient renderer.js getWorldCoords: subtract screen center, rotate
-        // by -cameraAngle, divide by WORLD_SCALE, add back the world-space
-        // pivot (player center). The previous formula
-        //   aim = mouse * invScale + PlayState.map
-        // was a pure translation that assumed an axis-aligned camera; under
-        // any non-zero cameraAngle it landed aim/shots on a world point that
-        // doesn't match where the cursor visually points, so basic attacks
-        // and abilities fired toward the wrong tile whenever Q/E had been
-        // pressed. WORLD_SCALE=2 ⇒ 1 screen px = 1/2 world px.
+        // Screen → world conversion. WORLD_SCALE=2 ⇒ 1 screen px = 1/2 world px.
         final float invScale = 1f / OpenRealmGame.WORLD_SCALE;
-        final float screenCx = OpenRealmGame.width  * 0.5f;
-        final float screenCy = OpenRealmGame.height * 0.5f;
         final float pivotWx = player.getPos().x + player.getSize() * 0.5f;
         final float pivotWy = player.getPos().y + player.getSize() * 0.5f;
+        // Pivot the aim about the player's ACTUAL on-screen position, derived
+        // from the live render origin (PlayState.map). The world view is shifted
+        // left to clear the right-side HUD panel, so the player renders at
+        // ~0.4*width, not screen center — pivoting about width/2 skewed the aim
+        // angle by up to ~30 degrees near vertical.
+        final float screenCx = (pivotWx - PlayState.map.x) * OpenRealmGame.WORLD_SCALE;
+        final float screenCy = (pivotWy - PlayState.map.y) * OpenRealmGame.WORLD_SCALE;
         final float sdx = mouse.getX() - screenCx;
         final float sdy = mouse.getY() - screenCy;
-        final float aimCs = (float) Math.cos(-this.cameraAngle);
-        final float aimSn = (float) Math.sin(-this.cameraAngle);
-        final float aimWx = pivotWx + (sdx * aimCs - sdy * aimSn) * invScale;
-        final float aimWy = pivotWy + (sdx * aimSn + sdy * aimCs) * invScale;
+        final float aimWx = pivotWx + sdx * invScale;
+        final float aimWy = pivotWy + sdy * invScale;
         player.setAimX(aimWx);
         player.setAimY(aimWy);
         player.setAimControlled(true);
@@ -1688,8 +1636,7 @@ public class PlayState extends GameState {
     private float interpToX, interpToY;
     private boolean hasInterpAnchor = false;
 
-    private final com.badlogic.gdx.math.Matrix4 worldRotMatrix = new com.badlogic.gdx.math.Matrix4();
-    private final com.badlogic.gdx.math.Matrix4 worldRotMatrixIdt = new com.badlogic.gdx.math.Matrix4();
+    private final com.badlogic.gdx.math.Matrix4 worldTransformIdt = new com.badlogic.gdx.math.Matrix4();
 
     /**
      * Reset the sub-tick interpolation anchor to the given position.
@@ -1728,23 +1675,10 @@ public class PlayState extends GameState {
             worldCam.update();
             batch.setProjectionMatrix(worldCam.combined);
             shapes.setProjectionMatrix(worldCam.combined);
-
-            if (this.cameraAngle != 0f) {
-                final float halfSize = player.getSize() / 2f;
-                final float pivotX = player.getEffectiveRenderX() + halfSize - Vector2f.worldX;
-                final float pivotY = player.getEffectiveRenderY() + halfSize - Vector2f.worldY;
-                this.worldRotMatrix.idt();
-                this.worldRotMatrix.translate(pivotX, pivotY, 0f);
-                this.worldRotMatrix.rotate(0f, 0f, 1f, (float) Math.toDegrees(this.cameraAngle));
-                this.worldRotMatrix.translate(-pivotX, -pivotY, 0f);
-                batch.setTransformMatrix(this.worldRotMatrix);
-                shapes.setTransformMatrix(this.worldRotMatrix);
-            } else {
-                batch.setTransformMatrix(this.worldRotMatrixIdt);
-                shapes.setTransformMatrix(this.worldRotMatrixIdt);
-            }
+            batch.setTransformMatrix(this.worldTransformIdt);
+            shapes.setTransformMatrix(this.worldTransformIdt);
         }
-        this.realmManager.getRealm().getTileManager().render(player, batch, shapes, this.cameraAngle);
+        this.realmManager.getRealm().getTileManager().render(player, batch, shapes);
 
         final long nowMs = System.currentTimeMillis();
         if (this.castRingExpiresAt > nowMs && this.castRingRadius > 0f) {
@@ -2231,8 +2165,8 @@ public class PlayState extends GameState {
             game.getUiCamera().update();
             batch.setProjectionMatrix(game.getUiCamera().combined);
             shapes.setProjectionMatrix(game.getUiCamera().combined);
-            batch.setTransformMatrix(this.worldRotMatrixIdt);
-            shapes.setTransformMatrix(this.worldRotMatrixIdt);
+            batch.setTransformMatrix(this.worldTransformIdt);
+            shapes.setTransformMatrix(this.worldTransformIdt);
         }
         this.pui.render(batch, shapes, font);
 

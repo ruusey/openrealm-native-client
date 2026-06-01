@@ -516,8 +516,8 @@ public abstract class Entity extends GameObject {
         if (refW <= 0 || refH <= 0 || rw <= 0 || rh <= 0) {
             // Defensive: if the sheet is mid-load, fall back to the legacy
             // square draw rather than zero-sizing.
-            if (this.left) batch.draw(frame, wx + this.size, wy, -this.size, this.size);
-            else           batch.draw(frame, wx, wy, this.size, this.size);
+            if (this.left) batch.draw(frame, wx, wy, this.size * 0.5f, this.size * 0.5f, this.size, this.size, -1f, 1f, 0f);
+            else           batch.draw(frame, wx, wy, this.size * 0.5f, this.size * 0.5f, this.size, this.size, 1f, 1f, 0f);
             return;
         }
         final float unitX = (float) this.size / refW;
@@ -528,9 +528,9 @@ public abstract class Entity extends GameObject {
         final float drawY = wy + this.size - drawH;
         if (this.left) {
             // Mirror: right edge of body stays at wx + size.
-            batch.draw(frame, wx + this.size, drawY, -drawW, drawH);
+            batch.draw(frame, wx + this.size - drawW, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, -1f, 1f, 0f);
         } else {
-            batch.draw(frame, wx, drawY, drawW, drawH);
+            batch.draw(frame, wx, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, 1f, 1f, 0f);
         }
     }
 

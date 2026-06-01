@@ -104,4 +104,26 @@ public class Tile {
 			batch.draw(region, wx, wy, this.tileSize, this.tileSize);
 		}
 	}
+
+	// Dark outline for collision-layer tiles: four tinted copies of the
+	// sprite offset by 1 world px (= 2 screen px at WORLD_SCALE) behind the
+	// main draw, matching the webclient's addSpriteWithOutline. A whole-pixel
+	// offset keeps the fringe from thinning into invisibility the way a
+	// sub-pixel one does. Caller draws the real sprite on top afterwards.
+	private static final float OUTLINE_OFFSET = 1f;
+	private static final float OUTLINE_ALPHA = 0.85f;
+
+	public void renderOutline(SpriteBatch batch) {
+		TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) this.tileId);
+		if (region == null) return;
+		final float wx = (this.col * this.tileSize) - Vector2f.worldX;
+		final float wy = (this.row * this.tileSize) - Vector2f.worldY;
+		final float prev = batch.getPackedColor();
+		batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
+		batch.draw(region, wx + OUTLINE_OFFSET, wy, this.tileSize, this.tileSize);
+		batch.draw(region, wx - OUTLINE_OFFSET, wy, this.tileSize, this.tileSize);
+		batch.draw(region, wx, wy + OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.draw(region, wx, wy - OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.setPackedColor(prev);
+	}
 }
