@@ -1171,6 +1171,7 @@ public class ClientGameLogic {
 				// LoadPacket only ships chatRole for REMOTE players —
 				// the local entry is filtered out at line 409 — so
 				// nothing else writes the field for us.
+				log.info("[CLIENT] login chatRole = '{}'", loginResponse.getChatRole());
 				if (loginResponse.getChatRole() != null && !loginResponse.getChatRole().isEmpty()) {
 					player.setChatRole(loginResponse.getChatRole());
 					// Persist it so a local Player re-created on a realm

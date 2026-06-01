@@ -117,11 +117,11 @@ public class PlayState extends GameState {
     private static final long PORTAL_COOLDOWN_MS = 1000;
     public long playerId = -1l;
     /** Local player's privilege role (sysadmin/admin/mod/editor/demo), captured
-     *  at login. Persists across realm transitions and is re-applied to the
-     *  local Player each frame so a re-created local entry keeps its name color
-     *  — mirrors the webclient's module-level localChatRole. */
-    private String localChatRole = null;
-    public void setLocalChatRole(String role) { this.localChatRole = role; }
+     *  at login. STATIC so it survives a PlayState re-created on a realm
+     *  transition, then re-applied to the local Player each frame so the name
+     *  color holds — mirrors the webclient's module-level localChatRole. */
+    private static String localChatRole = null;
+    public void setLocalChatRole(String role) { PlayState.localChatRole = role; }
 
     private long lastSampleTime;
     private long frames;
@@ -1796,12 +1796,16 @@ public class PlayState extends GameState {
             visibleEntities.add(p);
             p.updateAnimation();
             p.setWading(this.realmManager.getRealm().getTileManager().collidesSlowTile(p));
-            // Re-apply the persisted local role so a local Player re-created on
-            // a realm transition keeps its role-colored nameplate.
-            if (p.getId() == this.realmManager.getCurrentPlayerId()
-                    && this.localChatRole != null
-                    && (p.getChatRole() == null || p.getChatRole().isEmpty())) {
-                p.setChatRole(this.localChatRole);
+            // Keep the local player's privilege role sticky: capture it from
+            // whatever source supplied it (login or any packet) and restore it
+            // if a re-created local entry lost it, so the name color holds.
+            if (p.getId() == this.realmManager.getCurrentPlayerId()) {
+                final String role = p.getChatRole();
+                if (role != null && !role.isEmpty()) {
+                    PlayState.localChatRole = role;
+                } else if (PlayState.localChatRole != null) {
+                    p.setChatRole(PlayState.localChatRole);
+                }
             }
         }
 
@@ -2425,7 +2429,7 @@ public class PlayState extends GameState {
 
     private static Color roleColorFor(String role) {
         if (role == null) return ROLE_DEFAULT;
-        switch (role) {
+        switch (role.trim().toLowerCase()) {
             case "sysadmin": return ROLE_SYSADMIN;
             case "admin":    return ROLE_ADMIN;
             case "mod":      return ROLE_MOD;
