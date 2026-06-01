@@ -154,16 +154,23 @@ public class PlayerChat {
             final float screenBottom   = OpenRealmGame.height - PANEL_BOTTOM_MARGIN;
             final float inputBoxTop    = screenBottom - INPUT_H;
             final float msgBoxTop      = inputBoxTop - MSG_H;
-            // When collapsed the message box isn't drawn, but the toggle is
-            // pinned to where msgBoxTop WOULD be so the icon stays in the
-            // same screen slot as you re-expand.
-            final float toggleBoxTop   = msgBoxTop - TOGGLE_H;
+            // Collapsed: pin the toggle to the bottom of the screen so it
+            // doesn't float where the (hidden) panel top used to be.
+            final float toggleBoxTop   = this.collapsed
+                    ? (screenBottom - TOGGLE_H)
+                    : (msgBoxTop - TOGGLE_H);
             final int toggleX = PANEL_X + PANEL_W - TOGGLE_W;
             final int mx = mouse.getX();
             final int my = mouse.getY();
-            if (mx >= toggleX && mx <= toggleX + TOGGLE_W
-                    && my >= toggleBoxTop && my <= toggleBoxTop + TOGGLE_H) {
-                this.collapsed = !this.collapsed;
+            final boolean inToggleRow = my >= toggleBoxTop && my <= toggleBoxTop + TOGGLE_H;
+            if (this.collapsed) {
+                // Whole collapsed bar expands — a forgiving target (the caret
+                // alone is tiny and shifts left when the panel narrows).
+                if (inToggleRow && mx >= PANEL_X && mx <= PANEL_X + PANEL_W) {
+                    this.collapsed = false;
+                }
+            } else if (inToggleRow && mx >= toggleX && mx <= toggleX + TOGGLE_W) {
+                this.collapsed = true;
             }
         }
         this.lastChatMouseDown = mouseDown;
@@ -185,6 +192,9 @@ public class PlayerChat {
 
         if (this.pressedEnter && this.releasedEnter) {
             this.chatOpen = !this.chatOpen;
+            // Opening chat force-expands the panel so the input box and
+            // recent history are visible while typing.
+            if (this.chatOpen) this.collapsed = false;
             key.setCaptureMode(this.chatOpen);
             this.pressedEnter = false;
             this.releasedEnter = false;
@@ -270,7 +280,11 @@ public class PlayerChat {
         final float inputBoxTop    = inputBoxBottom - INPUT_H;
         final float msgBoxBottom   = inputBoxTop;                // boxes share an edge
         final float msgBoxTop      = msgBoxBottom - MSG_H;
-        final float toggleBoxTop   = msgBoxTop - TOGGLE_H;
+        // Collapsed: pin the toggle to the bottom of the screen so it
+        // doesn't float where the (hidden) panel top used to be.
+        final float toggleBoxTop   = this.collapsed
+                ? (screenBottom - TOGGLE_H)
+                : (msgBoxTop - TOGGLE_H);
 
         // ---- Shapes pass: backgrounds + borders ----
         batch.end();
@@ -288,9 +302,13 @@ public class PlayerChat {
             shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
         }
 
-        // Toggle button always shown so the player can re-expand chat.
+        // Toggle button always shown so the player can re-expand chat. When
+        // collapsed it spans the whole panel width to give an obvious, large
+        // click target (matches the expand hit-box in input()).
+        final float barX = this.collapsed ? PANEL_X : (PANEL_X + PANEL_W - TOGGLE_W);
+        final float barW = this.collapsed ? PANEL_W : TOGGLE_W;
         shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
-        shapes.rect(PANEL_X + PANEL_W - TOGGLE_W, toggleBoxTop, TOGGLE_W, TOGGLE_H);
+        shapes.rect(barX, toggleBoxTop, barW, TOGGLE_H);
 
         shapes.end();
 
@@ -301,7 +319,7 @@ public class PlayerChat {
             shapes.rect(PANEL_X, msgBoxTop, PANEL_W, MSG_H);
             shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
         }
-        shapes.rect(PANEL_X + PANEL_W - TOGGLE_W, toggleBoxTop, TOGGLE_W, TOGGLE_H);
+        shapes.rect(barX, toggleBoxTop, barW, TOGGLE_H);
         shapes.end();
 
         Gdx.gl.glDisable(GL20.GL_BLEND);
@@ -479,8 +497,11 @@ public class PlayerChat {
             final float caretX = textOriginX + promptWidth + caretXOnLine;
             final float caretY = firstLineY + (caretLines - 1) * LINE_H;
             font.draw(batch, "|", caretX, caretY);
-        } else {
-            // Placeholder text — web ships "Press Enter to chat..."
+        } else if (!this.collapsed) {
+            // Placeholder text — web ships "Press Enter to chat...". Only
+            // shown when expanded; when collapsed the input box isn't drawn,
+            // so the text would otherwise float at the screen bottom with
+            // nothing behind it.
             font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
             font.draw(batch, "Press Enter to chat...",
                     PANEL_X + TEXT_PAD_X + 2,
