@@ -126,4 +126,21 @@ public class Tile {
 		batch.draw(region, wx, wy - OUTLINE_OFFSET, this.tileSize, this.tileSize);
 		batch.setPackedColor(prev);
 	}
+
+	/** Bottom silhouette outline drawn ON TOP (after the wall re-stamp). The
+	 *  in-place renderOutline bottom copy is covered by the opaque tile in the
+	 *  row below, so re-stamp it here: a dark copy of the sprite offset DOWN,
+	 *  then the body on top, leaving only the bottom fringe of the VISIBLE
+	 *  pixels dark — a real silhouette outline, not a full-cell bar. */
+	public void renderBottomOutline(SpriteBatch batch) {
+		TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) this.tileId);
+		if (region == null) return;
+		final float wx = (this.col * this.tileSize) - Vector2f.worldX;
+		final float wy = (this.row * this.tileSize) - Vector2f.worldY;
+		final float prev = batch.getPackedColor();
+		batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
+		batch.draw(region, wx, wy + OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.setPackedColor(prev);
+		batch.draw(region, wx, wy, this.tileSize, this.tileSize);
+	}
 }

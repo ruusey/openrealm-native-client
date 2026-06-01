@@ -1172,43 +1172,16 @@ public class TileManager {
             t.render(batch);
         }
 
-        // Bottom-edge stroke for collision billboards — drawn LAST (after the
-        // wall re-stamp) so nothing paints over it. A full-cell-width line at
-        // each tile's bottom edge so the whole bottom is stroked, not just the
-        // jagged silhouette of opaque pixels. Covers in-sight + fogged tiles.
-        if (!objectTiles.isEmpty() || !decorationTiles.isEmpty()
-                || !overWaterTiles.isEmpty() || !fogStrokeTiles.isEmpty()) {
-            batch.end();
-            Gdx.gl.glEnable(GL20.GL_BLEND);
-            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0f, 0f, 0f, 0.95f);
-            for (Tile t : objectTiles)     drawTileBottomStroke(t, shapes);
-            for (Tile t : decorationTiles) drawTileBottomStroke(t, shapes);
-            for (Tile t : overWaterTiles)  drawTileBottomStroke(t, shapes);
-            for (Tile t : fogStrokeTiles)  drawTileBottomStroke(t, shapes);
-            shapes.end();
-            Gdx.gl.glDisable(GL20.GL_BLEND);
-            batch.begin();
-        }
+        // Bottom silhouette outline for collision billboards — drawn LAST
+        // (after the wall re-stamp) so nothing paints over it. Follows the
+        // visible pixels of the sprite, not a full-cell bar. Covers in-sight +
+        // fogged tiles so the outline stays put across the sight boundary.
+        for (Tile t : objectTiles)     t.renderBottomOutline(batch);
+        for (Tile t : decorationTiles) t.renderBottomOutline(batch);
+        for (Tile t : overWaterTiles)  t.renderBottomOutline(batch);
+        for (Tile t : fogStrokeTiles)  t.renderBottomOutline(batch);
 
         this.releaseMapLock();
-    }
-
-    /** Stroke thickness for the collision-billboard bottom edge, in world
-     *  units (2 → 4 screen px at WORLD_SCALE). */
-    private static final float TILE_BOTTOM_STROKE = 2f;
-
-    private void drawTileBottomStroke(Tile t, ShapeRenderer shapes) {
-        final int sz = t.getWidth();
-        if (sz <= 0) return;
-        final float wx = t.getPos().getWorldVar().x;
-        final float wy = t.getPos().getWorldVar().y;
-        // Draw at the tile's OWN bottom edge (over its own sprite), not in the
-        // cell below. A tile bordering water has its bottom in a water cell that
-        // gets repainted by the Pass-5 water redraw, which swallowed the stroke;
-        // keeping it inside this tile's cell makes it immune to the neighbour.
-        shapes.rect(wx, wy + sz - TILE_BOTTOM_STROKE, sz, TILE_BOTTOM_STROKE);
     }
 
     /**
