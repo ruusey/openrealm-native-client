@@ -40,6 +40,9 @@ public abstract class Entity extends GameObject {
     private static final long ATTACK_ANIM_DURATION_MS = 350;
     protected float aimX = 0;
     protected float aimY = 0;
+    /** True only for the local player, whose aimX/aimY track the cursor. Remote
+     *  players carry no aim, so they derive attack facing from velocity instead. */
+    protected boolean aimControlled = false;
 
     public int health = 100;
     public int mana = 100;
@@ -360,10 +363,18 @@ public abstract class Entity extends GameObject {
                 // aim with world-relative center which inverted the sign of
                 // relX/relY when the cursor sat near the player's on-screen
                 // position, picking the wrong attack direction.
-                float worldCenterX = this.pos.x + this.size / 2f;
-                float worldCenterY = this.pos.y + this.size / 2f;
-                float relX = this.aimX - worldCenterX;
-                float relY = this.aimY - worldCenterY;
+                // Remote players broadcast no aim, so fall back to velocity
+                // direction (webclient parity) instead of a garbage rel vector.
+                float relX, relY;
+                if (this.aimControlled) {
+                    float worldCenterX = this.pos.x + this.size / 2f;
+                    float worldCenterY = this.pos.y + this.size / 2f;
+                    relX = this.aimX - worldCenterX;
+                    relY = this.aimY - worldCenterY;
+                } else {
+                    relX = this.dx;
+                    relY = this.dy;
+                }
                 // Determine if aim is more horizontal or vertical
                 if (Math.abs(relX) > Math.abs(relY)) {
                     targetAnim = "attack_side";

@@ -1406,6 +1406,7 @@ public class PlayState extends GameState {
         final float aimWy = pivotWy + (sdx * aimSn + sdy * aimCs) * invScale;
         player.setAimX(aimWx);
         player.setAimY(aimWy);
+        player.setAimControlled(true);
         if (clickingWorld && canShoot) {
             this.lastShotTick = System.currentTimeMillis();
             Vector2f dest = new Vector2f(aimWx, aimWy);

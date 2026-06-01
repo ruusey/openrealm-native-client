@@ -1020,6 +1020,12 @@ public class ClientGameLogic {
 					// Other players: use dead reckoning correction (smooth blend)
 					// Their positions are extrapolated in PlayState.movePlayer()
 					playerToUpdate.applyServerCorrection(movement);
+					// Drive the firing pose for remote players. The flag rides the
+					// movement packet; without this the peer just emits bullets
+					// with no attack animation.
+					if (movement.isAttackingFlag()) {
+						playerToUpdate.triggerAttackAnimation();
+					}
 				}
 				break;
 			case ENEMY:
