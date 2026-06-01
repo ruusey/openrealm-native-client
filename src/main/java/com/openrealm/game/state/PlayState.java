@@ -116,7 +116,13 @@ public class PlayState extends GameState {
     private static final long QUICK_USE_COOLDOWN_MS = 250;
     private static final long PORTAL_COOLDOWN_MS = 1000;
     public long playerId = -1l;
-    
+    /** Local player's privilege role (sysadmin/admin/mod/editor/demo), captured
+     *  at login. Persists across realm transitions and is re-applied to the
+     *  local Player each frame so a re-created local entry keeps its name color
+     *  — mirrors the webclient's module-level localChatRole. */
+    private String localChatRole = null;
+    public void setLocalChatRole(String role) { this.localChatRole = role; }
+
     private long lastSampleTime;
     private long frames;
     private long lastFrames;
@@ -1789,6 +1795,14 @@ public class PlayState extends GameState {
             }
             visibleEntities.add(p);
             p.updateAnimation();
+            p.setWading(this.realmManager.getRealm().getTileManager().collidesSlowTile(p));
+            // Re-apply the persisted local role so a local Player re-created on
+            // a realm transition keeps its role-colored nameplate.
+            if (p.getId() == this.realmManager.getCurrentPlayerId()
+                    && this.localChatRole != null
+                    && (p.getChatRole() == null || p.getChatRole().isEmpty())) {
+                p.setChatRole(this.localChatRole);
+            }
         }
 
         for (int i = 0; i < gameObject.length; i++) {

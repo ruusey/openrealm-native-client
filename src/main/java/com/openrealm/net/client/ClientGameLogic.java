@@ -1173,6 +1173,10 @@ public class ClientGameLogic {
 				// nothing else writes the field for us.
 				if (loginResponse.getChatRole() != null && !loginResponse.getChatRole().isEmpty()) {
 					player.setChatRole(loginResponse.getChatRole());
+					// Persist it so a local Player re-created on a realm
+					// transition (which doesn't carry chatRole) keeps the
+					// role-colored nameplate instead of reverting to off-white.
+					cli.getState().setLocalChatRole(loginResponse.getChatRole());
 				}
 				player.setSpriteSheet(GameSpriteManager.loadClassSprites(cls));
 				ClientGameLogic.DATA_SERVICE.setSessionToken(loginResponse.getToken());

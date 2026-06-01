@@ -1146,6 +1146,24 @@ public class TileManager {
             t.render(batch);
         }
 
+        // Bottom-edge stroke for collision billboards. Each tile's own outline
+        // fringe along the bottom gets covered by the opaque tile drawn in the
+        // next row down, so the bottom read as unstroked; stamp it on top here
+        // so every tile is fully outlined. Mirrors the webclient overlay.
+        if (!objectTiles.isEmpty() || !decorationTiles.isEmpty() || !overWaterTiles.isEmpty()) {
+            batch.end();
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0f, 0f, 0f, 0.85f);
+            for (Tile t : objectTiles)     drawTileBottomStroke(t, shapes);
+            for (Tile t : decorationTiles) drawTileBottomStroke(t, shapes);
+            for (Tile t : overWaterTiles)  drawTileBottomStroke(t, shapes);
+            shapes.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+            batch.begin();
+        }
+
         // Pass 7: Re-render wall tile sprites on top of the water/overWater
         // passes. Pass 5 redraws water to keep the shadow pass from darkening
         // it, but that same redraw also paints water OVER any wall sitting in
@@ -1159,6 +1177,22 @@ public class TileManager {
         }
 
         this.releaseMapLock();
+    }
+
+    /** Stroke thickness for the collision-billboard bottom edge, in world
+     *  units (matches Tile.OUTLINE_OFFSET = 1 → 2 screen px at WORLD_SCALE). */
+    private static final float TILE_BOTTOM_STROKE = 1f;
+
+    private void drawTileBottomStroke(Tile t, ShapeRenderer shapes) {
+        final int sz = t.getWidth();
+        if (sz <= 0) return;
+        final float wx = t.getPos().getWorldVar().x;
+        final float wy = t.getPos().getWorldVar().y;
+        // Draw at the tile's OWN bottom edge (over its own sprite), not in the
+        // cell below. A tile bordering water has its bottom in a water cell that
+        // gets repainted by the Pass-5 water redraw, which swallowed the stroke;
+        // keeping it inside this tile's cell makes it immune to the neighbour.
+        shapes.rect(wx, wy + sz - TILE_BOTTOM_STROKE, sz, TILE_BOTTOM_STROKE);
     }
 
     /**

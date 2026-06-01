@@ -747,12 +747,41 @@ public class Player extends Entity {
 		final float drawW = rw * unitX;
 		final float drawH = rh * unitY;
 		final float drawY = wy + rs - drawH;
-		if (this.left) {
-			batch.draw(drawFrame, wx + rs - drawW, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, -1f, 1f, 0f);
-		} else {
-			batch.draw(drawFrame, wx, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, 1f, 1f, 0f);
+		final float drawX = this.left ? (wx + rs - drawW) : wx;
+		final float flipX = this.left ? -1f : 1f;
+
+		// Water-sink: while standing on a slowing tile, draw only the top
+		// portion of the frame so the bottom third reads as submerged legs
+		// (web parity: renderer.js wadingClip = 0.30, masked sprite).
+		TextureRegion bodyRegion = drawFrame;
+		float bodyH = drawH;
+		if (this.wading) {
+			final int keepRows = Math.max(1, Math.round(rh * (1f - WADING_CLIP_FRACTION)));
+			bodyRegion = new TextureRegion(drawFrame, 0, 0, rw, keepRows);
+			bodyH = drawH * (1f - WADING_CLIP_FRACTION);
 		}
+
+		// Outline: dark offset copies behind the body, matching the webclient's
+		// addSpriteWithOutline halo. The bottom copy is skipped while wading so
+		// the waterline edge stays a clean cut rather than an outlined rim.
+		final float prevColor = batch.getPackedColor();
+		batch.setColor(0f, 0f, 0f, BODY_OUTLINE_ALPHA);
+		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, drawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, drawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX, drawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		if (!this.wading) {
+			batch.draw(bodyRegion, drawX, drawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		}
+		batch.setPackedColor(prevColor);
+
+		batch.draw(bodyRegion, drawX, drawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
 	}
+
+	/** Fraction of the sprite hidden at the bottom while wading (web parity). */
+	private static final float WADING_CLIP_FRACTION = 0.30f;
+	/** Player body outline offset (world px → 2 screen px at WORLD_SCALE). */
+	private static final float BODY_OUTLINE_OFFSET = 1f;
+	private static final float BODY_OUTLINE_ALPHA = 0.85f;
 
 	/** Resolve the current sprite cell to a dyed TextureRegion. The
 	 *  cell coordinates come from the source TextureRegion's region

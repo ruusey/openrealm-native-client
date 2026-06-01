@@ -43,6 +43,9 @@ public abstract class Entity extends GameObject {
     /** True only for the local player, whose aimX/aimY track the cursor. Remote
      *  players carry no aim, so they derive attack facing from velocity instead. */
     protected boolean aimControlled = false;
+    /** True while standing on a slowing tile (water/lava); the renderer hides
+     *  the bottom third of the sprite to fake legs submerged. Set each frame. */
+    protected boolean wading = false;
 
     public int health = 100;
     public int mana = 100;
