@@ -80,6 +80,11 @@ public class TileManager {
     private final List<Tile> decorationTilesBuf = new ArrayList<>(64);
     private final List<Tile> waterTilesBuf      = new ArrayList<>(128);
     private final List<Tile> overWaterTilesBuf  = new ArrayList<>(32);
+    /** Discovered, out-of-sight collision billboards rendered by the fog pass.
+     *  Collected so they get the same bottom-edge stroke as in-sight tiles —
+     *  without this the stroke vanished the instant a tile left the sight
+     *  circle even though the tile stayed fully drawn (FOG_BRIGHTNESS=1). */
+    private final List<Tile> fogStrokeTilesBuf  = new ArrayList<>(128);
     /** Reusable Vector2f for the per-frame normalized player position
      *  in render(). Used to be `new Vector2f(...)` every frame. */
     private final Vector2f posNormalizedBuf = new Vector2f();
@@ -826,6 +831,7 @@ public class TileManager {
         final int screenTilesX = (int) Math.ceil((scanMaxX - scanMinX) / ts) + 2;
         final int screenTilesY = (int) Math.ceil((scanMaxY - scanMinY) / ts) + 2;
         final float radiusSqInner = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
+        final List<Tile> fogStrokeTiles = this.fogStrokeTilesBuf; fogStrokeTiles.clear();
         batch.setColor(FOG_BRIGHTNESS, FOG_BRIGHTNESS, FOG_BRIGHTNESS, 1f);
         for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {
             for (int sy = syMin; sy < syMin + screenTilesY; sy++) {
@@ -837,7 +843,15 @@ public class TileManager {
                 Tile baseTile = (Tile) this.mapLayers.get(0).getBlocks()[sy][sx];
                 if (baseTile != null) baseTile.render(batch);
                 Tile colTile = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
-                if (colTile != null && !colTile.isVoid()) colTile.render(batch);
+                if (colTile != null && !colTile.isVoid()) {
+                    colTile.render(batch);
+                    // Non-wall collision billboards in fog get the same bottom
+                    // stroke as in-sight ones so the outline stays put as tiles
+                    // cross the sight boundary.
+                    if (colTile.getData() != null && !colTile.getData().isWall()) {
+                        fogStrokeTiles.add(colTile);
+                    }
+                }
             }
         }
         batch.setColor(1f, 1f, 1f, 1f);
@@ -1150,7 +1164,8 @@ public class TileManager {
         // fringe along the bottom gets covered by the opaque tile drawn in the
         // next row down, so the bottom read as unstroked; stamp it on top here
         // so every tile is fully outlined. Mirrors the webclient overlay.
-        if (!objectTiles.isEmpty() || !decorationTiles.isEmpty() || !overWaterTiles.isEmpty()) {
+        if (!objectTiles.isEmpty() || !decorationTiles.isEmpty()
+                || !overWaterTiles.isEmpty() || !fogStrokeTiles.isEmpty()) {
             batch.end();
             Gdx.gl.glEnable(GL20.GL_BLEND);
             Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -1159,6 +1174,7 @@ public class TileManager {
             for (Tile t : objectTiles)     drawTileBottomStroke(t, shapes);
             for (Tile t : decorationTiles) drawTileBottomStroke(t, shapes);
             for (Tile t : overWaterTiles)  drawTileBottomStroke(t, shapes);
+            for (Tile t : fogStrokeTiles)  drawTileBottomStroke(t, shapes);
             shapes.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
             batch.begin();
