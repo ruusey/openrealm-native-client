@@ -97,10 +97,21 @@ public class Slots {
         // Inset the icon by ICON_PADDING on every side so it visually sits
         // inside the slot rectangle drawn by PlayerUI (was 64x64 -> overflowed
         // a 56x56 slot by 14% on each side; matches webclient #item-slot).
-        batch.draw(itemRegion,
-                pos.x + ICON_PADDING, pos.y + ICON_PADDING,
-                ICON_PX, ICON_PX);
+        final float ix = pos.x + ICON_PADDING, iy = pos.y + ICON_PADDING;
+        // Dark silhouette outline: four 1px-offset tinted copies behind the
+        // icon, then the real icon on top.
+        final float prev = batch.getPackedColor();
+        batch.setColor(0f, 0f, 0f, ITEM_OUTLINE_ALPHA);
+        batch.draw(itemRegion, ix + ITEM_OUTLINE_OFFSET, iy, ICON_PX, ICON_PX);
+        batch.draw(itemRegion, ix - ITEM_OUTLINE_OFFSET, iy, ICON_PX, ICON_PX);
+        batch.draw(itemRegion, ix, iy + ITEM_OUTLINE_OFFSET, ICON_PX, ICON_PX);
+        batch.draw(itemRegion, ix, iy - ITEM_OUTLINE_OFFSET, ICON_PX, ICON_PX);
+        batch.setPackedColor(prev);
+        batch.draw(itemRegion, ix, iy, ICON_PX, ICON_PX);
     }
+
+    private static final float ITEM_OUTLINE_OFFSET = 1f;
+    private static final float ITEM_OUTLINE_ALPHA = 0.85f;
 
     /**
      * Draw the "xN" overlay on stackable items with count > 1. Mirrors the

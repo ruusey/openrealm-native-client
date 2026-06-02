@@ -1924,7 +1924,10 @@ public class PlayState extends GameState {
         }
         ShaderManager.clearEffect(batch);
 
-        // Pass 3: Bullet bodies (no shader needed)
+        // Pass 3: Bullet outlines first (all behind), then bodies on top.
+        for (int i = 0; i < visibleBullets.size(); i++) {
+            visibleBullets.get(i).renderOutline(batch);
+        }
         for (int i = 0; i < visibleBullets.size(); i++) {
             visibleBullets.get(i).render(batch);
         }

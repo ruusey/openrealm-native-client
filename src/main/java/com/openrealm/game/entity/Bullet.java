@@ -381,32 +381,37 @@ public class Bullet extends GameObject  {
         batch.draw(frame, wx, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
     }
 
+    private static final float OUTLINE_OFFSET = 1f;
+    private static final float OUTLINE_ALPHA = 0.85f;
+
+    /** Dark silhouette outline: four cardinal-offset tinted copies behind the
+     *  bullet (web parity with the tile/entity outline). Caller draws the real
+     *  sprite on top afterwards. */
     public void renderOutline(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
-        final int rw = frame.getRegionWidth();
-        final int rh = frame.getRegionHeight();
-        if (rw <= 0 || rh <= 0) return;
 
         final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId());
         final float angleOffset = Float.parseFloat(group.getAngleOffset());
         float rotationDeg;
-        if (angleOffset > 0.0f) {
+        if (group.isSpinning()) {
+            final double phase = (System.currentTimeMillis() * 0.006) % (Math.PI * 2);
+            rotationDeg = (float) Math.toDegrees(phase);
+        } else if (angleOffset > 0.0f) {
             rotationDeg = (float) Math.toDegrees(-this.getAngle() + (this.tfAngle + angleOffset));
         } else {
             rotationDeg = (float) Math.toDegrees(-this.getAngle() + this.tfAngle);
         }
-        float wx = this.pos.getWorldVar().x;
-        float wy = this.pos.getWorldVar().y;
-        float halfSize = this.size / 2f;
-        float padX = (float) this.size / rw;
-        float padY = (float) this.size / rh;
-        // Origin offset compensates for the extra padding so rotation still
-        // pivots at the sprite's visual center.
-        batch.draw(frame, wx - padX, wy - padY,
-                halfSize + padX, halfSize + padY,
-                this.size + 2 * padX, this.size + 2 * padY,
-                1f, 1f, rotationDeg);
+        final float wx = this.pos.getWorldVar().x;
+        final float wy = this.pos.getWorldVar().y;
+        final float halfSize = this.size / 2f;
+        final float prev = batch.getPackedColor();
+        batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
+        batch.draw(frame, wx + OUTLINE_OFFSET, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx - OUTLINE_OFFSET, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx, wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx, wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.setPackedColor(prev);
     }
 }
