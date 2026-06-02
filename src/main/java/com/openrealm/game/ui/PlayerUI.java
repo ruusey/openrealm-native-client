@@ -3661,9 +3661,11 @@ public class PlayerUI {
         TextureRegion icon = SpriteRecolorCache.getEnchantedItemRegion(item);
         if (icon == null) icon = GameSpriteManager.ITEM_SPRITES.get(item.getItemId());
         if (icon == null) return;
-        // Fill ~85% of the slot (28 atlas-px slots) so 16×16 detail shows and
-        // 8×8 sprites read clearly, capped to the cell with a small border.
-        final float iconSize = Math.min(24f * UiAtlas.getDisplayScale(), Math.min(w, h) - 4f);
+        // Only 16×16 sprites render enlarged (capped to the cell); 8×8 stay at
+        // their original 32px so the simpler art doesn't look stretched.
+        final float iconSize = (icon.getRegionWidth() >= 16)
+                ? Math.min(22f * UiAtlas.getDisplayScale(), Math.min(w, h) - 4f)
+                : 8f * UiAtlas.getIconScale() * UiAtlas.getDisplayScale();
         batch.draw(icon, x + (w - iconSize) / 2f, y + (h - iconSize) / 2f, iconSize, iconSize);
     }
 
