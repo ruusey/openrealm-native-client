@@ -33,9 +33,15 @@ public class UiAtlas {
 
 	private static UiAtlasModel MODEL = null;
 	private static final Map<String, UiComponent> BY_ID = new HashMap<>();
-	private static Texture SHEET = null;
+	// One bound texture per distinct sheet name (the root sheet plus any
+	// per-component overrides). Populated lazily on the GL thread via textureFor().
+	private static final Map<String, Texture> SHEETS = new HashMap<>();
+	// Mirrors the load() mode: when true (running against a data service), sheet
+	// PNGs are fetched over HTTP like every other sprite sheet; classpath:/ui/ is
+	// only the offline fallback.
+	private static boolean REMOTE = false;
 
-	/** True once the JSON is loaded AND the sheet texture is bound. The
+	/** True once the JSON is loaded AND the root sheet texture is bound. The
 	 *  texture is created lazily on first {@link #sheet()} / {@link #region(String)}
 	 *  call from a GL-thread context, so this returns false during the initial
 	 *  data-load phase even if the JSON has already parsed. */
@@ -45,12 +51,11 @@ public class UiAtlas {
 	public static int getIconScale()    { return MODEL == null ? 2 : MODEL.getIconScale(); }
 	public static int getContentInset() { return MODEL == null ? 4 : MODEL.getContentInset(); }
 
-	/** Lazy: binds the sheet texture on first access. Must be called from
+	/** Lazy: binds the root sheet texture on first access. Must be called from
 	 *  the GL thread (i.e. inside {@code render()}); calling pre-create()
 	 *  would crash because Texture/Pixmap constructors need a GL context. */
 	public static Texture sheet() {
-		if (SHEET == null) bindSheetTexture();
-		return SHEET;
+		return MODEL == null ? null : textureFor(MODEL.getSheet());
 	}
 
 	public static UiComponent componentOf(final String id) {
@@ -65,7 +70,9 @@ public class UiAtlas {
 	public static TextureRegion region(final String id) {
 		final UiComponent c = BY_ID.get(id);
 		if (c == null) return null;
-		final Texture tex = sheet();
+		final String sheetName = c.getSheet() != null ? c.getSheet()
+				: (MODEL == null ? null : MODEL.getSheet());
+		final Texture tex = textureFor(sheetName);
 		if (tex == null) return null;
 		final TextureRegion r = new TextureRegion(tex, c.getX(), c.getY(), c.getW(), c.getH());
 		// libGDX uses a y-DOWN ortho camera (setToOrtho(true, ...)), so a
@@ -116,6 +123,7 @@ public class UiAtlas {
 	 */
 	public static void load(final boolean remote) throws Exception {
 		log.info("Loading UI Atlas...");
+		REMOTE = remote;
 		String text;
 		if (remote) {
 			text = ClientGameLogic.DATA_SERVICE
@@ -142,40 +150,55 @@ public class UiAtlas {
 	}
 
 	/**
-	 * The sheet texture must be loaded on the GL thread. {@code GameSpriteManager}
-	 * already centralizes that contract — this method just resolves the path
-	 * and caches the result. Called immediately after the JSON parses;
-	 * fails-soft if the sheet PNG is missing so the rest of the game still boots.
+	 * Resolve (and lazily bind) the texture for a sheet by filename. Must be
+	 * called from the GL thread. The sheet PNG is fetched over HTTP from the
+	 * data service — the same {@link GameSpriteManager#loadTextureRemote(String)}
+	 * path every other sprite sheet uses — so the UI atlas is NOT bundled into
+	 * the EXE; classpath:/ui/ is only an offline fallback. {@code GameSpriteManager}'s
+	 * cache is the shared backing store so a sheet is only ever decoded once.
+	 * Fails-soft (returns null) if the sheet is unavailable so the game still boots.
 	 */
-	private static void bindSheetTexture() {
-		if (MODEL == null || MODEL.getSheet() == null) return;
-		final String key = MODEL.getSheet();
-		// Check cache first — the sprite manager may already have it.
+	private static Texture textureFor(final String key) {
+		if (key == null) return null;
+		final Texture local = SHEETS.get(key);
+		if (local != null) return local;
+		// Check the shared sprite-manager cache — it may already have it.
 		Texture cached = GameSpriteManager.TEXTURE_CACHE != null
 				? GameSpriteManager.TEXTURE_CACHE.get(key)
 				: null;
 		if (cached != null) {
-			SHEET = cached;
-			return;
+			SHEETS.put(key, cached);
+			return cached;
 		}
-		try {
-			InputStream in = UiAtlas.class.getClassLoader()
-					.getResourceAsStream("ui/" + key);
-			if (in == null) {
-				log.warn("UI sheet {} not found in classpath:/ui/", key);
-				return;
+		Texture tex = REMOTE ? GameSpriteManager.loadTextureRemote(key) : loadClasspathSheet(key);
+		// Last-ditch offline fallback if the server fetch fails mid-session.
+		if (tex == null && REMOTE) tex = loadClasspathSheet(key);
+		if (tex != null) {
+			SHEETS.put(key, tex);
+			if (GameSpriteManager.TEXTURE_CACHE != null) {
+				GameSpriteManager.TEXTURE_CACHE.put(key, tex);
 			}
+		} else {
+			log.warn("UI sheet {} unavailable (remote={})", key, REMOTE);
+		}
+		return tex;
+	}
+
+	/** Offline fallback: decode a sheet bundled at classpath:/ui/. */
+	private static Texture loadClasspathSheet(final String key) {
+		try {
+			InputStream in = UiAtlas.class.getClassLoader().getResourceAsStream("ui/" + key);
+			if (in == null) return null;
 			byte[] bytes = in.readAllBytes();
 			com.badlogic.gdx.graphics.Pixmap pixmap = new com.badlogic.gdx.graphics.Pixmap(
 					bytes, 0, bytes.length);
-			SHEET = new Texture(pixmap);
-			SHEET.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
+			Texture tex = new Texture(pixmap);
+			tex.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
 			pixmap.dispose();
-			if (GameSpriteManager.TEXTURE_CACHE != null) {
-				GameSpriteManager.TEXTURE_CACHE.put(key, SHEET);
-			}
+			return tex;
 		} catch (Exception e) {
-			log.error("Failed to bind UI sheet texture: {}", e.getMessage());
+			log.error("Failed to load classpath UI sheet {}: {}", key, e.getMessage());
+			return null;
 		}
 	}
 }

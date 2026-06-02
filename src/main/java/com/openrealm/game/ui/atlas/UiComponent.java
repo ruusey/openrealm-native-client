@@ -26,6 +26,11 @@ public class UiComponent {
 	private int y;
 	private int w;
 	private int h;
+	/** Optional per-component atlas override. Null → the document's root
+	 *  {@code sheet} (see {@link UiAtlasModel#getSheet()}). Lets a subset of
+	 *  components (e.g. the {@code panel.hud.main}/{@code .inv} namespaces)
+	 *  live on a different sheet from the rest. */
+	private String sheet;
 	/** Optional — defaults to {@link UiAtlas#getContentInset()} when null. */
 	private Integer contentInset;
 	/** Grid metadata. Null on non-grid components. */

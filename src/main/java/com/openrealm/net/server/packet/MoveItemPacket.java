@@ -1,8 +1,6 @@
 package com.openrealm.net.server.packet;
 
-import java.util.Arrays;
-import java.util.List;
-
+import com.openrealm.game.entity.Player;
 import com.openrealm.net.Packet;
 import com.openrealm.net.Streamable;
 import com.openrealm.net.core.PacketId;
@@ -24,14 +22,14 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 @PacketId(packetId = (byte)12)
 public class MoveItemPacket extends Packet {
-	// Phase 1B (combat rework) shifted equipment from 4 to 5 slots. Must
-	// match server-side com.openrealm.net.server.packet.MoveItemPacket exactly.
-	private static final List<Integer> EQUIPMENT_IDX = Arrays.asList(0, 1, 2, 3, 4);
-	private static final List<Integer> INV_IDX1 = Arrays.asList(5, 6, 7, 8, 9, 10, 11, 12);
-	private static final List<Integer> INV_IDX2 = Arrays.asList(13, 14, 15, 16, 17, 18, 19, 20);
-	private static final List<Integer> GROUND_LOOT_IDX = Arrays.asList(21, 22, 23, 24, 25, 26, 27, 28);
-	public static final int HP_POTION_SLOT = 29;
-	public static final int MP_POTION_SLOT = 30;
+	// Slot-index regions — must match the server's MoveItemPacket EXACTLY (raw
+	// bytes over the wire). Derived from the inventory + loot sizes:
+	//   equipment 0..4, backpack 5..24, ground loot 25..34, potion slots 35/36.
+	private static final int BACKPACK_START = Player.EQUIPMENT_SLOT_COUNT;
+	private static final int GROUND_LOOT_START = Player.INVENTORY_SIZE;
+	private static final int GROUND_LOOT_SIZE = 10;
+	public static final int HP_POTION_SLOT = GROUND_LOOT_START + GROUND_LOOT_SIZE;
+	public static final int MP_POTION_SLOT = HP_POTION_SLOT + 1;
 
 	@SerializableField(order = 0, type = SerializableByte.class)
 	private byte targetSlotIndex;
@@ -48,27 +46,19 @@ public class MoveItemPacket extends Packet {
 		return packet;
 	}
 
-	public static boolean isInv1(int index) {
-		return INV_IDX1.contains(index);
-	}
-
-	public static boolean isInv2(int index) {
-		return INV_IDX2.contains(index);
-	}
-
 	public static boolean isInventory(int index) {
-		return INV_IDX1.contains(index) || INV_IDX2.contains(index);
+		return index >= BACKPACK_START && index < Player.INVENTORY_SIZE;
 	}
 
 	public static boolean isEquipment(int index) {
-		return EQUIPMENT_IDX.contains(index);
+		return index >= 0 && index < Player.EQUIPMENT_SLOT_COUNT;
 	}
 
 	public static boolean isGroundLoot(int index) {
-		return GROUND_LOOT_IDX.contains(index);
+		return index >= GROUND_LOOT_START && index < GROUND_LOOT_START + GROUND_LOOT_SIZE;
 	}
 
 	public static int groundLootBase() {
-		return GROUND_LOOT_IDX.get(0);
+		return GROUND_LOOT_START;
 	}
 }

@@ -2353,7 +2353,7 @@ public class PlayState extends GameState {
         if ((closeLoot != null && this.getPui().isGroundLootEmpty()) || (closeLoot != null && closeLoot.getContentsChanged())) {
             this.getPui().setGroundLoot(closeLoot.getItems());
         } else if ((closeLoot == null) && !this.getPui().isGroundLootEmpty()) {
-            this.getPui().setGroundLoot(new GameItem[8]);
+            this.getPui().setGroundLoot(new GameItem[10]);
         }
 
         if (closeLoot != null && !this.getPui().isGroundLootEmpty()) {

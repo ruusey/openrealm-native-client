@@ -21,6 +21,8 @@ import lombok.NoArgsConstructor;
 @Builder
 public class LootContainer {
 
+    public static final int SIZE = 10;
+
     private static final float OUTLINE_OFFSET = 1f;
     private static final float OUTLINE_ALPHA = 0.85f;
 
@@ -44,7 +46,7 @@ public class LootContainer {
         this.tier = tier;
         this.sprite = LootTier.getLootSprite(tier.tierId);
         this.uid = UUID.randomUUID().toString();
-        this.items = new GameItem[8];
+        this.items = new GameItem[SIZE];
         this.pos = pos;
         this.items[0] = GameDataManager.GAME_ITEMS.get(Realm.RANDOM.nextInt(8));
         for (int i = 1; i < (Realm.RANDOM.nextInt(7) + 1); i++) {
@@ -72,7 +74,7 @@ public class LootContainer {
         this.sprite = LootTier.getLootSprite(tier.tierId);
         this.pos = pos;
         this.uid = UUID.randomUUID().toString();
-        this.items = new GameItem[8];
+        this.items = new GameItem[SIZE];
         this.items[0] = loot;
         this.spawnedTime = Instant.now().toEpochMilli();
         this.tier = this.determineTier();
@@ -86,10 +88,10 @@ public class LootContainer {
         // Pack items contiguously from slot 0 with no gaps.
         // Arrays.copyOf(loot, 8) would leave nulls between items if the
         // source had gaps; instead, filter nulls and pack to the front.
-        this.items = new GameItem[8];
+        this.items = new GameItem[SIZE];
         int slot = 0;
         for (GameItem item : loot) {
-            if (item != null && slot < 8) {
+            if (item != null && slot < SIZE) {
                 this.items[slot++] = item;
             }
         }
@@ -195,10 +197,10 @@ public class LootContainer {
      * After this call, all non-null items are contiguous from slot 0.
      */
     public void repackItems() {
-        GameItem[] packed = new GameItem[8];
+        GameItem[] packed = new GameItem[SIZE];
         int slot = 0;
         for (GameItem item : this.items) {
-            if (item != null && slot < 8) {
+            if (item != null && slot < SIZE) {
                 packed[slot++] = item;
             }
         }
@@ -292,7 +294,7 @@ public class LootContainer {
     	final boolean basic = (this.lootContainerId == other.getLootContainerId()) && this.pos.equals(other.getPos());
     	final boolean tierMatch = this.getTier().equals(other.getTier());
     	boolean loot = true;
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < SIZE; i++) {
             final GameItem a = this.items[i];
             final GameItem b = other.getItems()[i];
             if (a == null && b == null) continue;

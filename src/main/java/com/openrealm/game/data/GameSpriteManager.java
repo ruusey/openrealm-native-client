@@ -504,7 +504,7 @@ public class GameSpriteManager {
         return texture;
     }
 
-    private static Texture loadTextureRemote(String file) {
+    public static Texture loadTextureRemote(String file) {
         Texture texture = null;
         try {
             String baseUrl = ClientGameLogic.DATA_SERVICE.getBaseUrl() == null

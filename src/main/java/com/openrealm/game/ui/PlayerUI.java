@@ -62,7 +62,7 @@ public class PlayerUI {
      *  layout (ui-widgets.updateAbilityBar): cell 0 = class passive (label),
      *  cells 1..4 = active abilities bound via hotbarBindings[0..3]. Must
      *  match panel.hud.equipment.grid.cols in ui-components.json. */
-    private static final int HOTBAR_SLOT_COUNT = 5;
+    private static final int HOTBAR_SLOT_COUNT = 4; // cell 0 = passive, 1..3 = active abilities
 
     private boolean isTrading;
     private FillBars hp;
@@ -266,7 +266,7 @@ public class PlayerUI {
                 panelWidth, barHeight, "getManaPercent", Color.DARK_GRAY, Color.BLUE);
         this.xp = new FillBars(p.getPlayer(), new Vector2f(startX, barY + barHeight * 2),
                 panelWidth, barHeight, "getExperiencePercent", Color.DARK_GRAY, new Color(1.0f, 0.5f, 0.0f, 1.0f));
-        this.groundLoot = new Slots[8];
+        this.groundLoot = new Slots[10];
         this.inventory = new Slots[20];
         this.playerChat = new PlayerChat(p);
         this.minimap = new Minimap(p);
@@ -406,8 +406,8 @@ public class PlayerUI {
         // user's click on the visible bag and NO loot click ever fired.
         // Webclient parity: createSlot rebuilds DOM nodes, but the DOM
         // is positioned by CSS so layout is never lost on rebuild.
-        if (this.groundLoot == null || this.groundLoot.length != 8) {
-            this.groundLoot = new Slots[8];
+        if (this.groundLoot == null || this.groundLoot.length != 10) {
+            this.groundLoot = new Slots[10];
         }
         for (int i = 0; i < this.groundLoot.length; i++) {
             final GameItem item = (i < loot.length) ? loot[i] : null;
@@ -1178,10 +1178,10 @@ public class PlayerUI {
 
     // Reusable position vectors for slot rendering to avoid per-frame allocations
     private final Vector2f[] slotPositions = new Vector2f[20];
-    private final Vector2f[] groundLootPositions = new Vector2f[8];
+    private final Vector2f[] groundLootPositions = new Vector2f[10];
     {
         for (int i = 0; i < 20; i++) slotPositions[i] = new Vector2f();
-        for (int i = 0; i < 8; i++) groundLootPositions[i] = new Vector2f();
+        for (int i = 0; i < 10; i++) groundLootPositions[i] = new Vector2f();
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
@@ -2692,7 +2692,7 @@ public class PlayerUI {
         // dropzones). Without this, drag-drop into the forge silently
         // fell through to executeDrop's normal swap path and the forge
         // slots stayed empty no matter what the player tried.
-        if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex <= 20) {
+        if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex <= 24) {
             final int mx = com.badlogic.gdx.Gdx.input.getX();
             final int my = com.badlogic.gdx.Gdx.input.getY();
             final Slots srcSlot = this.inventory[fromIndex];
@@ -2717,7 +2717,7 @@ public class PlayerUI {
         // Inventory→storage moves go through PotionStorageMovePacket, not
         // the normal MoveItemPacket pipeline, because the storage state
         // lives off-inventory on the server.
-        if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex <= 20) {
+        if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex <= 24) {
             final int mx = com.badlogic.gdx.Gdx.input.getX();
             final int my = com.badlogic.gdx.Gdx.input.getY();
             if (this.potionStorageWindow.tryAcceptDrop(mx, my, fromIndex)) {
@@ -2951,8 +2951,9 @@ public class PlayerUI {
         final UiComponent cMinimap    = UiAtlas.componentOf("panel.container.small");
         final UiComponent cNearby     = UiAtlas.componentOf("panel.container.small");
         final UiComponent cInvExt     = UiAtlas.componentOf("panel.hud.inv_ext");
-        final UiComponent cHotbar     = UiAtlas.componentOf("panel.hud.equipment");
-        final UiComponent cPotion     = UiAtlas.componentOf("panel.hud.potion");
+        final UiComponent cHotbar     = UiAtlas.componentOf("panel.hud.ability_bar");
+        final UiComponent cHpPot      = UiAtlas.componentOf("panel.hud.ability_bar.hp_potion");
+        final UiComponent cMpPot      = UiAtlas.componentOf("panel.hud.ability_bar.mp_potion");
         if (cPlayerInfo == null || cChat == null || cEquipStats == null
                 || cInvOnly == null || cMinimap == null) return;
 
@@ -3016,12 +3017,14 @@ public class PlayerUI {
         final float hotbarX = (W - hotbarW) / 2f;
         final float hotbarY = H - margin - hotbarH;
 
-        final float potionW = cPotion != null ? cPotion.getW() * s : 0;
-        final float potionH = cPotion != null ? cPotion.getH() * s : 0;
-        final float hpPotX = hotbarX - 8 - potionW;
-        final float hpPotY = hotbarY + (hotbarH - potionH) / 2f;
-        final float mpPotX = hotbarX + hotbarW + 8;
-        final float mpPotY = hpPotY;
+        // Potion slots live INSIDE the bar art now — position from their atlas
+        // sub-rects relative to the bar's top-left (no flanking ovals).
+        final float potionW = cHpPot != null ? cHpPot.getW() * s : 0;
+        final float potionH = cHpPot != null ? cHpPot.getH() * s : 0;
+        final float hpPotX = cHpPot != null ? hotbarX + (cHpPot.getX() - cHotbar.getX()) * s : 0;
+        final float hpPotY = cHpPot != null ? hotbarY + (cHpPot.getY() - cHotbar.getY()) * s : 0;
+        final float mpPotX = cMpPot != null ? hotbarX + (cMpPot.getX() - cHotbar.getX()) * s : 0;
+        final float mpPotY = cMpPot != null ? hotbarY + (cMpPot.getY() - cHotbar.getY()) * s : 0;
 
         // ---- Pass 1: panel chrome (atlas blits) ----
         final TextureRegion rPlayerInfo = UiAtlas.region("panel.hud.player_info");
@@ -3030,8 +3033,7 @@ public class PlayerUI {
         final TextureRegion rEquipStats = UiAtlas.region("panel.hud.equipment_with_stats");
         final TextureRegion rInvOnly    = UiAtlas.region("panel.hud.inv_only");
         final TextureRegion rInvExt     = UiAtlas.region("panel.hud.inv_ext");
-        final TextureRegion rHotbar     = UiAtlas.region("panel.hud.equipment");
-        final TextureRegion rPotion     = UiAtlas.region("panel.hud.potion");
+        final TextureRegion rHotbar     = UiAtlas.region("panel.hud.ability_bar");
 
         if (rPlayerInfo != null) batch.draw(rPlayerInfo, playerInfoX, playerInfoY, playerInfoW, playerInfoH);
         // Nearby-players panel chrome (small container, between playerInfo and chat).
@@ -3047,10 +3049,6 @@ public class PlayerUI {
         if (rInvOnly    != null) batch.draw(rInvOnly,    invOnlyX,    invOnlyY,    invOnlyW,    invOnlyH);
         if (lootVisible && rInvExt != null) batch.draw(rInvExt, invExtX, invExtY, invExtW, invExtH);
         if (rHotbar     != null) batch.draw(rHotbar,     hotbarX,     hotbarY,     hotbarW,     hotbarH);
-        if (rPotion != null) {
-            batch.draw(rPotion, hpPotX, hpPotY, potionW, potionH);
-            batch.draw(rPotion, mpPotX, mpPotY, potionW, potionH);
-        }
         // Chat chrome — only when chat is expanded.
         final boolean chatExpanded = (this.playerChat != null) && !this.playerChat.isCollapsed();
         if (rChat != null && chatExpanded) batch.draw(rChat, chatX, chatY, chatW, chatH);
@@ -3156,17 +3154,23 @@ public class PlayerUI {
         // bindings, so the passive never appeared and slot 0 displayed an
         // unrelated active ability whenever hotbarBindings[0] happened to
         // resolve — neither matched the webclient.
-        final int[][] hotbarCells = UiAtlas.gridCells("panel.hud.equipment.grid");
+        final UiComponent[] hotbarCells = {
+                UiAtlas.componentOf("panel.hud.ability_bar.passive"),
+                UiAtlas.componentOf("panel.hud.ability_bar.0"),
+                UiAtlas.componentOf("panel.hud.ability_bar.1"),
+                UiAtlas.componentOf("panel.hud.ability_bar.2"),
+        };
         final Player localPlayer = (this.playState != null) ? this.playState.getPlayer() : null;
         // Per-slot cell coords captured so the post-pass can paint cooldown
         // overlays + SP pips without re-computing the layout.
         final float[][] hotbarCellPx = new float[HOTBAR_SLOT_COUNT][4]; // [slot] = {x, y, w, h}
         for (int i = 0; i < hotbarCells.length && i < HOTBAR_SLOT_COUNT; i++) {
-            final int[] cell = hotbarCells[i];
-            final float cx = hotbarX + (cell[0] - cHotbar.getX()) * s;
-            final float cy = hotbarY + (cell[1] - cHotbar.getY()) * s;
-            final float cw = cell[2] * s;
-            final float ch = cell[3] * s;
+            final UiComponent cell = hotbarCells[i];
+            if (cell == null) continue;
+            final float cx = hotbarX + (cell.getX() - cHotbar.getX()) * s;
+            final float cy = hotbarY + (cell.getY() - cHotbar.getY()) * s;
+            final float cw = cell.getW() * s;
+            final float ch = cell.getH() * s;
             hotbarCellPx[i][0] = cx;
             hotbarCellPx[i][1] = cy;
             hotbarCellPx[i][2] = cw;
@@ -3286,7 +3290,8 @@ public class PlayerUI {
             final float statsX = equipStatsX + (rStatsRect.getX() - cEquipStats.getX()) * s;
             final float statsY = equipStatsY + (rStatsRect.getY() - cEquipStats.getY()) * s;
             final float statsW = rStatsRect.getW() * s;
-            this.renderStatsAt(batch, font, (int) statsX, (int) statsW, (int) statsY);
+            final float statsH = rStatsRect.getH() * s;
+            this.renderStatsAt(batch, font, (int) statsX, (int) statsW, (int) statsY, (int) statsH);
         }
 
         // ---- Pass 6: potion icons + counts inside the oval panels ----
@@ -3411,18 +3416,28 @@ public class PlayerUI {
             batch.draw(icon, x + 4, y + (h - iconSize) / 2f, iconSize, iconSize);
         }
 
-        // Count text on the right half of the oval.
+        // Count text on the right half of the slot.
         font.setColor(Color.WHITE);
         final String label = String.valueOf(count);
         final GlyphLayout gl = new GlyphLayout(font, label);
         font.draw(batch, label, x + w - gl.width - 6, y + (h + gl.height) / 2f);
+
+        // Keybind hint in parentheses, centered just below the slot.
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(0.6f);
+        final String keyHint = hp ? "(Z)" : "(X)";
+        final GlyphLayout kgl = new GlyphLayout(font, keyHint);
+        font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent
+        font.draw(batch, keyHint, x + (w - kgl.width) / 2f, y + h + kgl.height + 1f);
+        font.setColor(Color.WHITE);
+        font.getData().setScale(origScale);
     }
 
     /** Variant of {@link #renderStats(SpriteBatch, BitmapFont)} that takes
      *  explicit panel bounds so the 2-column grid renders inside the
      *  sprite-HUD's statsBot panel. */
     private void renderStatsAt(SpriteBatch batch, BitmapFont font,
-                                int startX, int panelWidth, int statsY) {
+                                int startX, int panelWidth, int statsY, int panelHeight) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         final Player p = this.playState.getPlayer();
         final Stats computed = p.getComputedStats();
@@ -3435,10 +3450,14 @@ public class PlayerUI {
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.6f);
         final int rowH = 13;
-        final int colW = panelWidth / 2;
-        final int textXcol0 = startX;
-        final int textXcol1 = startX + colW;
-        final int startY  = statsY + 12;
+        // Center the 2-col × 3-row block within the stats rect instead of
+        // letting it cram into the top-left corner.
+        final int gridH = rowH * 3;
+        final int colTextW = (int) (panelWidth * 0.44f);
+        final int blockLeft = startX + Math.max(0, (panelWidth - colTextW * 2) / 2);
+        final int textXcol0 = blockLeft;
+        final int textXcol1 = blockLeft + colTextW;
+        final int startY  = statsY + Math.max(2, (panelHeight - gridH) / 2) + 10;
 
         // Stat order: STR, DEF, SPD, DEX, VIT, WIS — same as before.
         // Layout (column-major so left col = first 3, right col = last 3):
