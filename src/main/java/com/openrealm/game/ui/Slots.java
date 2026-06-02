@@ -110,8 +110,8 @@ public class Slots {
         batch.draw(itemRegion, ix, iy, ICON_PX, ICON_PX);
     }
 
-    private static final float ITEM_OUTLINE_OFFSET = 1f;
-    private static final float ITEM_OUTLINE_ALPHA = 0.85f;
+    private static final float ITEM_OUTLINE_OFFSET = 2f;
+    private static final float ITEM_OUTLINE_ALPHA = 1f;
 
     /**
      * Draw the "xN" overlay on stackable items with count > 1. Mirrors the
