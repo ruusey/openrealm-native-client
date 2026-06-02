@@ -98,11 +98,10 @@ public class Slots {
         // inside the slot rectangle drawn by PlayerUI (was 64x64 -> overflowed
         // a 56x56 slot by 14% on each side; matches webclient #item-slot).
         final float ix = pos.x + ICON_PADDING, iy = pos.y + ICON_PADDING;
-        // Light silhouette outline: four offset tinted copies behind the icon,
-        // then the real icon on top. White (not the world's black) so items
-        // read against the dark inventory slots.
+        // Dark silhouette outline (matches the in-world sprite stroke): four
+        // offset tinted copies behind the icon, then the real icon on top.
         final float prev = batch.getPackedColor();
-        batch.setColor(1f, 1f, 1f, ITEM_OUTLINE_ALPHA);
+        batch.setColor(0f, 0f, 0f, ITEM_OUTLINE_ALPHA);
         batch.draw(itemRegion, ix + ITEM_OUTLINE_OFFSET, iy, ICON_PX, ICON_PX);
         batch.draw(itemRegion, ix - ITEM_OUTLINE_OFFSET, iy, ICON_PX, ICON_PX);
         batch.draw(itemRegion, ix, iy + ITEM_OUTLINE_OFFSET, ICON_PX, ICON_PX);
@@ -111,8 +110,8 @@ public class Slots {
         batch.draw(itemRegion, ix, iy, ICON_PX, ICON_PX);
     }
 
-    private static final float ITEM_OUTLINE_OFFSET = 2f;
-    private static final float ITEM_OUTLINE_ALPHA = 1f;
+    private static final float ITEM_OUTLINE_OFFSET = 1f;
+    private static final float ITEM_OUTLINE_ALPHA = 0.85f;
 
     /**
      * Draw the "xN" overlay on stackable items with count > 1. Mirrors the
