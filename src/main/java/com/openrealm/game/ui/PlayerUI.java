@@ -2991,15 +2991,17 @@ public class PlayerUI {
         final float chatX = margin;
         final float chatY = H - margin - chatH;
 
-        final float minimapW = cMinimap.getW() * s;
-        final float minimapH = cMinimap.getH() * s;
+        // Chrome-less square minimap, sized to the equip/stats panel width.
+        final float minimapSide = cEquipStats.getW() * s;
+        final float minimapW = minimapSide;
+        final float minimapH = minimapSide;
         final float minimapX = W - margin - minimapW;
         final float minimapY = margin;
 
         final float equipStatsW = cEquipStats.getW() * s;
         final float equipStatsH = cEquipStats.getH() * s;
         final float equipStatsX = W - margin - equipStatsW;
-        final float equipStatsY = minimapY + minimapH + 8;
+        final float equipStatsY = minimapY + minimapH; // flush under the square minimap
 
         final float invOnlyW = cInvOnly.getW() * s;
         final float invOnlyH = cInvOnly.getH() * s;
@@ -3029,7 +3031,6 @@ public class PlayerUI {
         // ---- Pass 1: panel chrome (atlas blits) ----
         final TextureRegion rPlayerInfo = UiAtlas.region("panel.hud.player_info");
         final TextureRegion rChat       = UiAtlas.region("panel.hud.chat");
-        final TextureRegion rMinimap    = UiAtlas.region("panel.container.small");
         final TextureRegion rEquipStats = UiAtlas.region("panel.hud.equipment_with_stats");
         final TextureRegion rInvOnly    = UiAtlas.region("panel.hud.inv_only");
         final TextureRegion rInvExt     = UiAtlas.region("panel.hud.inv_ext");
@@ -3044,7 +3045,6 @@ public class PlayerUI {
             batch.draw(rNearby, nearbyX, partyY, nearbyW, partyH);
         }
         if (rNearby != null && cNearby != null) batch.draw(rNearby, nearbyX, nearbyY, nearbyW, nearbyH);
-        if (rMinimap    != null) batch.draw(rMinimap,    minimapX,    minimapY,    minimapW,    minimapH);
         if (rEquipStats != null) batch.draw(rEquipStats, equipStatsX, equipStatsY, equipStatsW, equipStatsH);
         if (rInvOnly    != null) batch.draw(rInvOnly,    invOnlyX,    invOnlyY,    invOnlyW,    invOnlyH);
         if (lootVisible && rInvExt != null) batch.draw(rInvExt, invExtX, invExtY, invExtW, invExtH);
@@ -3300,9 +3300,7 @@ public class PlayerUI {
 
         // ---- Pass 7: minimap into panel.container.small (top-RIGHT) ----
         if (this.minimap != null) {
-            final int mmInset = 8;
-            final int mmSize = (int) Math.min(minimapW - mmInset * 2, minimapH - mmInset * 2);
-            this.minimap.setLayout((int)(minimapX + mmInset), (int)(minimapY + mmInset), Math.max(32, mmSize));
+            this.minimap.setLayout((int) minimapX, (int) minimapY, Math.max(32, (int) minimapSide));
         }
 
         // ---- Pass 8: chat layout — full panel.hud.chat rect; PlayerChat's
@@ -3449,7 +3447,7 @@ public class PlayerUI {
         // green positive bonus / red negative — webclient parity.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.6f);
-        final int rowH = 13;
+        final int rowH = 11;
         // Center the 2-col × 3-row block within the stats rect instead of
         // letting it cram into the top-left corner.
         final int gridH = rowH * 3;
@@ -3663,8 +3661,9 @@ public class PlayerUI {
         TextureRegion icon = SpriteRecolorCache.getEnchantedItemRegion(item);
         if (icon == null) icon = GameSpriteManager.ITEM_SPRITES.get(item.getItemId());
         if (icon == null) return;
-        // 8px source × iconScale(2) × displayScale(2) = 32px on screen.
-        final float iconSize = 8f * UiAtlas.getIconScale() * UiAtlas.getDisplayScale();
+        // Fill ~85% of the slot (28 atlas-px slots) so 16×16 detail shows and
+        // 8×8 sprites read clearly, capped to the cell with a small border.
+        final float iconSize = Math.min(24f * UiAtlas.getDisplayScale(), Math.min(w, h) - 4f);
         batch.draw(icon, x + (w - iconSize) / 2f, y + (h - iconSize) / 2f, iconSize, iconSize);
     }
 
