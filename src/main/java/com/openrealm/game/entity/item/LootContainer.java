@@ -21,6 +21,9 @@ import lombok.NoArgsConstructor;
 @Builder
 public class LootContainer {
 
+    private static final float OUTLINE_OFFSET = 1f;
+    private static final float OUTLINE_ALPHA = 0.85f;
+
     private long lootContainerId;
     private LootTier tier;
     private Sprite sprite;
@@ -221,12 +224,6 @@ public class LootContainer {
 
     public void render(SpriteBatch batch) {
         if (this.sprite != null && this.sprite.getRegion() != null) {
-            // Soulbound bags get a red tint so the player visually distinguishes
-            // their own loot from other players' soulbound drops (which they
-            // also see but cannot pick up). Public bags render at neutral tint.
-            if (!this.isPublicLoot()) {
-                batch.setColor(1.0f, 0.55f, 0.55f, 1.0f);
-            }
             // Regular loot bags render at half-tile (16px) so they read as
             // pickups rather than environment props. Chests override this in
             // Chest.render to keep their full 32px footprint, since chests
@@ -236,10 +233,25 @@ public class LootContainer {
             // Center the smaller sprite inside the tile so the visual
             // anchor matches the underlying tile pos.
             final float offset = (32 - draw) / 2f;
-            batch.draw(this.sprite.getRegion(),
-                    this.pos.getWorldVar().x + offset,
-                    this.pos.getWorldVar().y + offset,
-                    draw, draw);
+            final float bx = this.pos.getWorldVar().x + offset;
+            final float by = this.pos.getWorldVar().y + offset;
+            final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
+            // Dark silhouette outline (matches the in-world sprite stroke):
+            // four offset tinted copies behind the bag, then the bag on top.
+            final float prevColor = batch.getPackedColor();
+            batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
+            batch.draw(region, bx + OUTLINE_OFFSET, by, draw, draw);
+            batch.draw(region, bx - OUTLINE_OFFSET, by, draw, draw);
+            batch.draw(region, bx, by + OUTLINE_OFFSET, draw, draw);
+            batch.draw(region, bx, by - OUTLINE_OFFSET, draw, draw);
+            batch.setPackedColor(prevColor);
+            // Soulbound bags get a red tint so the player visually distinguishes
+            // their own loot from other players' soulbound drops (which they
+            // also see but cannot pick up). Public bags render at neutral tint.
+            if (!this.isPublicLoot()) {
+                batch.setColor(1.0f, 0.55f, 0.55f, 1.0f);
+            }
+            batch.draw(region, bx, by, draw, draw);
             if (!this.isPublicLoot()) {
                 batch.setColor(1.0f, 1.0f, 1.0f, 1.0f);
             }

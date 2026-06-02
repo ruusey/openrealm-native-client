@@ -19,6 +19,9 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Streamable
 public class Portal {
+    private static final float OUTLINE_OFFSET = 1f;
+    private static final float OUTLINE_ALPHA = 0.85f;
+
     private long id;
     private short portalId;
     private long fromRealmId;
@@ -92,22 +95,19 @@ public class Portal {
 
     public void render(SpriteBatch batch) {
         if (this.sprite != null && this.sprite.getRegion() != null) {
-            batch.draw(this.sprite.getRegion(), this.pos.getWorldVar().x, this.pos.getWorldVar().y, 32, 32);
+            final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
+            final float bx = this.pos.getWorldVar().x;
+            final float by = this.pos.getWorldVar().y;
+            // Dark silhouette outline (matches the in-world sprite stroke):
+            // four offset tinted copies behind the portal, then the portal on top.
+            final float prevColor = batch.getPackedColor();
+            batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
+            batch.draw(region, bx + OUTLINE_OFFSET, by, 32, 32);
+            batch.draw(region, bx - OUTLINE_OFFSET, by, 32, 32);
+            batch.draw(region, bx, by + OUTLINE_OFFSET, 32, 32);
+            batch.draw(region, bx, by - OUTLINE_OFFSET, 32, 32);
+            batch.setPackedColor(prevColor);
+            batch.draw(region, bx, by, 32, 32);
         }
-    }
-
-    public void renderOutline(SpriteBatch batch) {
-        if (this.sprite == null || this.sprite.getRegion() == null) return;
-        final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
-        final int rw = region.getRegionWidth();
-        final int rh = region.getRegionHeight();
-        if (rw <= 0 || rh <= 0) return;
-        final int size = 32;
-        final float padX = (float) size / rw;
-        final float padY = (float) size / rh;
-        batch.draw(region,
-                this.pos.getWorldVar().x - padX,
-                this.pos.getWorldVar().y - padY,
-                size + 2 * padX, size + 2 * padY);
     }
 }
