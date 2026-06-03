@@ -950,6 +950,11 @@ public class Player extends Entity {
 		}
 		this.health = packet.getHealth();
 		this.mana = packet.getMana();
+		// Server-authoritative potion counts. Without these the local count was only
+		// ever set at login + local pickup/drink prediction, so a realm switch (press-R
+		// nexus) left it reading 0 until you picked another up.
+		this.hpPotions = packet.getHpPotions();
+		this.mpPotions = packet.getMpPotions();
 		if (packet.getPlayerId() == state.getPlayerId()) {
 			state.getPui().setEquipment(this.inventory);
 		}
