@@ -2725,15 +2725,10 @@ public class PlayerUI {
             }
         }
 
-        // Wire protocol (Phase 1B): equipment 0..4 (5 slots), backpack
-        // 5..20, ground loot 21..28. Was stuck on the pre-Phase-1B 4-slot
-        // equipment layout — backpack[15] (slot 20) was classified as
-        // ground loot, and equipment[4] (ring) was classified as
-        // backpack. Both broke drag-drop on the affected slots.
-        boolean fromIsGround = fromIndex >= MoveItemPacket.groundLootBase()
-                && fromIndex < MoveItemPacket.groundLootBase() + 8;
-        boolean targetIsGround = targetIndex >= MoveItemPacket.groundLootBase()
-                && targetIndex < MoveItemPacket.groundLootBase() + 8;
+        // Wire protocol: equipment 0..4, backpack 5..24, ground loot 25..34.
+        final int groundEnd = MoveItemPacket.groundLootBase() + this.groundLoot.length;
+        boolean fromIsGround = fromIndex >= MoveItemPacket.groundLootBase() && fromIndex < groundEnd;
+        boolean targetIsGround = targetIndex >= MoveItemPacket.groundLootBase() && targetIndex < groundEnd;
         boolean fromIsEquip = fromIndex >= 0 && fromIndex < Player.EQUIPMENT_SLOT_COUNT;
         boolean targetIsEquip = targetIndex >= 0 && targetIndex < Player.EQUIPMENT_SLOT_COUNT;
 
