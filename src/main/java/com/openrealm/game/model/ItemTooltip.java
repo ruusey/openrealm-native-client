@@ -197,7 +197,7 @@ public class ItemTooltip {
     private static String gemAllowedSlotNames(byte typeId) {
         switch (typeId) {
             case 1: case 2: case 3: case 4: case 5: case 7: return "Weapon";
-            case 6: return "Weapon, Gauntlet";
+            case 6: return "Armor, Gauntlet, Boots";
             case 8: case 9: return "Weapon, Armor, Gauntlet, Boots, Ring";
             default: return "?";
         }
