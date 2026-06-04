@@ -192,6 +192,17 @@ public class ItemTooltip {
         }
     }
 
+    /** Equip slots a gem may socket into — keep in sync with Gemstone.canSocketInto
+     *  on the server. On-hit gems are weapon-only; scaling/defensive gems fit more. */
+    private static String gemAllowedSlotNames(byte typeId) {
+        switch (typeId) {
+            case 1: case 2: case 3: case 4: case 5: case 7: return "Weapon";
+            case 6: return "Weapon, Gauntlet";
+            case 8: case 9: return "Weapon, Armor, Gauntlet, Boots, Ring";
+            default: return "?";
+        }
+    }
+
     private List<TooltipLine> buildLines() {
         List<TooltipLine> lines = new ArrayList<>();
 
@@ -297,6 +308,7 @@ public class ItemTooltip {
         if ("gem".equals(this.category) && this.gemstoneType != 0) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Gem: " + gemstoneName(this.gemstoneType), GEM_COLOR));
+            lines.add(new TooltipLine("Sockets into: " + gemAllowedSlotNames(this.gemstoneType), GEM_COLOR));
         } else if (this.gemstoneType != 0 && this.targetSlot >= 0 && this.targetSlot <= 4) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Socketed: " + gemstoneName(this.gemstoneType), GEM_COLOR));

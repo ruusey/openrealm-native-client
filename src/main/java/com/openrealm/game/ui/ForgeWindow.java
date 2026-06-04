@@ -104,6 +104,9 @@ public class ForgeWindow {
 
     private boolean mouseDownPrev = false;
 
+    /** Transient feedback line (e.g. why a gem was refused) shown under the counter. */
+    private String statusMessage = "";
+
     public boolean isVisible() {
         return this.visible;
     }
@@ -111,6 +114,7 @@ public class ForgeWindow {
     public void show() {
         this.visible = true;
         this.paintedPixels.clear();
+        this.statusMessage = "";
     }
 
     public void hide() {
@@ -422,6 +426,10 @@ public class ForgeWindow {
         font.setColor(Color.LIGHT_GRAY);
         font.draw(batch, total + " / " + currentMaxEnchantments() + " enchantments",
                 L.outputX, L.outputY + L.outputH + 14);
+        if (this.statusMessage != null && !this.statusMessage.isEmpty()) {
+            font.setColor(0.95f, 0.5f, 0.4f, 1f);
+            font.draw(batch, this.statusMessage, L.outputX, L.outputY + L.outputH + 30);
+        }
         font.setColor(Color.WHITE);
     }
 
@@ -489,11 +497,16 @@ public class ForgeWindow {
                 // so a full crystal bar must not block socketing a gem.
                 final GameItem target = inventoryItem(this.targetSlot);
                 if (target == null || target.getRarity() < 4) {
-                    log.info("[FORGE] This rarity has no gem socket (Epic+ only)");
+                    this.statusMessage = "This rarity has no gem socket (Epic+ only)";
                     return;
                 }
                 if (target.getGemstoneType() != 0) {
-                    log.info("[FORGE] Item already has a gem socketed");
+                    this.statusMessage = "Item already has a gem socketed";
+                    return;
+                }
+                if (!gemFitsSlot(crystalItem.getGemstoneType(), target.getTargetSlot())) {
+                    this.statusMessage = crystalItem.getName() + " only fits: "
+                            + gemAllowedSlotNames(crystalItem.getGemstoneType());
                     return;
                 }
             } else {
@@ -515,6 +528,7 @@ public class ForgeWindow {
             }
             final int paintStat = isGem ? GEM_PAINT_MARKER : this.crystalStatId;
             this.paintedPixels.add(new int[]{gx, gy, paintStat, statColorPacked(paintStat)});
+            this.statusMessage = "";
         }
     }
 
@@ -651,6 +665,37 @@ public class ForgeWindow {
         final GameItem target = inventoryItem(this.targetSlot);
         if (target == null) return MAX_ENCHANTMENTS;
         return target.getMaxEnchantments();
+    }
+
+    // Which equip slots each gem may socket into, keyed by gemstoneType. MUST
+    // mirror Gemstone.canSocketInto on the server. On-hit gems are weapon-only;
+    // scaling/defensive gems fit other slots. 0=Weapon 1=Armor 2=Gauntlet 3=Boots 4=Ring.
+    private static int[] gemSocketSlots(int gemType) {
+        switch (gemType) {
+            case 1: case 2: case 3: case 4: case 5: case 7: return new int[]{0};
+            case 6: return new int[]{0, 2};
+            case 8: case 9: return new int[]{0, 1, 2, 3, 4};
+            default: return null; // unknown gem — defer to the server
+        }
+    }
+
+    private static boolean gemFitsSlot(int gemType, int targetSlot) {
+        final int[] slots = gemSocketSlots(gemType);
+        if (slots == null) return true;
+        for (int s : slots) if (s == targetSlot) return true;
+        return false;
+    }
+
+    private static String gemAllowedSlotNames(int gemType) {
+        final String[] names = {"Weapon", "Armor", "Gauntlet", "Boots", "Ring"};
+        final int[] slots = gemSocketSlots(gemType);
+        if (slots == null) return "?";
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < slots.length; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(slots[i] >= 0 && slots[i] < names.length ? names[slots[i]] : ("slot " + slots[i]));
+        }
+        return sb.toString();
     }
 
     /** Web client's stat-id -> tint color. */
