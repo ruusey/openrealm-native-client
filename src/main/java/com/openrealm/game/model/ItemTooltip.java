@@ -42,6 +42,7 @@ public class ItemTooltip {
     private byte rarity;
     private String category;
     private byte gemstoneType;
+    private List<Integer> socketSlots;
 
     private Stats stats;
     private List<Enchantment> enchantments;
@@ -98,6 +99,7 @@ public class ItemTooltip {
         this.rarity = item.getRarity();
         this.category = item.getCategory();
         this.gemstoneType = item.getGemstoneType();
+        this.socketSlots = item.getSocketSlots();
         this.targetSlot = item.getTargetSlot();
         this.stats = item.getStats();
         this.enchantments = item.getEnchantments();
@@ -192,10 +194,21 @@ public class ItemTooltip {
         }
     }
 
-    /** Equip slots a gem may socket into — keep in sync with Gemstone.canSocketInto
-     *  on the server. On-hit gems are weapon-only; scaling/defensive gems fit more. */
-    private static String gemAllowedSlotNames(byte typeId) {
-        switch (typeId) {
+    /** Equip slots this gem may socket into. Prefers the item's data-driven
+     *  socketSlots (editable in the data editor); falls back to the per-type
+     *  default that mirrors Gemstone.canSocketInto on the server. */
+    private String gemAllowedSlotNames() {
+        final String[] names = {"Weapon", "Armor", "Gauntlet", "Boots", "Ring"};
+        if (this.socketSlots != null && !this.socketSlots.isEmpty()) {
+            final StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < this.socketSlots.size(); i++) {
+                final int s = this.socketSlots.get(i);
+                if (i > 0) sb.append(", ");
+                sb.append(s >= 0 && s < names.length ? names[s] : ("slot " + s));
+            }
+            return sb.toString();
+        }
+        switch (this.gemstoneType) {
             case 1: case 2: case 3: case 4: case 5: case 7: return "Weapon";
             case 6: return "Armor, Gauntlet, Boots";
             case 8: case 9: return "Weapon, Armor, Gauntlet, Boots, Ring";
@@ -308,7 +321,7 @@ public class ItemTooltip {
         if ("gem".equals(this.category) && this.gemstoneType != 0) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Gem: " + gemstoneName(this.gemstoneType), GEM_COLOR));
-            lines.add(new TooltipLine("Sockets into: " + gemAllowedSlotNames(this.gemstoneType), GEM_COLOR));
+            lines.add(new TooltipLine("Sockets into: " + gemAllowedSlotNames(), GEM_COLOR));
         } else if (this.gemstoneType != 0 && this.targetSlot >= 0 && this.targetSlot <= 4) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Socketed: " + gemstoneName(this.gemstoneType), GEM_COLOR));

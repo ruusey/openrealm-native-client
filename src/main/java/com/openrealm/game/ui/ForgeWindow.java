@@ -504,9 +504,10 @@ public class ForgeWindow {
                     this.statusMessage = "Item already has a gem socketed";
                     return;
                 }
-                if (!gemFitsSlot(crystalItem.getGemstoneType(), target.getTargetSlot())) {
+                final int[] allowed = resolveGemSlots(crystalItem);
+                if (!gemFitsSlot(allowed, target.getTargetSlot())) {
                     this.statusMessage = crystalItem.getName() + " only fits: "
-                            + gemAllowedSlotNames(crystalItem.getGemstoneType());
+                            + gemAllowedSlotNames(allowed);
                     return;
                 }
             } else {
@@ -670,7 +671,7 @@ public class ForgeWindow {
     // Which equip slots each gem may socket into, keyed by gemstoneType. MUST
     // mirror Gemstone.canSocketInto on the server. On-hit gems are weapon-only;
     // scaling/defensive gems fit other slots. 0=Weapon 1=Armor 2=Gauntlet 3=Boots 4=Ring.
-    private static int[] gemSocketSlots(int gemType) {
+    private static int[] gemSocketSlotsByType(int gemType) {
         switch (gemType) {
             case 1: case 2: case 3: case 4: case 5: case 7: return new int[]{0};
             case 6: return new int[]{1, 2, 3};
@@ -679,16 +680,26 @@ public class ForgeWindow {
         }
     }
 
-    private static boolean gemFitsSlot(int gemType, int targetSlot) {
-        final int[] slots = gemSocketSlots(gemType);
+    // Prefer the item's data-driven socketSlots; fall back to the per-type default.
+    private static int[] resolveGemSlots(GameItem gem) {
+        if (gem == null) return null;
+        final java.util.List<Integer> data = gem.getSocketSlots();
+        if (data != null && !data.isEmpty()) {
+            final int[] out = new int[data.size()];
+            for (int i = 0; i < data.size(); i++) out[i] = data.get(i);
+            return out;
+        }
+        return gemSocketSlotsByType(gem.getGemstoneType());
+    }
+
+    private static boolean gemFitsSlot(int[] slots, int targetSlot) {
         if (slots == null) return true;
         for (int s : slots) if (s == targetSlot) return true;
         return false;
     }
 
-    private static String gemAllowedSlotNames(int gemType) {
+    private static String gemAllowedSlotNames(int[] slots) {
         final String[] names = {"Weapon", "Armor", "Gauntlet", "Boots", "Ring"};
-        final int[] slots = gemSocketSlots(gemType);
         if (slots == null) return "?";
         final StringBuilder sb = new StringBuilder();
         for (int i = 0; i < slots.length; i++) {

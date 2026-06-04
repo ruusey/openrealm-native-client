@@ -71,6 +71,11 @@ public class GameItem extends SpriteModel {
     private int gemPixelColor = 0;
     @Builder.Default
     private byte scalingStat = 4;
+    // Template field (gem items only): equip-slot indices this gem may socket
+    // into (0=weapon 1=armor 2=gauntlet 3=boot 4=ring). Empty => use the gem's
+    // built-in default. Loaded from the item definition JSON.
+    @Builder.Default
+    private List<Integer> socketSlots = new ArrayList<>();
 
     public GameItem() {
         this.uid = UUID.randomUUID().toString();
@@ -90,6 +95,7 @@ public class GameItem extends SpriteModel {
         this.gemPixelY = 0;
         this.gemPixelColor = 0;
         this.scalingStat = 4;
+        this.socketSlots = new ArrayList<>();
     }
 
     @Override
@@ -103,7 +109,8 @@ public class GameItem extends SpriteModel {
                 .itemClass(this.itemClass).archetypeId(this.archetypeId)
                 .gemstoneType(this.gemstoneType)
                 .gemPixelX(this.gemPixelX).gemPixelY(this.gemPixelY).gemPixelColor(this.gemPixelColor)
-                .scalingStat(this.scalingStat);
+                .scalingStat(this.scalingStat)
+                .socketSlots(this.socketSlots == null ? new ArrayList<>() : new ArrayList<>(this.socketSlots));
 
         if (this.damage != null) {
             builder = builder.damage(this.damage.clone());
