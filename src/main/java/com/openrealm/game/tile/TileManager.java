@@ -772,8 +772,30 @@ public class TileManager {
         return (short) this.getBaseLayer().getHeight();
     }
 
+    // Blank the tile layers + fog-of-war so the next mergeMap starts from an empty map.
+    // Called on a realm transition (incl. same-dimension nested dungeons), where
+    // mergeMap's dimension-change reset wouldn't fire and the previous realm's tiles
+    // would bleed through — most visibly on the minimap, which snapshots these layers.
+    public void resetTiles(int mapId) {
+        final MapModel model = GameDataManager.MAPS.get(mapId);
+        if (model == null) return;
+        this.acquireMapLock();
+        try {
+            final TileMap baseLayer = new TileMap((short) model.getMapId(), model.getTileSize(),
+                    model.getWidth(), model.getHeight());
+            final TileMap collisionLayer = new TileMap((short) model.getMapId(), model.getTileSize(),
+                    model.getWidth(), model.getHeight());
+            this.mapLayers = new ArrayList<>();
+            this.mapLayers.add(baseLayer);
+            this.mapLayers.add(collisionLayer);
+            this.discovered = null;
+        } finally {
+            this.releaseMapLock();
+        }
+    }
+
     public void mergeMap(LoadMapPacket packet) {
-    	// Acquire the map lock to prevent the render thread from displaying out of 
+    	// Acquire the map lock to prevent the render thread from displaying out of
     	// date tile information
     	this.acquireMapLock();
         // Resize the map on dimension change

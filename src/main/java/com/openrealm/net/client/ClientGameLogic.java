@@ -307,6 +307,12 @@ public class ClientGameLogic {
 			cli.getState().getPui().getMinimap().initializeMap((int) loadPacket.getMapId());
 			cli.getRealm().setRealmId(loadPacket.getRealmId());
 			cli.getRealm().setMapId(loadPacket.getMapId());
+			// Zero the tile layers + fog-of-war on any realm transition so a nested
+			// dungeon (same map dimensions, new realm id) doesn't inherit the prior
+			// realm's tiles bleeding through on the minimap.
+			if (realmChanged) {
+				cli.getRealm().getTileManager().resetTiles((int) loadPacket.getMapId());
+			}
 			cli.getRealm().getTileManager().mergeMap(loadPacket);
 
 			if (realmChanged) {
