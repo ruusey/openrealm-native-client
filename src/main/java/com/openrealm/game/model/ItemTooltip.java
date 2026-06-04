@@ -297,14 +297,14 @@ public class ItemTooltip {
         if ("gem".equals(this.category) && this.gemstoneType != 0) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Gem: " + gemstoneName(this.gemstoneType), GEM_COLOR));
-        } else if (this.gemstoneType != 0 && this.targetSlot >= 0 && this.targetSlot <= 3) {
+        } else if (this.gemstoneType != 0 && this.targetSlot >= 0 && this.targetSlot <= 4) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Socketed: " + gemstoneName(this.gemstoneType), GEM_COLOR));
         }
 
         // Forged enchantments — one row per gem with its effect description.
         // Empty equipment shows the available slot count so the rarity ceiling is visible.
-        if (this.targetSlot >= 0 && this.targetSlot <= 3) {
+        if (this.targetSlot >= 0 && this.targetSlot <= 4) {
             final int slotCap = Rarity.slotsFor(this.rarity);
             final int filled = (this.enchantments == null) ? 0 : this.enchantments.size();
             lines.add(new TooltipLine("", null));

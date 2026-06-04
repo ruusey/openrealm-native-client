@@ -58,6 +58,9 @@ public class ForgeWindow {
     // painting is rarity-driven (currentMaxEnchantments()) — Mundane = 0,
     // Legendary = 5. Mirrors webclient slotsForItem() in forge.js.
     public static final int MAX_ENCHANTMENTS = 5;
+    // Painted-pixel statId marker for a gem (gems carry no stat). Keeps the gem
+    // staged pixel a distinct color from the eight stat crystals.
+    private static final int GEM_PAINT_MARKER = 100;
 
     private boolean visible = false;
 
@@ -479,14 +482,30 @@ public class ForgeWindow {
             int gy = (int) ((my - L.canvasY) / cellPx);
             if (gx < 0) gx = 0; if (gx >= gd) gx = gd - 1;
             if (gy < 0) gy = 0; if (gy >= gd) gy = gd - 1;
-            if (this.crystalStatId < 0) {
-                log.info("[FORGE] Cannot paint — no crystal selected");
-                return;
-            }
-            final int cap = currentMaxEnchantments();
-            if (this.existingEnchantments.size() + this.paintedPixels.size() >= cap) {
-                log.info("[FORGE] Item already has the maximum {} enchantments", cap);
-                return;
+            final GameItem crystalItem = inventoryItem(this.crystalSlot);
+            final boolean isGem = crystalItem != null && "gem".equals(crystalItem.getCategory());
+            if (isGem) {
+                // Gems take the single Epic+ socket — separate from crystal slots,
+                // so a full crystal bar must not block socketing a gem.
+                final GameItem target = inventoryItem(this.targetSlot);
+                if (target == null || target.getRarity() < 4) {
+                    log.info("[FORGE] This rarity has no gem socket (Epic+ only)");
+                    return;
+                }
+                if (target.getGemstoneType() != 0) {
+                    log.info("[FORGE] Item already has a gem socketed");
+                    return;
+                }
+            } else {
+                if (this.crystalStatId < 0) {
+                    log.info("[FORGE] Cannot paint — no crystal selected");
+                    return;
+                }
+                final int cap = currentMaxEnchantments();
+                if (this.existingEnchantments.size() + this.paintedPixels.size() >= cap) {
+                    log.info("[FORGE] Item already has the maximum {} crystal enchantments", cap);
+                    return;
+                }
             }
             for (int[] px : this.existingEnchantments) {
                 if (px[0] == gx && px[1] == gy) return;
@@ -494,7 +513,8 @@ public class ForgeWindow {
             for (int[] px : this.paintedPixels) {
                 if (px[0] == gx && px[1] == gy) return;
             }
-            this.paintedPixels.add(new int[]{gx, gy, this.crystalStatId, statColorPacked(this.crystalStatId)});
+            final int paintStat = isGem ? GEM_PAINT_MARKER : this.crystalStatId;
+            this.paintedPixels.add(new int[]{gx, gy, paintStat, statColorPacked(paintStat)});
         }
     }
 
@@ -644,6 +664,7 @@ public class ForgeWindow {
             case 5: return new Color(0.55f, 0.55f, 0.65f, 1f); // DEF — silver
             case 6: return new Color(0.20f, 0.85f, 0.45f, 1f); // SPD — green
             case 7: return new Color(0.95f, 0.85f, 0.30f, 1f); // DEX — yellow
+            case GEM_PAINT_MARKER: return new Color(0.69f, 0.31f, 0.88f, 1f); // gem — violet
             default: return Color.GRAY;
         }
     }
