@@ -600,7 +600,7 @@ public class ServerCommandHandler {
                 throw new IllegalArgumentException("Cannot teleport to " + destPlayer.getName() + " — they are in a different area.");
             }
             // Check teleportable (not invisible/stasis)
-            if (destPlayer.hasEffect(StatusEffectType.INVISIBLE)
+            if (destPlayer.hasEffect(StatusEffectType.HIDDEN)
                     || destPlayer.hasEffect(StatusEffectType.STASIS)) {
                 throw new IllegalArgumentException(destPlayer.getName() + " cannot be teleported to right now.");
             }

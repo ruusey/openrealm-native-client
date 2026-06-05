@@ -16,7 +16,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
  * numeric ID space — never mix the two enums.
  */
 public enum StatusEffectType {
-    INVISIBLE((short) 0),
+    HIDDEN((short) 0),
     HEALING((short) 1),
     PARALYZED((short) 2),
     STUNNED((short) 3),

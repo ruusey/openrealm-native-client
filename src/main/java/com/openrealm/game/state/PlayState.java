@@ -2470,7 +2470,7 @@ public class PlayState extends GameState {
         new StatusEffectIconDef(StatusEffectType.DAMAGING.effectId,     "Atk+",   0xFFAA44),
         new StatusEffectIconDef(StatusEffectType.ARMORED.effectId,      "Armr+",  0x6688CC),
         new StatusEffectIconDef(StatusEffectType.INVINCIBLE.effectId,   "Invuln", 0x44AAFF),
-        new StatusEffectIconDef(StatusEffectType.INVISIBLE.effectId,    "Hide",   0xCCBB88),
+        new StatusEffectIconDef(StatusEffectType.HIDDEN.effectId,    "Hidden",   0xCCBB88),
         new StatusEffectIconDef(StatusEffectType.SLOWED.effectId,       "Slow",   0x6688FF),
         new StatusEffectIconDef(StatusEffectType.PARALYZED.effectId,    "Para",   0x888888),
         new StatusEffectIconDef(StatusEffectType.STUNNED.effectId,      "Stun",   0x88CCFF),

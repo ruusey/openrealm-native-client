@@ -31,7 +31,7 @@ public class NetPlayerPosition extends SerializableFieldType<NetPlayerPosition> 
     private boolean teleportable;
 
     public static NetPlayerPosition from(Player player) {
-        boolean canTeleport = !player.hasEffect(StatusEffectType.INVISIBLE)
+        boolean canTeleport = !player.hasEffect(StatusEffectType.HIDDEN)
                 && !player.hasEffect(StatusEffectType.STASIS);
         return new NetPlayerPosition(
                 player.getId(),

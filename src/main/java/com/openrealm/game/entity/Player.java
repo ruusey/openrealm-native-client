@@ -590,7 +590,7 @@ public class Player extends Entity {
 		else if (this.hasEffect(StatusEffectType.HEALING))    target = Sprite.EffectEnum.REDISH;
 		else if (this.hasEffect(StatusEffectType.HEAL))       target = Sprite.EffectEnum.REDISH;
 		else if (this.hasEffect(StatusEffectType.SPEEDY))     target = Sprite.EffectEnum.DECAY;
-		else if (this.hasEffect(StatusEffectType.INVISIBLE))  target = Sprite.EffectEnum.SEPIA;
+		else if (this.hasEffect(StatusEffectType.HIDDEN))  target = Sprite.EffectEnum.SEPIA;
 		else if (this.hasNoEffects())                         target = Sprite.EffectEnum.NORMAL;
 		else                                                  target = Sprite.EffectEnum.NORMAL;
 

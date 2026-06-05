@@ -183,7 +183,7 @@ public class Enemy extends Entity {
     // ========== MOVEMENT PATTERNS ==========
 
     private void applyMovement(Player player, EnemyPhase phase) {
-        if (player == null || player.hasEffect(StatusEffectType.INVISIBLE)) {
+        if (player == null || player.hasEffect(StatusEffectType.HIDDEN)) {
             this.dx = 0;
             this.dy = 0;
             this.up = false;
@@ -426,7 +426,7 @@ public class Enemy extends Entity {
     // ========== ATTACK PATTERNS ==========
 
     private void processAttacks(Player player, EnemyPhase phase, RealmManagerServer mgr, Realm targetRealm) {
-        if (player.hasEffect(StatusEffectType.INVISIBLE)) return;
+        if (player.hasEffect(StatusEffectType.HIDDEN)) return;
         if (this.hasEffect(StatusEffectType.STUNNED)) return;
 
         float dist = this.pos.distanceTo(player.pos);
@@ -722,7 +722,7 @@ public class Enemy extends Entity {
     // ========== LEGACY CHASE (for backwards compat without phases) ==========
 
     public void chase(Player player) {
-        if (player == null || player.hasEffect(StatusEffectType.INVISIBLE)) {
+        if (player == null || player.hasEffect(StatusEffectType.HIDDEN)) {
             this.up = false;
             this.dy = 0;
             this.dx = 0;
@@ -834,7 +834,7 @@ public class Enemy extends Entity {
         }
 
         // Attacks — STASIS and phase transitions also prevent attacking
-        final boolean notInvisible = !player.hasEffect(StatusEffectType.INVISIBLE);
+        final boolean notInvisible = !player.hasEffect(StatusEffectType.HIDDEN);
         if (notInvisible && !inPhaseTransition && !this.hasEffect(StatusEffectType.STUNNED) && !this.hasEffect(StatusEffectType.STASIS)) {
             this.processAttacks(player, phase, mgr, targetRealm);
         } else {
