@@ -68,7 +68,7 @@ public class ItemTooltip {
 
     private static final String[] STAT_LABELS = {"VIT","WIS","HP","MP","STR","DEF","SPD","DEX"};
     private static final String[] STATUS_EFFECT_NAMES = {
-        "Invisible","Healing","Paralyzed","Stunned","Speedy","Healed","Invincible","",
+        "Hidden","Healing","Paralyzed","Stunned","Speedy","Healed","Invincible","",
         "None","Teleported","","Dazed","","","Damaging","Stasis",
         "Cursed","Poisoned","Armored","Berserk","","Slowed","Armor Broken"
     };
