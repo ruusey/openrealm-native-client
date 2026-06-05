@@ -341,8 +341,9 @@ public class Player extends Entity {
 	// Backpack: indices [EQUIPMENT_SLOT_COUNT .. inventory.length-1].
 	// Must match server-side com.openrealm.game.entity.Player.
 	public static final int EQUIPMENT_SLOT_COUNT = 5;
-	public static final int BACKPACK_SIZE = 20;
-	public static final int INVENTORY_SIZE = EQUIPMENT_SLOT_COUNT + BACKPACK_SIZE; // 21
+	// Backpack is two 20-slot pages (Main 5..24, Backpack 25..44) shown as tabs.
+	public static final int BACKPACK_SIZE = 40;
+	public static final int INVENTORY_SIZE = EQUIPMENT_SLOT_COUNT + BACKPACK_SIZE; // 45
 
 	private void resetInventory() {
 		this.inventory = new GameItem[INVENTORY_SIZE];

@@ -211,12 +211,183 @@ public class PlayerUI {
      *  members that left the party. */
     private final java.util.List<float[]> _lastPartyAbilityCells = new java.util.ArrayList<>();
     /**
-     * Currently visible bag tab. 0 = BAG 1 (inventory slots 4–11),
-     * 1 = BAG 2 (inventory slots 12–19). Mirrors the web client's
-     * tab-switched bag layout — only one bag is on screen at a time so
-     * the panel stays compact.
+     * Currently visible inventory page. 0 = MAIN (inventory slots 5–24),
+     * 1 = BACKPACK (slots 25–44). Mirrors the webclient's tab-switched
+     * inventory: one 20-slot page is on screen at a time, paged by the
+     * MAIN / BACKPACK tabs. The real backpack slot for page cell {@code c}
+     * is {@code INV_PAGE_BASE + activeBag * INV_PAGE_SIZE + c}.
      */
     private int activeBag = 0;
+
+    /** First backpack slot index — equipment occupies 0..EQUIPMENT_SLOT_COUNT-1. */
+    private static final int INV_PAGE_BASE = Player.EQUIPMENT_SLOT_COUNT;
+    /** Slots per inventory page (one tab's worth). */
+    private static final int INV_PAGE_SIZE = 20;
+
+    /** Real inventory index for visible page cell {@code cell} (0..19). */
+    private int pageSlotIndex(int cell) {
+        return INV_PAGE_BASE + this.activeBag * INV_PAGE_SIZE + cell;
+    }
+
+    /** First empty backpack slot on the given page, or -1 if the page is full. */
+    private int firstEmptyOnPage(int page) {
+        final int base = INV_PAGE_BASE + page * INV_PAGE_SIZE;
+        for (int i = base; i < base + INV_PAGE_SIZE && i < this.inventory.length; i++) {
+            final Slots s = this.inventory[i];
+            if (s == null || s.getItem() == null || s.getItem().getItemId() == -1) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Screen rects [x,y,w,h] for the inv_only page in MAIN/BACKPACK tab order
+     *  (0..19). When the atlas grid carries the full 20 cells (V3 sheet) those
+     *  exact cells are used; otherwise a 5×4 grid is synthesized across the
+     *  panel so the offline V1 atlas still renders all 20 page slots. */
+    private float[][] invPageCellRects(UiComponent cInvOnly, float invOnlyX, float invOnlyY, int s) {
+        final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
+        final float[][] out = new float[INV_PAGE_SIZE][4];
+        if (cells != null && cells.length >= INV_PAGE_SIZE) {
+            for (int i = 0; i < INV_PAGE_SIZE; i++) {
+                out[i][0] = invOnlyX + (cells[i][0] - cInvOnly.getX()) * s;
+                out[i][1] = invOnlyY + (cells[i][1] - cInvOnly.getY()) * s;
+                out[i][2] = cells[i][2] * s;
+                out[i][3] = cells[i][3] * s;
+            }
+            return out;
+        }
+        // Synthesize a 5×4 grid inside the panel (V1 atlas only has 16 cells).
+        // Reserve a header band at the top for the MAIN / BACKPACK tab strip.
+        final int cols = 5, rows = 4;
+        final float pad = 4f * s;
+        final float gap = 1f * s;
+        final float header = 16f * s;
+        final float gridX = invOnlyX + pad;
+        final float gridY = invOnlyY + header;
+        final float cw = (cInvOnly.getW() * s - 2 * pad - (cols - 1) * gap) / cols;
+        final float ch = (cInvOnly.getH() * s - header - pad - (rows - 1) * gap) / rows;
+        int i = 0;
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                out[i][0] = gridX + c * (cw + gap);
+                out[i][1] = gridY + r * (ch + gap);
+                out[i][2] = cw;
+                out[i][3] = ch;
+                i++;
+            }
+        }
+        return out;
+    }
+
+    // Sprite-HUD MAIN / BACKPACK tab strip rects (screen space), cached each
+    // render so handleInvPageTabClick + drag-to-tab can hit-test them.
+    private int spriteHudTabMainX = 0, spriteHudTabMainY = 0, spriteHudTabMainW = 0, spriteHudTabMainH = 0;
+    private int spriteHudTabBackX = 0, spriteHudTabBackY = 0, spriteHudTabBackW = 0, spriteHudTabBackH = 0;
+    private boolean spriteHudTabsEnabled = false;
+
+    /** Draw the two MAIN / BACKPACK page tabs above the inv grid and cache
+     *  their screen rects for hit-testing. The active page reads tan, the
+     *  inactive muted, matching the webclient inv-page-tabbar. */
+    private void renderInvPageTabs(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
+            UiComponent cInvOnly, float invOnlyX, float invOnlyY, float[][] invRects, int s) {
+        // Tab strip spans the grid width, sitting in the gap between the panel
+        // top and the first grid row.
+        final float gridTop = (invRects.length > 0) ? invRects[0][1] : invOnlyY;
+        final float gridLeft = (invRects.length > 0) ? invRects[0][0] : invOnlyX;
+        final float lastRight = (invRects.length > 0)
+                ? invRects[invRects.length - 1][0] + invRects[invRects.length - 1][2]
+                : invOnlyX + cInvOnly.getW() * s;
+        final float stripW = lastRight - gridLeft;
+        float stripH = gridTop - invOnlyY - 2;
+        if (stripH < 14) stripH = 14;
+        final float stripY = Math.max(invOnlyY + 2, gridTop - stripH - 2);
+        final float tabW = stripW / 2f;
+
+        this.spriteHudTabMainX = (int) gridLeft;
+        this.spriteHudTabMainY = (int) stripY;
+        this.spriteHudTabMainW = (int) tabW;
+        this.spriteHudTabMainH = (int) stripH;
+        this.spriteHudTabBackX = (int) (gridLeft + tabW);
+        this.spriteHudTabBackY = (int) stripY;
+        this.spriteHudTabBackW = (int) tabW;
+        this.spriteHudTabBackH = (int) stripH;
+        this.spriteHudTabsEnabled = true;
+
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(this.activeBag == 0 ? 0.20f : 0.08f,
+                        this.activeBag == 0 ? 0.15f : 0.06f,
+                        0.10f, 0.92f);
+        shapes.rect(gridLeft, stripY, tabW, stripH);
+        shapes.setColor(this.activeBag == 1 ? 0.20f : 0.08f,
+                        this.activeBag == 1 ? 0.15f : 0.06f,
+                        0.10f, 0.92f);
+        shapes.rect(gridLeft + tabW, stripY, tabW, stripH);
+        shapes.setColor(0.78f, 0.66f, 0.43f, 1f);
+        shapes.rect(this.activeBag == 0 ? gridLeft : gridLeft + tabW,
+                stripY + stripH - 2, tabW, 2);
+        shapes.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        batch.begin();
+
+        final Color tan = new Color(0.78f, 0.66f, 0.43f, 1f);
+        final Color muted = new Color(0.53f, 0.47f, 0.41f, 1f);
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(0.7f);
+        this.drawCenteredTabLabel(batch, font, "MAIN", gridLeft, stripY, tabW, stripH,
+                this.activeBag == 0 ? tan : muted);
+        this.drawCenteredTabLabel(batch, font, "BACKPACK", gridLeft + tabW, stripY, tabW, stripH,
+                this.activeBag == 1 ? tan : muted);
+        font.getData().setScale(origScale);
+        font.setColor(Color.WHITE);
+    }
+
+    private void drawCenteredTabLabel(SpriteBatch batch, BitmapFont font, String text,
+            float x, float y, float w, float h, Color color) {
+        final GlyphLayout gl = new GlyphLayout(font, text);
+        font.setColor(color);
+        font.draw(batch, text, x + (w - gl.width) / 2f, y + (h + gl.height) / 2f);
+    }
+
+    /** Sprite-HUD MAIN / BACKPACK tab click. Edge-triggered; switches the
+     *  active inventory page so the grid repaints the other 20 slots. */
+    private void handleInvPageTabClick(MouseHandler mouse) {
+        if (!this.spriteHudTabsEnabled) return;
+        boolean down = mouse.isPressed(1);
+        boolean justClicked = down && !this.prevInvTabMouseDown;
+        this.prevInvTabMouseDown = down;
+        if (!justClicked) return;
+        final int mx = mouse.getX();
+        final int my = mouse.getY();
+        if (mx >= this.spriteHudTabMainX && mx < this.spriteHudTabMainX + this.spriteHudTabMainW
+                && my >= this.spriteHudTabMainY && my < this.spriteHudTabMainY + this.spriteHudTabMainH) {
+            this.activeBag = 0;
+        } else if (mx >= this.spriteHudTabBackX && mx < this.spriteHudTabBackX + this.spriteHudTabBackW
+                && my >= this.spriteHudTabBackY && my < this.spriteHudTabBackY + this.spriteHudTabBackH) {
+            this.activeBag = 1;
+        }
+    }
+    private boolean prevInvTabMouseDown = false;
+
+    /** If a drag is released over the OTHER page's tab, return that page's
+     *  first-empty real slot index (or -1 if no tab hit / page full). Mirrors
+     *  the webclient drag-onto-tab relocate behavior. */
+    private int tabDropTargetSlot(int mouseX, int mouseY) {
+        if (!this.spriteHudTabsEnabled) return -1;
+        int page = -1;
+        if (mouseX >= this.spriteHudTabMainX && mouseX < this.spriteHudTabMainX + this.spriteHudTabMainW
+                && mouseY >= this.spriteHudTabMainY && mouseY < this.spriteHudTabMainY + this.spriteHudTabMainH) {
+            page = 0;
+        } else if (mouseX >= this.spriteHudTabBackX && mouseX < this.spriteHudTabBackX + this.spriteHudTabBackW
+                && mouseY >= this.spriteHudTabBackY && mouseY < this.spriteHudTabBackY + this.spriteHudTabBackH) {
+            page = 1;
+        }
+        if (page < 0) return -1;
+        return this.firstEmptyOnPage(page);
+    }
 
     // Web-parity UIs. These live on PlayerUI so packet handlers and the input
     // loop can reach them via realmManager.state.pui.<name>.
@@ -248,9 +419,8 @@ public class PlayerUI {
     private int layoutEquipY    = 408;
     private int layoutBagTabY   = 478;
     private int layoutBag1Y     = 506;
-    private int layoutBag2Y     = 506 + SLOT_SIZE + SLOT_GAP;
-    private int layoutPotionY   = 506 + (SLOT_SIZE + SLOT_GAP) * 2 + 8;
-    private int layoutNearbyY   = 506 + (SLOT_SIZE + SLOT_GAP) * 2 + 8 + SLOT_SIZE + 16;
+    private int layoutPotionY   = 506 + (SLOT_SIZE + SLOT_GAP) * 4 + 10;
+    private int layoutNearbyY   = 506 + (SLOT_SIZE + SLOT_GAP) * 4 + 10 + SLOT_SIZE + 16;
 
     public PlayerUI(PlayState p) {
         int panelWidth = OpenRealmGame.width / 5;
@@ -267,7 +437,7 @@ public class PlayerUI {
         this.xp = new FillBars(p.getPlayer(), new Vector2f(startX, barY + barHeight * 2),
                 panelWidth, barHeight, "getExperiencePercent", Color.DARK_GRAY, new Color(1.0f, 0.5f, 0.0f, 1.0f));
         this.groundLoot = new Slots[10];
-        this.inventory = new Slots[20];
+        this.inventory = new Slots[Player.INVENTORY_SIZE];
         this.playerChat = new PlayerChat(p);
         this.minimap = new Minimap(p);
     }
@@ -288,9 +458,12 @@ public class PlayerUI {
         this.layoutStatsY   = this.layoutBarsY + 22 * 3 + 8;      // 3-row stats
         this.layoutEquipY   = this.layoutStatsY + 22 * 3 + 14;
         this.layoutBagTabY  = this.layoutEquipY + SLOT_SIZE + 18;
-        this.layoutBag1Y    = this.layoutBagTabY + 24 + 4;
-        this.layoutBag2Y    = this.layoutBag1Y + SLOT_SIZE + SLOT_GAP;
-        this.layoutPotionY  = this.layoutBag2Y + SLOT_SIZE + 10;
+        this.layoutBag1Y    = this.layoutBagTabY + 24 + 4;       // top row of the page
+        // The inventory page is now 4 rows tall (5×4 = 20 slots) — push the
+        // potion row and nearby panel below the full page so they don't
+        // overlap the taller grid.
+        final int pageBottomY = this.layoutBag1Y + 4 * (SLOT_SIZE + SLOT_GAP);
+        this.layoutPotionY  = pageBottomY + 10;
         this.layoutNearbyY  = this.layoutPotionY + 56 + 14;
     }
 
@@ -305,6 +478,15 @@ public class PlayerUI {
         final int rowW = slots * SLOT_SIZE + (slots - 1) * SLOT_GAP;
         final int rowStart = startX + (panelW - rowW) / 2;
         return rowStart + col * (SLOT_SIZE + SLOT_GAP);
+    }
+
+    /** Legacy-fallback page grid: 5 columns × 4 rows. Column X reuses slotX
+     *  (already EQUIPMENT_SLOT_COUNT-wide); rows stack down from layoutBag1Y. */
+    private int legacyPageColX(int cell) {
+        return this.slotX(cell % 5);
+    }
+    private int legacyPageRowY(int cell) {
+        return this.layoutBag1Y + (cell / 5) * (SLOT_SIZE + SLOT_GAP);
     }
 
     private int groundLootRowY(int row) {
@@ -631,9 +813,14 @@ public class PlayerUI {
 
         if (item != null) {
             final int actualIdx = index + inventoryOffset;
-            final int col = (index > 3) ? index - 4 : index;
-            final int y = (index > 3) ? this.layoutBag2Y : this.layoutBag1Y;
-            Button b = new Button(new Vector2f(this.slotX(col), y), SLOT_SIZE);
+            // Seed at this item's cell within its page (renderSpriteHud /
+            // the legacy render then reposition each frame). index is the
+            // backpack offset (0..BACKPACK_SIZE-1); cell-within-page is a
+            // 5×4 grid.
+            final int cell = index % INV_PAGE_SIZE;
+            final int x = this.legacyPageColX(cell);
+            final int y = this.legacyPageRowY(cell);
+            Button b = new Button(new Vector2f(x, y), SLOT_SIZE);
 
             b.onRightClick(event -> {
                 // Right-click on inventory slot = drop the item to ground
@@ -716,31 +903,6 @@ public class PlayerUI {
         }
     }
 
-    private int getOverlapIdx(Vector2f pos) {
-        // Hit-test the primary backpack page (8 slots starting after equipment).
-        final int base = Player.EQUIPMENT_SLOT_COUNT;
-        Slots[] equipSlots = this.getSlots(base, base + 8);
-        int returnIdx = -1;
-        for (int i = 0; i < equipSlots.length; i++) {
-            Slots s = equipSlots[i];
-            if ((s == null) || (s.getButton() == null)) continue;
-            if (s.getButton().getBounds().inside((int) pos.x, (int) pos.y)) {
-                returnIdx = i;
-            }
-        }
-        return returnIdx + base;
-    }
-
-    private Slots getOverlapping(Vector2f pos) {
-        Slots[] equipSlots = this.getSlots(0, Player.EQUIPMENT_SLOT_COUNT + 8);
-        for (Slots s : equipSlots) {
-            if ((s == null) || (s.getButton() == null)) continue;
-            if (s.getButton().getBounds().inside((int) pos.x, (int) pos.y))
-                return s;
-        }
-        return null;
-    }
-
     public void update(double time) {
         // Tick the deferred trade-overlay close timer. When the server
         // closes a completed trade we keep the overlay rendered for ~1s
@@ -793,7 +955,13 @@ public class PlayerUI {
         // tab click doesn't get swallowed by a slot underneath. Position
         // math mirrors the render() tab strip exactly so click bounds and
         // visual bounds line up.
-        this.handleBagTabClick(mouse);
+        // Sprite-HUD inv page tabs (MAIN / BACKPACK) take precedence when the
+        // atlas HUD is live; the legacy sidebar tab handler covers the fallback.
+        if (UiAtlas.isReady()) {
+            this.handleInvPageTabClick(mouse);
+        } else {
+            this.handleBagTabClick(mouse);
+        }
 
         // Minimap zoom + click-to-teleport — runs before drag-drop so a
         // click that lands on the minimap doesn't get consumed by a slot.
@@ -1141,7 +1309,7 @@ public class PlayerUI {
 
     /** Lazy-construct the 8 click-targets that overlay my-side trade
      *  cells. Click toggles selection on inventory[i + EQUIPMENT_SLOT_COUNT]
-     *  (= the first 8 backpack slots — BAG 1) and fires
+     *  (= the first 8 backpack slots of the MAIN page) and fires
      *  UpdatePlayerTradeSelectionPacket. Position is updated each frame
      *  by {@link #renderTradeUI}. */
     private void ensureTradeMyButtons(int leftX, int bodyY, UiComponent cInv) {
@@ -1176,11 +1344,12 @@ public class PlayerUI {
         }
     }
 
-    // Reusable position vectors for slot rendering to avoid per-frame allocations
-    private final Vector2f[] slotPositions = new Vector2f[20];
+    // Reusable position vectors for slot rendering to avoid per-frame
+    // allocations: 5 equipment (0..4) + 20 inventory page cells (5..24).
+    private final Vector2f[] slotPositions = new Vector2f[Player.EQUIPMENT_SLOT_COUNT + INV_PAGE_SIZE];
     private final Vector2f[] groundLootPositions = new Vector2f[10];
     {
-        for (int i = 0; i < 20; i++) slotPositions[i] = new Vector2f();
+        for (int i = 0; i < slotPositions.length; i++) slotPositions[i] = new Vector2f();
         for (int i = 0; i < 10; i++) groundLootPositions[i] = new Vector2f();
     }
 
@@ -1198,13 +1367,13 @@ public class PlayerUI {
         if (this.mp != null) { this.mp.getPos().x = barX;  this.mp.getPos().y = this.layoutBarsY + barH;   this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
         if (this.xp != null) { this.xp.getPos().x = barX;  this.xp.getPos().y = this.layoutBarsY + barH*2; this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
 
-        // Web-parity inventory: 4 equipment + 8 BAG 1 + 8 BAG 2 = 20 slots.
-        // Only the currently-active bag's 8 slots are rendered, the other
-        // bag is hidden behind its tab.
+        // Web-parity inventory: 5 equipment + one 20-slot page (MAIN 5..24 or
+        // BACKPACK 25..44) paged by activeBag. Only the active page's 20 slots
+        // are on screen; the other page is hidden behind its tab.
         Slots[] equips = this.getSlots(0, Player.EQUIPMENT_SLOT_COUNT);
-        final int bagBase = (this.activeBag == 0) ? 4 : 12;
-        Slots[] inv1 = this.getSlots(bagBase,     bagBase + 4);
-        Slots[] inv2 = this.getSlots(bagBase + 4, bagBase + 8);
+        final int bagBase = INV_PAGE_BASE + this.activeBag * INV_PAGE_SIZE;
+        final Slots[] page = this.getSlots(bagBase,
+                Math.min(bagBase + INV_PAGE_SIZE, this.inventory.length));
 
         // Sprite-HUD migration: when the atlas is loaded, draw the new
         // sprite-based HUD here and skip the legacy sidebar block below.
@@ -1246,15 +1415,15 @@ public class PlayerUI {
         shapes.rect(startX + PANEL_INSET, this.layoutStatsY - 4,
                 panelWidth - 2 * PANEL_INSET, statsH);
 
-        // Equipment slot backgrounds — uniform grey for ALL 4 slots
+        // Equipment slot backgrounds — uniform grey for ALL equipment slots
         // regardless of whether they hold an item, so empty slots don't
         // show the dark panel underneath. Slots are spread across the
-        // full HUD column width via slotX(i) which now divides the
-        // usable width into 4 equal cells.
+        // full HUD column width via slotX(i) which divides the usable
+        // width into EQUIPMENT_SLOT_COUNT equal cells.
         final Color cSlotBg     = new Color(0.18f, 0.16f, 0.18f, 1f);
         final Color cSlotBorder = new Color(0.30f, 0.24f, 0.28f, 1f);
         final Color cSlotSelected = new Color(0.55f, 0.45f, 0.18f, 1f);
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < Player.EQUIPMENT_SLOT_COUNT; i++) {
             final Slots curr = equips[i];
             float sx, sy;
             if (curr != null && curr.getDragPos() != null) {
@@ -1272,18 +1441,18 @@ public class PlayerUI {
             shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
         }
 
-        // BAG 1 / BAG 2 tab strip — split-tab look (active = tan, inactive = muted)
+        // MAIN / BACKPACK tab strip — split-tab look (active = tan, inactive = muted)
         final int tabY = this.layoutBagTabY;
         final int tabH = 24;
         final int tabW = (panelWidth - 2 * PANEL_INSET) / 2;
         final int tab1X = startX + PANEL_INSET;
         final int tab2X = startX + PANEL_INSET + tabW;
-        // BAG 1 tab
+        // MAIN tab
         shapes.setColor(this.activeBag == 0 ? 0.20f : 0.10f,
                         this.activeBag == 0 ? 0.15f : 0.08f,
                         this.activeBag == 0 ? 0.10f : 0.10f, 0.95f);
         shapes.rect(tab1X, tabY, tabW, tabH);
-        // BAG 2 tab
+        // BACKPACK tab
         shapes.setColor(this.activeBag == 1 ? 0.20f : 0.10f,
                         this.activeBag == 1 ? 0.15f : 0.08f,
                         this.activeBag == 1 ? 0.10f : 0.10f, 0.95f);
@@ -1292,36 +1461,20 @@ public class PlayerUI {
         shapes.setColor(cAccent);
         shapes.rect(this.activeBag == 0 ? tab1X : tab2X, tabY + tabH - 2, tabW, 2);
 
-        // Inventory rows — same uniform grey bg pattern as equipment so the
-        // grid reads as one coherent surface regardless of which slots hold
-        // items. Webclient #inventory-panel does the same: every slot has
-        // the same .item-slot background, hover/selection adds a tint.
-        for (int i = 0; i < 4; i++) {
-            final Slots curr = inv1[i];
+        // Inventory page grid — one 5×4 page of 20 cells, paged by activeBag.
+        // Same uniform grey bg pattern as equipment so the grid reads as one
+        // coherent surface regardless of which slots hold items.
+        for (int i = 0; i < page.length; i++) {
+            final Slots curr = page[i];
             float sx, sy;
             if (curr != null && curr.getDragPos() != null) {
                 sx = curr.getDragPos().x;
                 sy = curr.getDragPos().y;
             } else {
-                sx = this.slotX(i);
-                sy = this.layoutBag1Y;
+                sx = this.legacyPageColX(i);
+                sy = this.legacyPageRowY(i);
             }
-            final Vector2f pos = slotPositions[4 + i];
-            pos.x = sx; pos.y = sy;
-            shapes.setColor(curr != null && curr.isSelected() ? cSlotSelected : cSlotBg);
-            shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
-        }
-        for (int i = 0; i < 4; i++) {
-            final Slots curr = inv2[i];
-            float sx, sy;
-            if (curr != null && curr.getDragPos() != null) {
-                sx = curr.getDragPos().x;
-                sy = curr.getDragPos().y;
-            } else {
-                sx = this.slotX(i);
-                sy = this.layoutBag2Y;
-            }
-            final Vector2f pos = slotPositions[8 + i];
+            final Vector2f pos = slotPositions[Player.EQUIPMENT_SLOT_COUNT + i];
             pos.x = sx; pos.y = sy;
             shapes.setColor(curr != null && curr.isSelected() ? cSlotSelected : cSlotBg);
             shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
@@ -1390,15 +1543,15 @@ public class PlayerUI {
         // `tabY + (tabH + gl.height)/2`, which puts the glyph visually centered
         // in the tab rect rather than sitting on its bottom edge.
         GlyphLayout gl = new GlyphLayout();
-        gl.setText(font, "BAG 1");
+        gl.setText(font, "MAIN");
         float bagY = tabY + (tabH + gl.height) / 2f - 10f;
         font.setColor(this.activeBag == 0 ? cAccent : cMuted);
         float bag1X = tab1X + (tabW - gl.width) / 2f;
-        font.draw(batch, "BAG 1", bag1X, bagY);
+        font.draw(batch, "MAIN", bag1X, bagY);
         font.setColor(this.activeBag == 1 ? cAccent : cMuted);
-        gl.setText(font, "BAG 2");
+        gl.setText(font, "BACKPACK");
         float bag2X = tab2X + (tabW - gl.width) / 2f;
-        font.draw(batch, "BAG 2", bag2X, bagY);
+        font.draw(batch, "BACKPACK", bag2X, bagY);
         font.setColor(Color.WHITE);
 
         // HP / MP potion labels + counts + hotkey hints (Z drinks HP, X drinks MP).
@@ -1427,12 +1580,9 @@ public class PlayerUI {
             if (equips[i] != null) equips[i].renderItem(batch, slotPositions[i]);
         }
 
-        // Inventory items
-        for (int i = 0; i < inv1.length; i++) {
-            if (inv1[i] != null) inv1[i].renderItem(batch, slotPositions[4 + i]);
-        }
-        for (int i = 0; i < inv2.length; i++) {
-            if (inv2[i] != null) inv2[i].renderItem(batch, slotPositions[8 + i]);
+        // Inventory page items
+        for (int i = 0; i < page.length; i++) {
+            if (page[i] != null) page[i].renderItem(batch, slotPositions[Player.EQUIPMENT_SLOT_COUNT + i]);
         }
 
         // Ground loot items
@@ -1447,11 +1597,8 @@ public class PlayerUI {
         // draws the .item-stack span over the item face for stackable items
         // with count > 1. Only inventory + ground-loot stacks make sense
         // (equipment is non-stackable in the current item set).
-        for (int i = 0; i < inv1.length; i++) {
-            if (inv1[i] != null) inv1[i].renderStackCount(batch, font, slotPositions[4 + i]);
-        }
-        for (int i = 0; i < inv2.length; i++) {
-            if (inv2[i] != null) inv2[i].renderStackCount(batch, font, slotPositions[8 + i]);
+        for (int i = 0; i < page.length; i++) {
+            if (page[i] != null) page[i].renderStackCount(batch, font, slotPositions[Player.EQUIPMENT_SLOT_COUNT + i]);
         }
         if (!this.isTrading) {
             for (int i = 0; i < this.groundLoot.length; i++) {
@@ -2573,7 +2720,13 @@ public class PlayerUI {
 
         // On mouse release while dragging
         if (!mouse.isPressed(1) && this.isDragging) {
-            int targetIndex = this.findSlotAtPositionByLayout(mouseX, mouseY);
+            // Drag onto the OTHER page's tab → relocate to that page's first
+            // empty slot (webclient parity). Falls through to normal slot
+            // hit-testing when the release isn't over a tab.
+            int targetIndex = this.tabDropTargetSlot(mouseX, mouseY);
+            if (targetIndex < 0) {
+                targetIndex = this.findSlotAtPositionByLayout(mouseX, mouseY);
+            }
             this.executeDrop(this.dragSourceIndex, targetIndex);
             this.isDragging = false;
             this.dragSourceIndex = -1;
@@ -2617,19 +2770,19 @@ public class PlayerUI {
                     }
                 }
             }
-            // Backpack grid (16 cells, indices 5..20 on the wire).
+            // Backpack page grid (20 cells). Each visible cell maps to the
+            // real slot pageSlotIndex(cell) so the Backpack tab targets 25..44.
             final UiComponent cInvOnly = UiAtlas.componentOf("panel.hud.inv_only");
-            final int[][] invCells = UiAtlas.gridCells("panel.hud.inv_only.grid");
-            if (cInvOnly != null && invCells != null) {
-                final int backpackBase = Player.EQUIPMENT_SLOT_COUNT;
-                for (int i = 0; i < invCells.length; i++) {
-                    final int[] cell = invCells[i];
-                    final int cx = (int)(this.spriteHudInvOnlyX + (cell[0] - cInvOnly.getX()) * s);
-                    final int cy = (int)(this.spriteHudInvOnlyY + (cell[1] - cInvOnly.getY()) * s);
-                    final int cw = (int)(cell[2] * s);
-                    final int ch = (int)(cell[3] * s);
+            if (cInvOnly != null) {
+                final float[][] invRects = this.invPageCellRects(cInvOnly,
+                        this.spriteHudInvOnlyX, this.spriteHudInvOnlyY, s);
+                for (int i = 0; i < invRects.length; i++) {
+                    final int cx = (int) invRects[i][0];
+                    final int cy = (int) invRects[i][1];
+                    final int cw = (int) invRects[i][2];
+                    final int ch = (int) invRects[i][3];
                     if (mouseX >= cx && mouseX < cx + cw && mouseY >= cy && mouseY < cy + ch) {
-                        return backpackBase + i;
+                        return this.pageSlotIndex(i);
                     }
                 }
             }
@@ -2653,30 +2806,38 @@ public class PlayerUI {
             return -1;
         }
 
-        // Legacy sidebar fallback. Pre-Phase-1B layout (4 equipment, 2 bag
-        // rows of 4, 2 loot rows of 4). Kept so the game still renders if
-        // the atlas fails to load. Indices match the wire protocol where
-        // possible — equipment 0..4 (only 4 hit-tested), backpack 5..12
-        // (only 8 hit-tested via i+5), ground loot 21..28.
+        // Legacy sidebar fallback (atlas not ready). Post-Phase-1B layout:
+        // 5 equipment slots (0..4) and one 5×4 inventory page paged by
+        // activeBag → real slot pageSlotIndex(cell). Ground loot is a 4×2
+        // grid at the bottom. Indices match the wire protocol.
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
         if (mouseX < startX || mouseX > OpenRealmGame.width) return -1;
         int col = -1;
-        for (int c = 0; c < 4; c++) {
+        for (int c = 0; c < Player.EQUIPMENT_SLOT_COUNT; c++) {
             int sx = this.slotX(c);
             if (mouseX >= sx && mouseX < sx + SLOT_SIZE) { col = c; break; }
         }
-        if (col < 0) return -1;
-        if (mouseY >= this.layoutEquipY && mouseY < this.layoutEquipY + SLOT_SIZE) return col;
-        if (mouseY >= this.layoutBag1Y  && mouseY < this.layoutBag1Y  + SLOT_SIZE)
-            return Player.EQUIPMENT_SLOT_COUNT + col;
-        if (mouseY >= this.layoutBag2Y  && mouseY < this.layoutBag2Y  + SLOT_SIZE)
-            return Player.EQUIPMENT_SLOT_COUNT + 4 + col;
-        int gl0 = this.groundLootRowY(0);
-        int gl1 = this.groundLootRowY(1);
-        final int groundBase = MoveItemPacket.groundLootBase();
-        if (mouseY >= gl0 && mouseY < gl0 + SLOT_SIZE) return groundBase + col;
-        if (mouseY >= gl1 && mouseY < gl1 + SLOT_SIZE) return groundBase + 4 + col;
+        if (col >= 0 && mouseY >= this.layoutEquipY && mouseY < this.layoutEquipY + SLOT_SIZE) {
+            return col;
+        }
+        // Inventory page: 5 columns × 4 rows down from layoutBag1Y.
+        if (col >= 0 && col < 5) {
+            for (int row = 0; row < 4; row++) {
+                final int ry = this.layoutBag1Y + row * (SLOT_SIZE + SLOT_GAP);
+                if (mouseY >= ry && mouseY < ry + SLOT_SIZE) {
+                    return this.pageSlotIndex(row * 5 + col);
+                }
+            }
+        }
+        // Ground loot — 4 columns × 2 rows.
+        if (col >= 0 && col < 4) {
+            int gl0 = this.groundLootRowY(0);
+            int gl1 = this.groundLootRowY(1);
+            final int groundBase = MoveItemPacket.groundLootBase();
+            if (mouseY >= gl0 && mouseY < gl0 + SLOT_SIZE) return groundBase + col;
+            if (mouseY >= gl1 && mouseY < gl1 + SLOT_SIZE) return groundBase + 4 + col;
+        }
         return -1;
     }
 
@@ -2692,7 +2853,7 @@ public class PlayerUI {
         // dropzones). Without this, drag-drop into the forge silently
         // fell through to executeDrop's normal swap path and the forge
         // slots stayed empty no matter what the player tried.
-        if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex <= 24) {
+        if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex < this.inventory.length) {
             final int mx = com.badlogic.gdx.Gdx.input.getX();
             final int my = com.badlogic.gdx.Gdx.input.getY();
             final Slots srcSlot = this.inventory[fromIndex];
@@ -2717,7 +2878,7 @@ public class PlayerUI {
         // Inventory→storage moves go through PotionStorageMovePacket, not
         // the normal MoveItemPacket pipeline, because the storage state
         // lives off-inventory on the server.
-        if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex <= 24) {
+        if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex < this.inventory.length) {
             final int mx = com.badlogic.gdx.Gdx.input.getX();
             final int my = com.badlogic.gdx.Gdx.input.getY();
             if (this.potionStorageWindow.tryAcceptDrop(mx, my, fromIndex)) {
@@ -3122,20 +3283,24 @@ public class PlayerUI {
             this.drawHudItemIcon(batch, this.getInventoryItem(i),
                     ex, ey, eq.getW() * s, eq.getH() * s);
         }
-        final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
-        // Backpack starts at EQUIPMENT_SLOT_COUNT (5) after Phase 1B — used to
-        // be 4. Without this shift, the first backpack cell overwrote slot 4
-        // (ring) and the ring slot button hung at its initial slotX()/
-        // layoutEquipY position, ending up floating mid-screen.
-        final int backpackBase = Player.EQUIPMENT_SLOT_COUNT;
-        for (int i = 0; i < cells.length; i++) {
-            final int[] cell = cells[i];
-            final float cx = invOnlyX + (cell[0] - cInvOnly.getX()) * s;
-            final float cy = invOnlyY + (cell[1] - cInvOnly.getY()) * s;
-            this.repositionSlotButton(this.inventory, backpackBase + i, cx, cy);
-            this.drawHudItemIcon(batch, this.getInventoryItem(backpackBase + i),
-                    cx, cy, cell[2] * s, cell[3] * s);
+        // Inventory page grid — 20 cells (5×4) paged by activeBag. Each
+        // visible cell c maps to real slot pageSlotIndex(c) = 5 + page*20 + c
+        // so MAIN shows 5..24 and BACKPACK shows 25..44. Cell rects come from
+        // invPageCellRects (atlas grid when it carries 20 cells, else a
+        // synthesized 5×4 grid so the offline V1 atlas still pages cleanly).
+        final float[][] invRects = this.invPageCellRects(cInvOnly, invOnlyX, invOnlyY, s);
+        for (int i = 0; i < invRects.length; i++) {
+            final float cx = invRects[i][0];
+            final float cy = invRects[i][1];
+            final float cw = invRects[i][2];
+            final float ch = invRects[i][3];
+            final int slotIdx = this.pageSlotIndex(i);
+            this.repositionSlotButton(this.inventory, slotIdx, cx, cy);
+            this.drawHudItemIcon(batch, this.getInventoryItem(slotIdx), cx, cy, cw, ch);
         }
+        // MAIN / BACKPACK page tabs in the inv_only panel header strip.
+        this.renderInvPageTabs(batch, shapes, font, cInvOnly, invOnlyX, invOnlyY,
+                invRects, s);
 
         // Bottom-center hotbar (panel.hud.equipment) — mirrors webclient
         // ui-widgets.updateAbilityBar layout:
