@@ -60,6 +60,14 @@ public class Player extends Entity {
 	private String characterUuid;
 	private long experience;
 	private Stats stats;
+	// True once an UpdatePacket has populated this.stats. The server packs
+	// getComputedStats() onto the wire (base + equipment + enchantments + gems
+	// + active buffs), so a client that received it must NOT re-sum equipment
+	// in getComputedStats() — doing so double-counts every equipped item's
+	// stats (and the per-stat scaling gems baked into them). The embedded
+	// server role leaves this false: there this.stats is the raw base loaded
+	// from the DB, so re-summing is correct.
+	private transient boolean statsServerComputed = false;
 	private boolean headless;
 	@Builder.Default
 	private boolean bot = false;
@@ -170,7 +178,8 @@ public class Player extends Entity {
 	}
 
 	public Player(GameItem[] inventory, long lastStatsTime, LootContainer currentLootContainer, int classId,
-			String accountUuid, String characterUuid, long experience, Stats stats, boolean headless, boolean bot,
+			String accountUuid, String characterUuid, long experience, Stats stats, boolean statsServerComputed,
+			boolean headless, boolean bot,
 			String chatRole, int lastInputSeq, int lastProcessedInputSeq, float currentVx, float currentVy,
 			Queue<float[]> inputQueue, int hpPotions, int mpPotions, int dyeId, long cachedAccountFame,
 			float renderX, float renderY,
@@ -185,6 +194,7 @@ public class Player extends Entity {
 		this.characterUuid = characterUuid;
 		this.experience = experience;
 		this.stats = stats;
+		this.statsServerComputed = statsServerComputed;
 		this.headless = headless;
 		this.bot = bot;
 		this.chatRole = chatRole;
@@ -484,6 +494,13 @@ public class Player extends Entity {
 	public Stats getComputedStats() {
 		if (this.stats == null)
 			return new Stats();
+		// The server already sent fully-computed stats (base + equipment +
+		// enchantments + scaling gems + buffs) and applyUpdate stored them in
+		// this.stats. Re-summing equipment here would double-count it, which is
+		// why the native client read a higher DEX than the server/webclient.
+		// Mirror the webclient: trust the wire value.
+		if (this.statsServerComputed)
+			return this.stats.clone();
 		Stats stats = this.stats.clone();
 		GameItem[] equipment = this.getSlots(0, EQUIPMENT_SLOT_COUNT);
 		for (GameItem item : equipment) {
@@ -940,6 +957,7 @@ public class Player extends Entity {
 	public void applyUpdate(UpdatePacket packet, PlayState state) {
 		this.name = packet.getPlayerName();
 		this.stats = packet.getStats().asStats();
+		this.statsServerComputed = true;
 		this.inventory = packet.getInventory() == null ? null
 				: IOService.mapModel(packet.getInventory(), GameItem[].class);
 		if (this.inventory != null) {

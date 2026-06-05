@@ -141,6 +141,8 @@ public class GameItem extends SpriteModel {
         itemFinal.setRow(this.getRow());
         itemFinal.setCol(this.getCol());
         itemFinal.setSpriteKey(this.getSpriteKey());
+        itemFinal.setSpriteSize(this.getSpriteSize());
+        itemFinal.setSpriteHeight(this.getSpriteHeight());
 
         return itemFinal;
     }
@@ -150,6 +152,8 @@ public class GameItem extends SpriteModel {
         this.setCol(model.getCol());
         this.setAngleOffset(model.getAngleOffset());
         this.setSpriteKey(model.getSpriteKey());
+        this.setSpriteSize(model.getSpriteSize());
+        this.setSpriteHeight(model.getSpriteHeight());
     }
 
     public GameItemRefDto toGameItemRefDto(int idx) {

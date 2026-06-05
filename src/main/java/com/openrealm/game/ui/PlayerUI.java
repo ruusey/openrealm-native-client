@@ -229,6 +229,28 @@ public class PlayerUI {
         return INV_PAGE_BASE + this.activeBag * INV_PAGE_SIZE + cell;
     }
 
+    /** Off-screen parking coordinate for hidden slot buttons. Far enough
+     *  outside the window that Button.bounds.inside() never matches. */
+    private static final float OFFSCREEN_PARK = -100000f;
+
+    /** Move every backpack slot button NOT on the active page off-screen so
+     *  only the visible page (plus the always-visible equipment row) hit-tests
+     *  clicks and drags. Equipment slots 0..EQUIPMENT_SLOT_COUNT-1 are left in
+     *  place; they are always on screen. */
+    private void parkInactivePageButtons() {
+        if (this.inventory == null) return;
+        final int activeBase = INV_PAGE_BASE + this.activeBag * INV_PAGE_SIZE;
+        final int activeEnd = activeBase + INV_PAGE_SIZE;
+        for (int i = INV_PAGE_BASE; i < this.inventory.length; i++) {
+            if (i >= activeBase && i < activeEnd) continue;
+            final Slots slot = this.inventory[i];
+            if (slot == null || slot.getButton() == null) continue;
+            if (slot.getDragPos() != null) continue;
+            slot.getButton().getPos().x = OFFSCREEN_PARK;
+            slot.getButton().getPos().y = OFFSCREEN_PARK;
+        }
+    }
+
     /** First empty backpack slot on the given page, or -1 if the page is full. */
     private int firstEmptyOnPage(int page) {
         final int base = INV_PAGE_BASE + page * INV_PAGE_SIZE;
@@ -360,31 +382,31 @@ public class PlayerUI {
         boolean justClicked = down && !this.prevInvTabMouseDown;
         this.prevInvTabMouseDown = down;
         if (!justClicked) return;
-        final int mx = mouse.getX();
-        final int my = mouse.getY();
-        if (mx >= this.spriteHudTabMainX && mx < this.spriteHudTabMainX + this.spriteHudTabMainW
-                && my >= this.spriteHudTabMainY && my < this.spriteHudTabMainY + this.spriteHudTabMainH) {
-            this.activeBag = 0;
-        } else if (mx >= this.spriteHudTabBackX && mx < this.spriteHudTabBackX + this.spriteHudTabBackW
-                && my >= this.spriteHudTabBackY && my < this.spriteHudTabBackY + this.spriteHudTabBackH) {
-            this.activeBag = 1;
-        }
+        final int page = this.tabHitPage(mouse.getX(), mouse.getY());
+        if (page >= 0) this.activeBag = page;
     }
     private boolean prevInvTabMouseDown = false;
 
-    /** If a drag is released over the OTHER page's tab, return that page's
-     *  first-empty real slot index (or -1 if no tab hit / page full). Mirrors
-     *  the webclient drag-onto-tab relocate behavior. */
-    private int tabDropTargetSlot(int mouseX, int mouseY) {
+    /** Page index (0 = MAIN, 1 = BACKPACK) whose tab rect contains the point,
+     *  or -1 if the point is over neither tab. */
+    private int tabHitPage(int mouseX, int mouseY) {
         if (!this.spriteHudTabsEnabled) return -1;
-        int page = -1;
         if (mouseX >= this.spriteHudTabMainX && mouseX < this.spriteHudTabMainX + this.spriteHudTabMainW
                 && mouseY >= this.spriteHudTabMainY && mouseY < this.spriteHudTabMainY + this.spriteHudTabMainH) {
-            page = 0;
-        } else if (mouseX >= this.spriteHudTabBackX && mouseX < this.spriteHudTabBackX + this.spriteHudTabBackW
-                && mouseY >= this.spriteHudTabBackY && mouseY < this.spriteHudTabBackY + this.spriteHudTabBackH) {
-            page = 1;
+            return 0;
         }
+        if (mouseX >= this.spriteHudTabBackX && mouseX < this.spriteHudTabBackX + this.spriteHudTabBackW
+                && mouseY >= this.spriteHudTabBackY && mouseY < this.spriteHudTabBackY + this.spriteHudTabBackH) {
+            return 1;
+        }
+        return -1;
+    }
+
+    /** If a drag is released over a page tab, return that page's first-empty
+     *  real slot index (or -1 if no tab hit / page full). Mirrors the
+     *  webclient drag-onto-tab relocate behavior. */
+    private int tabDropTargetSlot(int mouseX, int mouseY) {
+        final int page = this.tabHitPage(mouseX, mouseY);
         if (page < 0) return -1;
         return this.firstEmptyOnPage(page);
     }
@@ -2723,11 +2745,18 @@ public class PlayerUI {
             // Drag onto the OTHER page's tab → relocate to that page's first
             // empty slot (webclient parity). Falls through to normal slot
             // hit-testing when the release isn't over a tab.
+            final int dropPage = this.tabHitPage(mouseX, mouseY);
             int targetIndex = this.tabDropTargetSlot(mouseX, mouseY);
             if (targetIndex < 0) {
                 targetIndex = this.findSlotAtPositionByLayout(mouseX, mouseY);
             }
             this.executeDrop(this.dragSourceIndex, targetIndex);
+            // Relocating onto a page tab: switch to that page so the moved
+            // item is visible where it landed instead of silently jumping to
+            // the hidden page.
+            if (dropPage >= 0 && targetIndex >= 0) {
+                this.activeBag = dropPage;
+            }
             this.isDragging = false;
             this.dragSourceIndex = -1;
             this.dragStartPos = null;
@@ -3289,6 +3318,13 @@ public class PlayerUI {
         // invPageCellRects (atlas grid when it carries 20 cells, else a
         // synthesized 5×4 grid so the offline V1 atlas still pages cleanly).
         final float[][] invRects = this.invPageCellRects(cInvOnly, invOnlyX, invOnlyY, s);
+        // Park the hidden page's slot buttons off-screen first. Only the
+        // active page's 20 slots get repositioned onto the grid below; the
+        // other page keeps its buttons at the SAME grid coords from when it
+        // was last visible, so both pages' buttons would overlap the same
+        // cells and drag/click would resolve to whichever real index is lower
+        // (the hidden page), moving the wrong item.
+        this.parkInactivePageButtons();
         for (int i = 0; i < invRects.length; i++) {
             final float cx = invRects[i][0];
             final float cy = invRects[i][1];
