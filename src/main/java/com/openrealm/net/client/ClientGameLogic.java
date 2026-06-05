@@ -303,14 +303,21 @@ public class ClientGameLogic {
 			// Webclient parity: game.handleLoadMap never touches entity
 			// state; renderer.prepareForNewRealm only clears the PIXI pool.
 			final boolean isInitialConnect = (prevRealmId == 0L);
+			// Reset the tile grid (and thus the minimap, which rebuilds from it)
+			// on ANY new map: a realm/map id change, OR a client-initiated
+			// transition that rebuilt the TileManager via Realm.loadMap. The latter
+			// catches a nested dungeon that reuses the parent's realm/map id, where
+			// realmChanged stays false. Mirrors the web mapGridReset signal.
+			final boolean mapGridReset = realmChanged || cli.getRealm().isTileGridRebuilt();
+			cli.getRealm().setTileGridRebuilt(false);
 
 			cli.getState().getPui().getMinimap().initializeMap((int) loadPacket.getMapId());
 			cli.getRealm().setRealmId(loadPacket.getRealmId());
 			cli.getRealm().setMapId(loadPacket.getMapId());
-			// Zero the tile layers + fog-of-war on any realm transition so a nested
-			// dungeon (same map dimensions, new realm id) doesn't inherit the prior
-			// realm's tiles bleeding through on the minimap.
-			if (realmChanged) {
+			// Zero the tile layers + fog-of-war on any transition so a nested
+			// dungeon doesn't inherit the prior realm's tiles bleeding through
+			// on the minimap.
+			if (mapGridReset) {
 				cli.getRealm().getTileManager().resetTiles((int) loadPacket.getMapId());
 			}
 			cli.getRealm().getTileManager().mergeMap(loadPacket);

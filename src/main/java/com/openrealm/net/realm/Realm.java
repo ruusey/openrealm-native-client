@@ -68,6 +68,12 @@ public class Realm {
     public static final transient SecureRandom RANDOM = new SecureRandom();
     private long realmId;
     private int mapId;
+    // Client-only: set true when loadMap() rebuilds the tile grid on a
+    // client-initiated transition, consumed by the next LoadMap handler so the
+    // minimap/tiles reset even when the new realm reuses the prior realm/map id
+    // (e.g. a nested dungeon). Mirrors the web client nulling mapTiles in
+    // prepareRealmTransition. Server side never reads it.
+    private boolean tileGridRebuilt;
     private String nodeId;
     // For non-shared dungeon instances, the realmId of the parent (overworld / nexus)
     // realm the player came from. Used by the cowardice portal and the boss-drop exit
@@ -436,6 +442,7 @@ public class Realm {
             this.tileManager = new TileManager(mapId);
         } else {
             this.tileManager = new TileManager(GameDataManager.MAPS.get(mapId));
+            this.tileGridRebuilt = true;
         }
     }
     
