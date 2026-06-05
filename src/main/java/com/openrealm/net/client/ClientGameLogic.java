@@ -563,6 +563,12 @@ public class ClientGameLogic {
 			entries.add(new FameStoreWindow.Entry(834, "Slowing Gem",        GEM_COST));
 			entries.add(new FameStoreWindow.Entry(835, "Vampiric Gem",       GEM_COST));
 			entries.add(new FameStoreWindow.Entry(836, "Brutal Gem",         GEM_COST));
+			entries.add(new FameStoreWindow.Entry(854, "Attack Scaling Gem",    GEM_COST));
+			entries.add(new FameStoreWindow.Entry(855, "Defense Scaling Gem",   GEM_COST));
+			entries.add(new FameStoreWindow.Entry(856, "Dexterity Scaling Gem", GEM_COST));
+			entries.add(new FameStoreWindow.Entry(857, "Vitality Scaling Gem",  GEM_COST));
+			entries.add(new FameStoreWindow.Entry(858, "Health Scaling Gem",    GEM_COST));
+			entries.add(new FameStoreWindow.Entry(859, "Mana Scaling Gem",      GEM_COST));
 			store.setEntries(entries);
 			store.show();
 		} catch (Exception e) {

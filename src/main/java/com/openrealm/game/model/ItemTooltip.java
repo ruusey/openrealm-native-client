@@ -190,6 +190,12 @@ public class ItemTooltip {
             case 7: return "Crushing Gem";
             case 8: return "Wisdom Scaling Gem";
             case 9: return "Swift Scaling Gem";
+            case 10: return "Attack Scaling Gem";
+            case 11: return "Defense Scaling Gem";
+            case 12: return "Dexterity Scaling Gem";
+            case 13: return "Vitality Scaling Gem";
+            case 14: return "Health Scaling Gem";
+            case 15: return "Mana Scaling Gem";
             default: return "Gem " + typeId;
         }
     }
@@ -211,7 +217,8 @@ public class ItemTooltip {
         switch (this.gemstoneType) {
             case 1: case 2: case 3: case 4: case 5: case 7: return "Weapon";
             case 6: return "Armor, Gauntlet, Boots";
-            case 8: case 9: return "Weapon, Armor, Gauntlet, Boots, Ring";
+            case 8: case 9: case 10: case 11: case 12: case 13: case 14: case 15:
+                return "Weapon, Armor, Gauntlet, Boots, Ring";
             default: return "?";
         }
     }

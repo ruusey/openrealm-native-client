@@ -42,6 +42,11 @@ public class ServerFameStoreHelper {
      *  than a cosmetic / forge consumable. */
     public static final int GEM_ITEM_MIN = 830;
     public static final int GEM_ITEM_MAX = 836;
+    /** Second gem block: the per-stat scaling gems (Attack/Defense/Dexterity/
+     *  Vitality/Health/Mana). Separate range because weapon itemIds occupy
+     *  837-851 between the two gem blocks. */
+    public static final int GEM2_ITEM_MIN = 854;
+    public static final int GEM2_ITEM_MAX = 859;
     /** Per-tier fame costs. Cheapest cosmetics -> expensive gems. Kept as
      *  separate constants (vs. a Map) so a search for the cost name
      *  surfaces every callsite, including the client catalog and the
@@ -57,7 +62,8 @@ public class ServerFameStoreHelper {
     private static boolean isFameStoreItem(int itemId) {
         return (itemId >= DYE_ITEM_MIN     && itemId <= DYE_ITEM_MAX)
             || (itemId >= CRYSTAL_ITEM_MIN && itemId <= CRYSTAL_ITEM_MAX)
-            || (itemId >= GEM_ITEM_MIN     && itemId <= GEM_ITEM_MAX);
+            || (itemId >= GEM_ITEM_MIN     && itemId <= GEM_ITEM_MAX)
+            || (itemId >= GEM2_ITEM_MIN    && itemId <= GEM2_ITEM_MAX);
     }
 
     /** Resolve the fame cost for a sellable item id. Returns -1 for ids
@@ -67,6 +73,7 @@ public class ServerFameStoreHelper {
         if (itemId >= DYE_ITEM_MIN     && itemId <= DYE_ITEM_MAX)     return DYE_FAME_COST;
         if (itemId >= CRYSTAL_ITEM_MIN && itemId <= CRYSTAL_ITEM_MAX) return CRYSTAL_FAME_COST;
         if (itemId >= GEM_ITEM_MIN     && itemId <= GEM_ITEM_MAX)     return GEM_FAME_COST;
+        if (itemId >= GEM2_ITEM_MIN    && itemId <= GEM2_ITEM_MAX)    return GEM_FAME_COST;
         return -1L;
     }
 
