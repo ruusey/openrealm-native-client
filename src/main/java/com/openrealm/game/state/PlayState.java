@@ -2927,6 +2927,12 @@ public class PlayState extends GameState {
             renderWarriorBuff(shapes, cx, cy, maxRadius, t);
             return;
         }
+        // Necromancer Wither / curse cast (non-boss; tier>=10 boss-grenade
+        // handled above) — dark-magic vortex instead of the plain ring.
+        if (type == CreateEffectPacket.EFFECT_CURSE_RADIUS) {
+            renderCurseVortex(shapes, cx, cy, maxRadius, t);
+            return;
+        }
         // BLADE_ORBIT (46) and BLADE_BLENDER (47) are drawn separately in
         // renderShurikenEffects() using real shuriken sprites + SpriteBatch.
         // We early-return so the procedural ring path doesn't paint a
@@ -5065,6 +5071,68 @@ public class PlayState extends GameState {
             shapes.setColor(1f, 1f, 1f, alpha);
             drawCircle(shapes, ex, ey, 1.8f, 8);
         }
+        shapes.end();
+    }
+
+    /** Necromancer Wither / curse cast — dark-magic vortex: translucent void
+     *  zone, expanding shockwave, two counter-rotating rune rings, particles
+     *  spiralling inward, and a pulsing core. Mirrors renderer.js CURSE_RADIUS. */
+    private void renderCurseVortex(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final long now = System.currentTimeMillis();
+        final float tt = now * 0.001f;
+        final float wave = Math.min(1f, t * 3f);
+
+        // Translucent void zone so the AoE reads on the floor.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.165f, 0.04f, 0.227f, alpha * 0.28f);
+        drawCircle(shapes, cx, cy, radius, 48);
+        shapes.end();
+
+        // Expanding shockwave + two counter-rotating dashed rune rings.
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.61f, 0.19f, 1.00f, alpha * 0.5f * (1f - wave * 0.5f));
+        drawCircleOutline(shapes, cx, cy, radius * (0.55f + 0.5f * wave), 48);
+        Gdx.gl.glLineWidth(2f);
+        for (int ring = 0; ring < 2; ring++) {
+            final float rr = radius * (ring == 0 ? 0.78f : 0.52f);
+            final float dir = ring == 0 ? 1f : -1f;
+            final int seg = 12;
+            if (ring == 0) shapes.setColor(0.50f, 0.25f, 0.75f, alpha * 0.8f);
+            else           shapes.setColor(0.75f, 0.38f, 1.00f, alpha * 0.8f);
+            for (int i = 0; i < seg; i++) {
+                final float a0 = (i / (float) seg) * (float) Math.PI * 2f + dir * tt * 1.6f;
+                final float a1 = a0 + (float) Math.PI / seg;
+                shapes.line(cx + (float) Math.cos(a0) * rr, cy + (float) Math.sin(a0) * rr,
+                            cx + (float) Math.cos(a1) * rr, cy + (float) Math.sin(a1) * rr);
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Particles spiralling inward + pulsing void core.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int n = 18;
+        for (int i = 0; i < n; i++) {
+            final float spin = (i / (float) n) * (float) Math.PI * 2f - tt * 2.2f;
+            final float inward = ((i / (float) n) + t * 1.3f) % 1f;
+            final float pr = radius * (1f - inward) * 0.95f;
+            shapes.setColor(0.69f, 0.38f, 1.00f, alpha * (0.25f + 0.5f * (1f - inward)));
+            drawCircle(shapes, cx + (float) Math.cos(spin) * pr, cy + (float) Math.sin(spin) * pr,
+                    1f + 2.5f * (1f - inward), 8);
+        }
+        final float pulse = 0.6f + 0.4f * (float) Math.sin(tt * 6f);
+        final float coreR = radius * 0.1f + radius * 0.08f * pulse;
+        shapes.setColor(0.06f, 0.0f, 0.10f, alpha * 0.6f);
+        drawCircle(shapes, cx, cy, coreR, 16);
+        shapes.end();
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.82f, 0.50f, 1.00f, alpha * 0.9f * pulse);
+        drawCircleOutline(shapes, cx, cy, coreR, 24);
+        Gdx.gl.glLineWidth(1f);
         shapes.end();
     }
 
