@@ -306,6 +306,20 @@ public class PlayState extends GameState {
         this.chatBubbles.put(name, new ChatBubble(clipped, now, life));
     }
 
+    /** Filled rounded rectangle — libGDX's ShapeRenderer has no rounded-rect
+     *  primitive, so compose one from a cross of two rects plus four corner
+     *  discs. Caller sets the color and must be inside a Filled shapes pass. */
+    private void drawRoundedRect(ShapeRenderer shapes, float x, float y, float w, float h, float r) {
+        r = Math.min(r, Math.min(w, h) * 0.5f);
+        shapes.rect(x + r, y, w - 2 * r, h);          // center column (full height)
+        shapes.rect(x, y + r, r, h - 2 * r);          // left edge
+        shapes.rect(x + w - r, y + r, r, h - 2 * r);  // right edge
+        shapes.circle(x + r, y + r, r);               // bottom-left corner
+        shapes.circle(x + w - r, y + r, r);           // bottom-right corner
+        shapes.circle(x + r, y + h - r, r);           // top-left corner
+        shapes.circle(x + w - r, y + h - r, r);       // top-right corner
+    }
+
     @Override
     public void update(double time) {
         // Bail out cleanly if the constructor couldn't reach the game server.
@@ -2096,6 +2110,43 @@ public class PlayState extends GameState {
                 activeIdx++;
             }
         }
+
+        // Chat bubble BACKGROUNDS — white rounded boxes drawn behind the bubble
+        // text (the text itself is drawn in the nameplate batch pass below).
+        // Uses the same shapes-then-batch split as the status chips so the
+        // ShapeRenderer is never interleaved with the SpriteBatch. Geometry
+        // mirrors the bubble text formula in the nameplate loop exactly.
+        {
+            final long now = System.currentTimeMillis();
+            final float ws = OpenRealmGame.WORLD_SCALE;
+            final float padX = 8f / ws;
+            final float padY = 5f / ws;
+            final float radius = 8f / ws;
+            final float prevScale = font.getData().scaleX;
+            font.getData().setScale(0.5f);
+            for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
+                final String nm = rp.getName();
+                if (nm == null || nm.isEmpty()) continue;
+                final ChatBubble bubble = this.chatBubbles.get(nm);
+                if (bubble == null || bubble.isExpired(now)) continue;
+                final int sSize = rp.getSize() > 0 ? rp.getSize() : 32;
+                final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
+                final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
+                this.nameLayoutScratch.setText(font, nm);
+                final float nameH = this.nameLayoutScratch.height;
+                this.chatBubbleLayoutScratch.setText(font, bubble.getMessage());
+                final float chatW = this.chatBubbleLayoutScratch.width;
+                final float chatH = this.chatBubbleLayoutScratch.height;
+                final float textTopY = wy - 12 - nameH - 4 - chatH;
+                final float bgW = chatW + 2 * padX;
+                final float bgH = chatH + 2 * padY;
+                final float bgX = wx + (sSize * 0.5f) - (bgW * 0.5f);
+                final float bgY = textTopY - chatH - padY;
+                shapes.setColor(1f, 1f, 1f, 0.95f * bubble.alpha(now));
+                this.drawRoundedRect(shapes, bgX, bgY, bgW, bgH, radius);
+            }
+            font.getData().setScale(prevScale);
+        }
         shapes.end();
 
         // Status-chip label pass — draw abbreviations centered inside
@@ -2176,7 +2227,9 @@ public class PlayState extends GameState {
             final ChatBubble bubble = this.chatBubbles.get(nm);
             if (bubble != null && !bubble.isExpired(bubbleNowMs)) {
                 this.chatBubbleLayoutScratch.setText(font, bubble.getMessage());
-                font.setColor(1f, 1f, 0.85f, bubble.alpha(bubbleNowMs));
+                // Dark text for contrast on the white bubble background (drawn
+                // in the earlier shapes pass).
+                font.setColor(0.10f, 0.10f, 0.10f, bubble.alpha(bubbleNowMs));
                 font.draw(batch, this.chatBubbleLayoutScratch,
                         wx + (s * 0.5f) - (this.chatBubbleLayoutScratch.width * 0.5f),
                         wy - 12 - this.nameLayoutScratch.height - 4 - this.chatBubbleLayoutScratch.height);
