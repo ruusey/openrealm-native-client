@@ -1074,6 +1074,12 @@ public class PlayerUI {
         int startX = OpenRealmGame.width - panelWidth;
         int tooltipX = startX - panelWidth - 8;
 
+        // Viewer's computed stats — drives the weapon DPS estimate on item
+        // tooltips. Null when there's no local player yet (the DPS line then
+        // simply doesn't render).
+        final Player viewer = (this.playState != null) ? this.playState.getPlayer() : null;
+        final Stats viewerStats = (viewer != null) ? viewer.getComputedStats() : null;
+
         // Reset all three tooltip surfaces — exactly one (or none) will be
         // re-armed below depending on what the cursor is hovering.
         this.activeAbilityTooltip = null;
@@ -1087,6 +1093,7 @@ public class PlayerUI {
                     this.activeTooltip = new ItemTooltip(s.getItem(),
                             new Vector2f(tooltipX, 100), panelWidth, 0,
                             this.viewerClassId());
+                    this.activeTooltip.setViewerStats(viewerStats);
                     return;
                 }
             }
@@ -1100,6 +1107,7 @@ public class PlayerUI {
                     this.activeTooltip = new ItemTooltip(s.getItem(),
                             new Vector2f(tooltipX, 100), panelWidth, 0,
                             this.viewerClassId());
+                    this.activeTooltip.setViewerStats(viewerStats);
                     return;
                 }
             }
@@ -1120,6 +1128,7 @@ public class PlayerUI {
                         this.activeTooltip = new ItemTooltip(stored,
                                 new Vector2f(tooltipX, 100), panelWidth, 0,
                                 this.viewerClassId());
+                        this.activeTooltip.setViewerStats(viewerStats);
                         return;
                     }
                 }

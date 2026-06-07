@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import com.openrealm.account.dto.PlayerAccountDto;
@@ -43,6 +44,7 @@ import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.model.PortalModel;
 import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.game.ui.ActiveVisualEffect;
+import com.openrealm.game.ui.ChatBubble;
 import com.openrealm.game.ui.EffectText;
 import com.openrealm.game.ui.PlayerUI;
 import com.openrealm.net.client.packet.CreateEffectPacket;
@@ -152,6 +154,16 @@ public class PlayState extends GameState {
     // the world-camera render pass. Without this each name draw allocated
     // a fresh GlyphLayout (one per visible player per frame).
     private final GlyphLayout nameLayoutScratch = new GlyphLayout();
+
+    // Scratch GlyphLayout for chat-bubble measurement/centering, kept separate
+    // from nameLayoutScratch so the nameplate layout stays intact while a
+    // bubble is positioned relative to it.
+    private final GlyphLayout chatBubbleLayoutScratch = new GlyphLayout();
+
+    // Chat bubbles keyed by sender name, floated briefly above the player's
+    // head. Written from the network thread (handleTextClient), read on the
+    // render thread — hence the concurrent map.
+    private final Map<String, ChatBubble> chatBubbles = new ConcurrentHashMap<>();
 
     /**
      * Server-reconciliation input buffer. Mirrors the webclient's
@@ -281,6 +293,17 @@ public class PlayState extends GameState {
         final LoginRequestMessage login = builder.build();
         final CommandPacket loginPacket = CommandPacket.from(CommandType.LOGIN_REQUEST, login);
         this.realmManager.getClient().sendRemote(loginPacket);
+    }
+
+    /** Register a chat line to float briefly above the sender's head. Keyed by
+     *  name so a new message replaces the previous bubble. Cosmetic — the same
+     *  text is also shown in the chat bar via PlayerChat. */
+    public void addChatBubble(String name, String message) {
+        if (name == null || name.isEmpty() || message == null || message.isEmpty()) return;
+        final String clipped = message.length() > 80 ? message.substring(0, 79) + "…" : message;
+        final long now = System.currentTimeMillis();
+        final long life = 3500L + Math.min(2500L, clipped.length() * 40L);
+        this.chatBubbles.put(name, new ChatBubble(clipped, now, life));
     }
 
     @Override
@@ -2125,6 +2148,8 @@ public class PlayState extends GameState {
         // Use GlyphLayout to center the name horizontally on the sprite.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.5f);
+        final long bubbleNowMs = System.currentTimeMillis();
+        this.chatBubbles.values().removeIf(b -> b.isExpired(bubbleNowMs));
         for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
             final String nm = rp.getName();
             if (nm == null || nm.isEmpty()) continue;
@@ -2147,6 +2172,15 @@ public class PlayState extends GameState {
             font.draw(batch, this.nameLayoutScratch,
                     wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
                     wy - 12 - this.nameLayoutScratch.height);
+            // Chat bubble floats just above the nameplate, fading out at end of life.
+            final ChatBubble bubble = this.chatBubbles.get(nm);
+            if (bubble != null && !bubble.isExpired(bubbleNowMs)) {
+                this.chatBubbleLayoutScratch.setText(font, bubble.getMessage());
+                font.setColor(1f, 1f, 0.85f, bubble.alpha(bubbleNowMs));
+                font.draw(batch, this.chatBubbleLayoutScratch,
+                        wx + (s * 0.5f) - (this.chatBubbleLayoutScratch.width * 0.5f),
+                        wy - 12 - this.nameLayoutScratch.height - 4 - this.chatBubbleLayoutScratch.height);
+            }
         }
         font.getData().setScale(origScale);
         font.setColor(Color.WHITE);

@@ -969,6 +969,12 @@ public class ClientGameLogic {
 				}
 			}
 			cli.getState().getPui().enqueueChat(textPacket.clone());
+			// Float the line over the sender's head too. Skip SYSTEM / event
+			// broadcasts — those have no on-screen player to anchor to.
+			final String from = textPacket.getFrom();
+			if (from != null && !"SYSTEM".equalsIgnoreCase(from) && !"EVENT_MARKER".equalsIgnoreCase(from)) {
+				cli.getState().addChatBubble(from, textPacket.getMessage());
+			}
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle text packet. Reason: {}", e.getMessage());
 		}

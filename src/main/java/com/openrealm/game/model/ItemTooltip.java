@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.contants.CharacterClass;
+import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.entity.item.AttributeModifier;
 import com.openrealm.game.entity.item.Enchantment;
 import com.openrealm.game.entity.item.GameItem;
@@ -49,9 +50,17 @@ public class ItemTooltip {
     private List<AttributeModifier> attributeModifiers;
     private byte targetSlot;
 
+    /** Weapon archetype + projectile group, captured for the DPS estimate. */
+    private byte archetypeId;
+    private int projectileGroupId;
+
     /** Local player's classId for compatibility-line rendering. -1 means
      *  "no viewer set" — the compatibility row is suppressed. */
     private int viewerClassId = -1;
+
+    /** Local player's computed stats, used for the weapon DPS estimate. Null
+     *  hides the DPS line (no viewer context, e.g. tooltips with no player). */
+    private Stats viewerStats;
 
     private static final int PADDING = 8;
     private static final int LINE_HEIGHT = 22;
@@ -91,8 +100,10 @@ public class ItemTooltip {
         if (item.getDamage() != null) {
             this.minDamage = item.getDamage().getMin();
             this.maxDamage = item.getDamage().getMax();
+            this.projectileGroupId = item.getDamage().getProjectileGroupId();
         }
         this.scalingStat = item.getScalingStat();
+        this.archetypeId = item.getArchetypeId();
 
         this.targetClass = item.getTargetClass();
         this.tier = item.getTier();
@@ -290,6 +301,16 @@ public class ItemTooltip {
             lines.add(new TooltipLine(
                     "Damage: " + this.minDamage + " - " + this.maxDamage + "  (scales with " + scalesWith + ")",
                     INFO_COLOR));
+            // DPS estimate — folds in the viewer's current stats, the weapon
+            // archetype's fire-rate/damage multipliers, projectile count, and
+            // any socketed combat gem (crit/multishot/crushing).
+            final int[] dps = this.computeDps();
+            if (dps != null) {
+                final String shotLabel = dps[1] == 1 ? "1 shot" : dps[1] + " shots";
+                lines.add(new TooltipLine(
+                        "DPS: " + dps[0] + "  (" + shotLabel + " · " + (dps[2] / 100f) + "/s)",
+                        GEM_COLOR));
+            }
         }
 
         // Stats
@@ -355,6 +376,58 @@ public class ItemTooltip {
         if (value != 0) {
             String sign = value > 0 ? "+" : "";
             parts.add(name + " " + sign + value);
+        }
+    }
+
+    /** DPS estimate as {dps, bulletsPerAttack, attacksPerSecond×100}, or null
+     *  when the item isn't a weapon or no viewer stats are set. Mirrors the
+     *  server basic-attack pipeline (ServerGameLogic shoot handler):
+     *    aps     = floor((6.5*(DEX+17.3))/75) × archetype.attackSpeedMul
+     *    perShot = (avgRoll + scalingStatValue) × archetype.damageMul × gem mods
+     *    bullets = projectilesInGroup × (archetype.projectileCount + gemExtraProjectiles)
+     *  Crit is folded in as expected value (chance × double). Scaling-gem stat
+     *  bonuses already live in the computed stats passed in, so only the
+     *  per-shot gems (crit/multishot/crushing) are applied here. */
+    private int[] computeDps() {
+        if (this.maxDamage <= 0 || this.viewerStats == null || this.targetSlot != 0) return null;
+        final double avg = (this.minDamage + this.maxDamage) / 2.0;
+
+        final WeaponArchetypeModel arch = (GameDataManager.WEAPON_ARCHETYPES != null)
+                ? GameDataManager.WEAPON_ARCHETYPES.get(this.archetypeId) : null;
+        final double damageMul = (arch != null && arch.getDamageMul() > 0f) ? arch.getDamageMul() : 1.0;
+        final double attackSpeedMul = (arch != null && arch.getAttackSpeedMul() > 0f) ? arch.getAttackSpeedMul() : 1.0;
+        final int archProjectiles = (arch != null && arch.getProjectileCount() > 0) ? arch.getProjectileCount() : 1;
+
+        double perShot = (avg + statByIndex(this.viewerStats, this.scalingStat)) * damageMul;
+        if (this.gemstoneType == 7 || this.gemstoneType == 2) perShot *= 1.15; // Crushing +15% / Crit +15% expected
+        final int extraProjectiles = (this.gemstoneType == 3) ? 1 : 0;         // Multishot +1
+
+        final ProjectileGroup group = (GameDataManager.PROJECTILE_GROUPS != null)
+                ? GameDataManager.PROJECTILE_GROUPS.get(this.projectileGroupId) : null;
+        final int groupShots = (group != null && group.getProjectiles() != null && !group.getProjectiles().isEmpty())
+                ? group.getProjectiles().size() : 1;
+        final int bullets = groupShots * Math.max(1, archProjectiles + extraProjectiles);
+
+        final int dex = this.viewerStats.getDex();
+        final double attacksPerSecond = Math.floor((6.5 * (dex + 17.3)) / 75.0) * attackSpeedMul;
+
+        final int dps = (int) Math.round(perShot * bullets * attacksPerSecond);
+        return new int[] { dps, bullets, (int) Math.round(attacksPerSecond * 100) };
+    }
+
+    /** Stat lookup: 0=VIT 1=WIS 2=HP 3=MP 4=STR 5=DEF 6=SPD 7=DEX. */
+    private static int statByIndex(Stats s, int idx) {
+        if (s == null) return 0;
+        switch (idx) {
+            case 0: return s.getVit();
+            case 1: return s.getWis();
+            case 2: return s.getHp();
+            case 3: return s.getMp();
+            case 4: return s.getStr();
+            case 5: return s.getDef();
+            case 6: return s.getSpd();
+            case 7: return s.getDex();
+            default: return s.getStr();
         }
     }
 
