@@ -40,9 +40,12 @@ public abstract class Entity extends GameObject {
     private static final long ATTACK_ANIM_DURATION_MS = 350;
     protected float aimX = 0;
     protected float aimY = 0;
-    /** True only for the local player, whose aimX/aimY track the cursor. Remote
-     *  players carry no aim, so they derive attack facing from velocity instead. */
+    /** aimX/aimY track the cursor for the local player and the firing angle of
+     *  the last observed shot for remote players, so both face where they fire. */
     protected boolean aimControlled = false;
+    /** createdTime of the last projectile that drove this entity's firing pose,
+     *  so a multishot volley restarts the attack clip once, not once per pellet. */
+    protected long lastShotCreatedTime = 0;
     /** True while standing on a slowing tile (water/lava); the renderer hides
      *  the bottom third of the sprite to fake legs submerged. Set each frame. */
     protected boolean wading = false;
@@ -211,6 +214,23 @@ public abstract class Entity extends GameObject {
     public void triggerAttackAnimation() {
         this.attackingUntil = System.currentTimeMillis() + ATTACK_ANIM_DURATION_MS;
         this.attacking = true;
+        // Restart the clip from frame 0 on every shot so the pose cycles with
+        // the fire rate instead of looping free-running (webclient parity,
+        // main.js sets attackFrame = 0 on each shot).
+        this.attackFrame = 0;
+        this.attackFrameTimer = 0f;
+    }
+
+    /**
+     * Remote-player variant: also point the attack pose along the firing angle
+     * (sin = x, cos = y, matching the bullet's flight vector) so a stationary
+     * shooter faces where they fired, the same way the local player faces aim.
+     */
+    public void triggerAttackAnimation(float fireAngle) {
+        this.aimControlled = true;
+        this.aimX = this.pos.x + this.size / 2f + (float) Math.sin(fireAngle) * 100f;
+        this.aimY = this.pos.y + this.size / 2f + (float) Math.cos(fireAngle) * 100f;
+        this.triggerAttackAnimation();
     }
 
     /**

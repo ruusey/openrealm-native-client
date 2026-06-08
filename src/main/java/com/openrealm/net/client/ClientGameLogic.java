@@ -829,6 +829,21 @@ public class ClientGameLogic {
 					b.setRange(b.getRange() - advance);
 				}
 				cli.getRealm().addBulletIfNotExists(b);
+
+				// Drive the firing pose for the player who fired this bullet,
+				// the same way the local player's pose is driven by its own
+				// shots. Grouped per volley by createdTime so a multishot burst
+				// restarts the clip once, not once per pellet. Direction comes
+				// from the bullet angle, so a stationary shooter still faces the
+				// way they fired.
+				final long shooterId = b.getSrcEntityId();
+				if (shooterId != cli.getCurrentPlayerId()) {
+					final Player shooter = cli.getRealm().getPlayer(shooterId);
+					if (shooter != null && shooter.getLastShotCreatedTime() != b.getCreatedTime()) {
+						shooter.setLastShotCreatedTime(b.getCreatedTime());
+						shooter.triggerAttackAnimation(b.getAngle());
+					}
+				}
 			}
 
 			for (final NetEnemy enemy : loadPacket.getEnemies()) {
@@ -1045,12 +1060,9 @@ public class ClientGameLogic {
 					// Other players: use dead reckoning correction (smooth blend)
 					// Their positions are extrapolated in PlayState.movePlayer()
 					playerToUpdate.applyServerCorrection(movement);
-					// Drive the firing pose for remote players. The flag rides the
-					// movement packet; without this the peer just emits bullets
-					// with no attack animation.
-					if (movement.isAttackingFlag()) {
-						playerToUpdate.triggerAttackAnimation();
-					}
+					// Attack pose is driven by observed projectiles (see the
+					// LoadPacket bullet loop), not this movement flag, so it
+					// works for a stationary shooter and cycles per shot.
 				}
 				break;
 			case ENEMY:

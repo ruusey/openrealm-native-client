@@ -71,6 +71,8 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 	private float orbitRadius;
 	@SerializableField(order = 19, type = SerializableFloat.class)
 	private float orbitPhase;
+	@SerializableField(order = 20, type = SerializableLong.class)
+	private long srcEntityId;
 
 	/**
 	 * Hand-rolled construction from a server-side Bullet — bypasses
@@ -108,6 +110,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		n.orbitCenterY = b.getOrbitCenterY();
 		n.orbitRadius = b.getOrbitRadius();
 		n.orbitPhase = b.getOrbitPhase();
+		n.srcEntityId = b.getSrcEntityId();
 		return n;
 	}
 
@@ -129,6 +132,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		bullet.setAmplitude(this.amplitude);
 		bullet.setFrequency(this.frequency);
 		bullet.setCreatedTime(this.createdTime);
+		bullet.setSrcEntityId(this.srcEntityId);
 		// Web-parity sprite resolution: projectileId -> ProjectileGroup -> spriteKey.
 		// Without this, Bullet.render() short-circuits at its null-check and
 		// every projectile is invisible.
