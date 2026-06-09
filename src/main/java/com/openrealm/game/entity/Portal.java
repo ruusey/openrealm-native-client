@@ -30,7 +30,14 @@ public class Portal {
     private Vector2f pos;
     private Sprite sprite;
     private String targetNodeId;
-    
+    // Target-realm summary shown under the portal; populated from NetPortal on the wire.
+    private String targetLabel;
+    private float targetDifficulty;
+    private int targetPlayerCount;
+    private long targetPurificationProgress;
+    private long targetPurificationGoal;
+
+
     public Portal(long id, short portalId, Vector2f pos) {
         this.id = id;
         this.portalId = portalId;

@@ -83,6 +83,10 @@ public class Realm {
     // the boss is spawned. When this enemy dies, an exit portal is dropped regardless
     // of whether the boss has a loot table. 0 = no designated boss.
     private int dungeonBossEnemyId;
+    // Realm purification snapshot from RealmPurificationPacket; drives the centered overworld bar.
+    private long purificationProgress;
+    private long purificationGoal;
+    private float purificationDifficulty;
     private Map<Long, Player> players;
     private Map<Long, Bullet> bullets;
     private Map<Long, List<Long>> bulletHits;

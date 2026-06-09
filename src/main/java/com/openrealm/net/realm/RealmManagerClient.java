@@ -28,6 +28,7 @@ import com.openrealm.net.client.SocketClient;
 import com.openrealm.net.client.packet.AcceptTradeRequestPacket;
 import com.openrealm.net.client.packet.LoadMapPacket;
 import com.openrealm.net.client.packet.LoadPacket;
+import com.openrealm.net.client.packet.RealmPurificationPacket;
 import com.openrealm.net.client.packet.ObjectMovePacket;
 import com.openrealm.net.client.packet.PlayerDeathPacket;
 import com.openrealm.net.client.packet.RequestTradePacket;
@@ -153,6 +154,17 @@ public class RealmManagerClient implements Runnable {
                 final HeartbeatPacket hb = (HeartbeatPacket) pkt;
                 com.openrealm.game.ui.PerfMetrics.get().recordHeartbeatRtt(hb.getTimestamp());
             } catch (Exception ignored) { /* metrics never crash gameplay */ }
+        });
+        this.registerPacketCallback(RealmPurificationPacket.class, (cli, pkt) -> {
+            try {
+                final RealmPurificationPacket p = (RealmPurificationPacket) pkt;
+                final Realm realm = cli.getRealm();
+                if (realm != null) {
+                    realm.setPurificationProgress(p.getProgress());
+                    realm.setPurificationGoal(p.getGoal());
+                    realm.setPurificationDifficulty(p.getDifficulty());
+                }
+            } catch (Exception ignored) { /* never crash gameplay */ }
         });
 //        this.registerPacketCallback(RequestTradePacket.class, ClientGameLogic::handleTradeRequestClient);
 //        this.registerPacketCallback(AcceptTradeRequestPacket.class, ClientGameLogic::handleAcceptTrade);

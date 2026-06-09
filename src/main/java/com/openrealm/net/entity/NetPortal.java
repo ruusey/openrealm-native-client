@@ -9,8 +9,11 @@ import com.openrealm.net.Streamable;
 import com.openrealm.net.core.IOService;
 import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
+import com.openrealm.net.core.nettypes.SerializableFloat;
+import com.openrealm.net.core.nettypes.SerializableInt;
 import com.openrealm.net.core.nettypes.SerializableLong;
 import com.openrealm.net.core.nettypes.SerializableShort;
+import com.openrealm.net.core.nettypes.SerializableString;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -36,7 +39,17 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 	private long expires;
 	@SerializableField(order = 5, type = Vector2f.class)
 	private Vector2f pos;
-	
+	@SerializableField(order = 6, type = SerializableString.class)
+	private String targetLabel;
+	@SerializableField(order = 7, type = SerializableFloat.class)
+	private float targetDifficulty;
+	@SerializableField(order = 8, type = SerializableInt.class)
+	private int targetPlayerCount;
+	@SerializableField(order = 9, type = SerializableLong.class)
+	private long targetPurificationProgress;
+	@SerializableField(order = 10, type = SerializableLong.class)
+	private long targetPurificationGoal;
+
 	/** Hand-rolled construction from Portal — bypasses ModelMapper reflection. */
 	public static NetPortal fromPortal(Portal p) {
 		final NetPortal n = new NetPortal();
@@ -46,6 +59,11 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 		n.toRealmId = p.getToRealmId();
 		n.expires = p.getExpires();
 		n.pos = p.getPos();
+		n.targetLabel = p.getTargetLabel() != null ? p.getTargetLabel() : "";
+		n.targetDifficulty = p.getTargetDifficulty();
+		n.targetPlayerCount = p.getTargetPlayerCount();
+		n.targetPurificationProgress = p.getTargetPurificationProgress();
+		n.targetPurificationGoal = p.getTargetPurificationGoal();
 		return n;
 	}
 
@@ -57,6 +75,11 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 		p.setToRealmId(this.getToRealmId());
 		p.setExpires(this.getExpires());
 		p.setPos(this.getPos());
+		p.setTargetLabel(this.getTargetLabel());
+		p.setTargetDifficulty(this.getTargetDifficulty());
+		p.setTargetPlayerCount(this.getTargetPlayerCount());
+		p.setTargetPurificationProgress(this.getTargetPurificationProgress());
+		p.setTargetPurificationGoal(this.getTargetPurificationGoal());
 		// Load sprite — Portal.render() short-circuits when sprite is null,
 		// so without this every portal stays invisible despite being in the
 		// realm. Mirrors NetEnemy / NetBullet sprite resolution.

@@ -18,12 +18,15 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.data.GameDataManager;
+import com.openrealm.game.model.DungeonGraphNode;
+import com.openrealm.game.model.MapModel;
 import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.graphics.Sprite;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
+import com.openrealm.net.realm.Realm;
 import com.openrealm.game.model.ItemTooltip;
 import com.openrealm.game.model.ability.Ability;
 import com.openrealm.game.model.ability.PassiveAbility;
@@ -1384,6 +1387,85 @@ public class PlayerUI {
         for (int i = 0; i < 10; i++) groundLootPositions[i] = new Vector2f();
     }
 
+    /** Centered horizontal purification bar at the top of the screen; self-contained shapes/batch cycle. */
+    private void renderPurificationBar(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        final Realm realm = (this.playState.getRealmManager() != null)
+                ? this.playState.getRealmManager().getRealm() : null;
+        if (realm == null || realm.getPurificationGoal() <= 0L) return;
+        final int pct = (int) Math.max(0, Math.min(100,
+                realm.getPurificationProgress() * 100L / realm.getPurificationGoal()));
+        final int barW = Math.min(440, OpenRealmGame.width / 3);
+        final int barH = 20;
+        final int barX = (OpenRealmGame.width - barW) / 2;
+        final int barY = 10;
+
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.04f, 0.08f, 0.06f, 0.85f);
+        shapes.rect(barX, barY, barW, barH);
+        shapes.setColor(0.18f, 0.68f, 0.48f, 1f);
+        shapes.rect(barX, barY, barW * (pct / 100f), barH);
+        shapes.end();
+        batch.begin();
+
+        final String label = "Realm Purification — " + pct + "%";
+        font.setColor(Color.WHITE);
+        final GlyphLayout layout = new GlyphLayout(font, label);
+        font.draw(batch, label, barX + (barW - layout.width) / 2f, barY + (barH - layout.height) / 2f);
+    }
+
+    /** Realm name + difficulty + difficulty-tinted icon, drawn just above the minimap. */
+    private void renderRealmInfo(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        if (this.minimap == null || !this.minimap.isInitialized()) return;
+        final Realm realm = (this.playState.getRealmManager() != null)
+                ? this.playState.getRealmManager().getRealm() : null;
+        if (realm == null) return;
+
+        String name = null;
+        if (realm.getNodeId() != null && GameDataManager.DUNGEON_GRAPH != null) {
+            final DungeonGraphNode node = GameDataManager.DUNGEON_GRAPH.get(realm.getNodeId());
+            if (node != null) name = node.getDisplayName();
+        }
+        if (name == null) {
+            final MapModel map = GameDataManager.MAPS != null ? GameDataManager.MAPS.get(realm.getMapId()) : null;
+            name = (map != null && map.getMapName() != null) ? map.getMapName() : ("Realm " + realm.getMapId());
+        }
+        float diff = 1f;
+        try { diff = realm.getDifficulty(); } catch (Exception ignored) {}
+
+        final int mx = this.minimap.getDrawX();
+        final int my = this.minimap.getDrawY();
+        final int mw = this.minimap.getSizePx();
+        final int barH = 20;
+        final int barY = my - barH - 2;
+
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.08f, 0.06f, 0.07f, 0.9f);
+        shapes.rect(mx, barY, mw, barH);
+        final float[] c = difficultyColor(diff);
+        shapes.setColor(c[0], c[1], c[2], 1f);
+        shapes.rect(mx + 4, barY + 4, barH - 8, barH - 8);
+        shapes.end();
+        batch.begin();
+
+        final float prevScale = font.getData().scaleX;
+        font.getData().setScale(0.6f);
+        font.setColor(Color.WHITE);
+        final String label = name + "   Diff " + String.format("%.1f", diff);
+        final GlyphLayout layout = new GlyphLayout(font, label);
+        font.draw(batch, label, mx + barH + 2, barY + (barH - layout.height) / 2f);
+        font.getData().setScale(prevScale);
+    }
+
+    /** Difficulty tint matching the webclient minimap badge (green → red as difficulty rises). */
+    private float[] difficultyColor(float diff) {
+        final float r = diff <= 2 ? 0.24f : diff <= 4 ? 0.71f : diff <= 6 ? 0.86f : 1.0f;
+        final float g = diff <= 2 ? 0.71f : diff <= 4 ? 0.63f : diff <= 6 ? 0.31f : 0.16f;
+        final float b = diff <= 2 ? 0.24f : 0.16f;
+        return new float[] { r, g, b };
+    }
+
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         this.recomputeLayout();
         int panelWidth = (OpenRealmGame.width / 5);
@@ -1414,6 +1496,9 @@ public class PlayerUI {
         if (useSpriteHud) {
             this.renderSpriteHud(batch, shapes, font);
         }
+
+        // Centered overworld purification bar — shown in both HUD modes.
+        this.renderPurificationBar(batch, shapes, font);
 
         // Color palette — mirrors webclient style.css (#1a1218cc panels,
         // #3a2a38 borders, #c8a86e tan accent). Pulled here so any tweak
@@ -1723,6 +1808,7 @@ public class PlayerUI {
             } catch (Throwable t) {
                 log.warn("Minimap render failed (recovering): {}", t.toString());
             }
+            this.renderRealmInfo(batch, shapes, font);
         }
 
         // (Sprite-HUD already drawn earlier in render() when atlas is ready.)

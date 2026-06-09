@@ -2239,9 +2239,32 @@ public class PlayState extends GameState {
         font.setColor(Color.WHITE);
 
         Collection<Portal> portals = this.realmManager.getRealm().getPortals().values();
+        final float prevPortalScale = font.getData().scaleX;
         for (Portal portal : portals) {
             portal.render(batch);
+            final String portalLabel = portal.getTargetLabel();
+            if (portalLabel == null || portalLabel.isEmpty()) continue;
+            // Under-portal info: target realm name, difficulty, purification %, player count.
+            font.getData().setScale(0.5f);
+            final StringBuilder info = new StringBuilder(portalLabel);
+            if (portal.getTargetDifficulty() > 0f) {
+                info.append("\nDifficulty ").append(portal.getTargetDifficulty());
+            }
+            if (portal.getTargetPurificationGoal() > 0L) {
+                final int pct = (int) Math.max(0, Math.min(100,
+                        portal.getTargetPurificationProgress() * 100L / portal.getTargetPurificationGoal()));
+                info.append("\nPurified ").append(pct).append('%');
+            }
+            info.append('\n').append(portal.getTargetPlayerCount()).append(" in realm");
+            this.nameLayoutScratch.setText(font, info.toString());
+            font.setColor(0.62f, 0.90f, 0.75f, 1f);
+            final float bx = portal.getPos().getWorldVar().x;
+            final float by = portal.getPos().getWorldVar().y;
+            font.draw(batch, this.nameLayoutScratch,
+                    bx + 16f - this.nameLayoutScratch.width * 0.5f, by + 36f);
         }
+        font.getData().setScale(prevPortalScale);
+        font.setColor(Color.WHITE);
 
         // Loot bags must render with the WORLD camera projection active —
         // LootContainer.render uses pos.getWorldVar() to manually transform
