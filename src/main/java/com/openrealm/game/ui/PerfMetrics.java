@@ -3,6 +3,7 @@ package com.openrealm.game.ui;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
@@ -51,6 +52,14 @@ public final class PerfMetrics {
     private long lastHeartbeatSendMs = 0L;
     private int ping = 0;
     private int jitter = 0;
+
+    // Toggled by the client-side /dev chat command. When on, PlayState draws
+    // the top-center FPS/PING/JITTER/RES bar (renderDevBar). Session-only.
+    private boolean devVisible = false;
+    public boolean isDevVisible() { return this.devVisible; }
+    public boolean toggleDev() { this.devVisible = !this.devVisible; return this.devVisible; }
+    // Reused for measuring the dev bar width (centering) — no per-frame alloc.
+    private final GlyphLayout devLayout = new GlyphLayout();
 
     /** Frame-tick — call once per render frame from PlayerUI. */
     public void onFrame() {
@@ -144,6 +153,45 @@ public final class PerfMetrics {
     private static final Color COLOR_GOOD = new Color(0.4f, 1f, 0.4f, 1f);
     private static final Color COLOR_WARN = new Color(1f, 1f, 0.4f, 1f);
     private static final Color COLOR_BAD  = new Color(1f, 0.4f, 0.4f, 1f);
+
+    /**
+     * Top-center single-line overlay mirroring the web client's /dev bar:
+     * {@code FPS n | PING n ms | JITTER n ms | RES WxH}, FPS/PING color-coded.
+     * Drawn by PlayState in UI-camera space (batch already active). Under the
+     * y-down flipped cam, font.draw y is the TOP of the glyphs.
+     */
+    public void renderDevBar(SpriteBatch batch, BitmapFont font) {
+        final int w = Gdx.graphics != null ? Gdx.graphics.getWidth() : 0;
+        final int h = Gdx.graphics != null ? Gdx.graphics.getHeight() : 0;
+        final String fpsStr  = "FPS " + this.fps;
+        final String pingStr = "PING " + this.ping + "ms";
+        final String jitStr  = "JITTER " + this.jitter + "ms";
+        final String resStr  = "RES " + w + "x" + h;
+        final String sep     = "   |   ";
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(0.7f);
+        this.devLayout.setText(font, fpsStr + sep + pingStr + sep + jitStr + sep + resStr);
+        float x = (w - this.devLayout.width) / 2f;
+        final float y = 6f;
+        x = this.drawDevSeg(batch, font, fpsStr, x, y,
+                this.fps >= 55 ? COLOR_GOOD : this.fps >= 30 ? COLOR_WARN : COLOR_BAD);
+        x = this.drawDevSeg(batch, font, sep, x, y, Color.GRAY);
+        x = this.drawDevSeg(batch, font, pingStr, x, y,
+                this.ping < 50 ? COLOR_GOOD : this.ping < 120 ? COLOR_WARN : COLOR_BAD);
+        x = this.drawDevSeg(batch, font, sep, x, y, Color.GRAY);
+        x = this.drawDevSeg(batch, font, jitStr, x, y, Color.LIGHT_GRAY);
+        x = this.drawDevSeg(batch, font, sep, x, y, Color.GRAY);
+        this.drawDevSeg(batch, font, resStr, x, y, Color.LIGHT_GRAY);
+        font.getData().setScale(origScale);
+        font.setColor(Color.WHITE);
+    }
+
+    /** Draw one colored run at (x, y); returns the x advanced past it. */
+    private float drawDevSeg(SpriteBatch batch, BitmapFont font, String s, float x, float y, Color c) {
+        font.setColor(c);
+        final GlyphLayout gl = font.draw(batch, s, x, y);
+        return x + gl.width;
+    }
 
     /** Convenience accessor used by tests that want raw Gdx FPS too. */
     public int getGdxFps() {

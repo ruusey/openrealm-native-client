@@ -210,6 +210,11 @@ public class PlayerChat {
                             this.addChatMessage(debugMsg);
                         } else if (messageToSend.equalsIgnoreCase("/clear")) {
                             this.playerChat.clear();
+                        } else if (messageToSend.equalsIgnoreCase("/dev")) {
+                            boolean on = PerfMetrics.get().toggleDev();
+                            TextPacket devMsg = TextPacket.create("SYSTEM", "SYSTEM",
+                                    "Dev overlay " + (on ? "ON" : "OFF") + " (FPS / ping / jitter / res)");
+                            this.addChatMessage(devMsg);
                         } else {
                             ServerCommandMessage serverCommand = ServerCommandMessage.parseFromInput(messageToSend);
                             CommandPacket packet = CommandPacket.create(this.state.getPlayer(), CommandType.SERVER_COMMAND,

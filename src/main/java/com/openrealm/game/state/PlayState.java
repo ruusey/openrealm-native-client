@@ -46,6 +46,7 @@ import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.game.ui.ActiveVisualEffect;
 import com.openrealm.game.ui.ChatBubble;
 import com.openrealm.game.ui.EffectText;
+import com.openrealm.game.ui.PerfMetrics;
 import com.openrealm.game.ui.PlayerUI;
 import com.openrealm.net.client.packet.CreateEffectPacket;
 import com.openrealm.net.client.ClientGameLogic;
@@ -788,7 +789,7 @@ public class PlayState extends GameState {
         // bullets dedup poorly against the authoritative spawn and the player
         // sees ghosts. Sources of bullets per shot:
         //   archetype.projectileCount (built-in fan)
-        //   MultishotGem (gemstoneType=3) → +2 extras
+        //   MultishotGem (gemstoneType=3) → +1 extra (1 base + 1 = 2 fanned, no center)
         // Spread / range / piercing also pulled from the archetype so a
         // pierce-archetype bow's predicted bullet carries PASS_THROUGH_ENEMIES
         // and matches the server bullet's flag set.
@@ -798,7 +799,7 @@ public class PlayState extends GameState {
                         : com.openrealm.game.data.GameDataManager.WEAPON_ARCHETYPES.get(weapon.getArchetypeId());
         final int archCount  = (_archShot != null && _archShot.getProjectileCount() > 0)
                 ? _archShot.getProjectileCount() : 1;
-        final int gemMulti   = (weapon != null && weapon.getGemstoneType() == 3 /* MultishotGem */) ? 2 : 0;
+        final int gemMulti   = (weapon != null && weapon.getGemstoneType() == 3 /* MultishotGem */) ? 1 : 0;
         final float SPREAD   = (_archShot != null && _archShot.getSpreadRad() > 0f)
                 ? _archShot.getSpreadRad() : 0.12f;
         final float rangeMul = (_archShot != null && _archShot.getRangeMul() > 0f)
@@ -2302,6 +2303,12 @@ public class PlayState extends GameState {
         this.pui.render(batch, shapes, font);
 
         this.renderCloseLoot(batch);
+
+        // Client-side /dev overlay: top-center FPS / ping / jitter / resolution
+        // bar (toggled by the /dev chat command). batch is active here.
+        if (PerfMetrics.get().isDevVisible()) {
+            PerfMetrics.get().renderDevBar(batch, font);
+        }
 
         if (this.debugMode) {
             this.renderDebugTileOverlay(batch, shapes, font, player);
