@@ -3477,7 +3477,11 @@ public class PlayerUI {
                     final GlyphLayout gl = new GlyphLayout(font, name,
                             com.badlogic.gdx.graphics.Color.valueOf("e8d8b8"), cw - 2, 1, true);
                     final float tx = cx + (cw - gl.width) * 0.5f;
-                    final float ty = cy + (ch + gl.height) * 0.5f;
+                    // font.draw y = TOP of the text under the flipped y-down cam,
+                    // and this wraps to multiple lines, so center the whole block:
+                    // top = cell top + (cellH - blockH)/2. (The + variant only
+                    // centers a single line and dropped the block off the bottom.)
+                    final float ty = cy + (ch - gl.height) * 0.5f;
                     font.draw(batch, gl, tx, ty);
                     font.getData().setScale(origScale);
                 }
