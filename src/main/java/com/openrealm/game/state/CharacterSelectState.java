@@ -655,8 +655,7 @@ public class CharacterSelectState extends GameState {
                     TextureRegion drawFrame = frame;
                     if (dyeId > 0) {
                         final com.openrealm.game.model.AnimationModel anim =
-                                GameDataManager.ANIMATIONS != null
-                                        ? GameDataManager.ANIMATIONS.get(cc.classId) : null;
+                                GameDataManager.getAnimation("player", cc.classId);
                         if (anim != null) {
                             final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
                             final int spH = anim.getEffectiveSpriteHeight() > 0

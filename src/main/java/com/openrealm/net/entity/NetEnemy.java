@@ -93,7 +93,12 @@ public class NetEnemy extends SerializableFieldType<NetEnemy> {
 				? GameDataManager.ENEMIES.get(this.getEnemyId())
 				: null;
 		if (model != null) {
-			final SpriteSheet sheet = GameSpriteManager.getSpriteSheet(model);
+			// Prefer an animated sheet (idle/walk/attack sets) when the enemy has an
+			// animations.json entry; otherwise fall back to the static single-frame sheet.
+			SpriteSheet sheet = GameSpriteManager.loadEnemySprites(this.getEnemyId());
+			if (sheet == null) {
+				sheet = GameSpriteManager.getSpriteSheet(model);
+			}
 			if (sheet != null) {
 				e.setSpriteSheet(sheet);
 			} else {

@@ -222,7 +222,12 @@ public class SpriteSheet {
     }
 
     public void setAnimSet(String name) {
-        if (name == null || name.equals(this.currentAnimSetName)) return;
+        if (name == null) return;
+        if (!this.animSets.containsKey(name)) {
+            name = this.fallbackAnimSet(name);
+            if (name == null) return;
+        }
+        if (name.equals(this.currentAnimSetName)) return;
         List<Sprite> frames = this.animSets.get(name);
         List<Integer> durations = this.animSetDurations.get(name);
         if (frames == null || durations == null) return;
@@ -238,6 +243,19 @@ public class SpriteSheet {
 
     public boolean hasAnimSets() {
         return !this.animSets.isEmpty();
+    }
+
+    /**
+     * Non-directional enemies define only the *_side sets. Map a missing
+     * directional variant (walk_front/back, idle_front/back, attack_up/down)
+     * back to its _side equivalent so vertical movement still animates instead
+     * of freezing on the current frame. Returns null when no fallback exists.
+     */
+    private String fallbackAnimSet(String name) {
+        if (name.startsWith("walk_") && this.animSets.containsKey("walk_side")) return "walk_side";
+        if (name.startsWith("idle_") && this.animSets.containsKey("idle_side")) return "idle_side";
+        if (name.startsWith("attack_") && this.animSets.containsKey("attack_side")) return "attack_side";
+        return null;
     }
 
     /**

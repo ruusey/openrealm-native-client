@@ -309,8 +309,7 @@ public class PauseState extends GameState {
                     final int dyeId = dyeIdBoxed != null ? dyeIdBoxed : 0;
                     if (dyeId > 0) {
                         final com.openrealm.game.model.AnimationModel anim =
-                                GameDataManager.ANIMATIONS != null
-                                        ? GameDataManager.ANIMATIONS.get(characterClass.classId) : null;
+                                GameDataManager.getAnimation("player", characterClass.classId);
                         if (anim != null) {
                             final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
                             final int spH = anim.getEffectiveSpriteHeight() > 0

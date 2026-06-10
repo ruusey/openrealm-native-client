@@ -12,6 +12,7 @@ import com.openrealm.game.model.MapModel;
 import com.openrealm.game.contants.ProjectileFlag;
 import com.openrealm.game.entity.Bullet;
 import com.openrealm.game.entity.Enemy;
+import com.openrealm.game.entity.Entity;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.Portal;
 import com.openrealm.game.entity.item.LootContainer;
@@ -838,7 +839,8 @@ public class ClientGameLogic {
 				// way they fired.
 				final long shooterId = b.getSrcEntityId();
 				if (shooterId != cli.getCurrentPlayerId()) {
-					final Player shooter = cli.getRealm().getPlayer(shooterId);
+					Entity shooter = cli.getRealm().getPlayer(shooterId);
+					if (shooter == null) shooter = cli.getRealm().getEnemy(shooterId);
 					if (shooter != null && shooter.getLastShotCreatedTime() != b.getCreatedTime()) {
 						shooter.setLastShotCreatedTime(b.getCreatedTime());
 						shooter.triggerAttackAnimation(b.getAngle());

@@ -805,8 +805,7 @@ public class Player extends Entity {
 	 *  bounds — libGDX flips the Y axis when the SpriteSheet is built,
 	 *  so we read regionY relative to the texture height. */
 	private TextureRegion resolveDyedRegion(TextureRegion frame) {
-		final AnimationModel anim = GameDataManager.ANIMATIONS != null
-				? GameDataManager.ANIMATIONS.get(this.classId) : null;
+		final AnimationModel anim = GameDataManager.getAnimation("player", this.classId);
 		if (anim == null) {
 			dyeWarnOnce("anim-null-" + this.classId,
 					"[DYE] No AnimationModel for classId={}, dye won't apply", this.classId);

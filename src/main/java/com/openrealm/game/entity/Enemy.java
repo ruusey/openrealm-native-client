@@ -745,6 +745,9 @@ public class Enemy extends Entity {
 
     public void update(RealmManagerClient mgr, double time) {
         super.update(time);
+        // Select the active animation set (idle/walk/attack) from velocity +
+        // attack state. No-op for static enemies (hasAnimSets() == false).
+        this.updateAnimation();
         if (this.stats != null && this.stats.getHp() > 0) {
             this.healthpercent = (float) this.getHealth() / (float) this.stats.getHp();
         }

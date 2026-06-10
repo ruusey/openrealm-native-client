@@ -58,7 +58,7 @@ public class GameDataManager {
 	public static Map<Byte, LootContainerModel>               LOOT_CONTAINERS = null;
 	public static ExperienceModel                             EXPERIENCE_LVLS = null;
 	public static Map<String, DungeonGraphNode>               DUNGEON_GRAPH = null;
-	public static Map<Integer, AnimationModel>                ANIMATIONS = null;
+	public static Map<String, AnimationModel>                 ANIMATIONS = null;
 	public static Map<Integer, SetPieceModel>                 SETPIECES = null;
 	public static Map<Integer, RealmEventModel>               REALM_EVENTS = null;
 	// Phase 2A — mirrors server-side ability/passive registries.
@@ -314,9 +314,20 @@ public class GameDataManager {
 		}
 		AnimationModel[] animations = GameDataManager.JSON_MAPPER.readValue(text, AnimationModel[].class);
 		for (AnimationModel anim : animations) {
-			GameDataManager.ANIMATIONS.put(anim.getObjectId(), anim);
+			GameDataManager.ANIMATIONS.put(animationKey(anim.getObjectType(), anim.getObjectId()), anim);
 		}
 		GameDataManager.log.info("Loading Animations... DONE ({} entries)", GameDataManager.ANIMATIONS.size());
+	}
+
+	/** Player classIds and enemyIds overlap, so animations are keyed by type ("player"/"enemy") + id. */
+	public static String animationKey(String objectType, int objectId) {
+		final String type = (objectType == null || objectType.isBlank()) ? "player" : objectType.toLowerCase();
+		return type + ":" + objectId;
+	}
+
+	public static AnimationModel getAnimation(String objectType, int objectId) {
+		return GameDataManager.ANIMATIONS == null ? null
+				: GameDataManager.ANIMATIONS.get(animationKey(objectType, objectId));
 	}
 
 	private static void loadSetPieces(final boolean remote) throws Exception {

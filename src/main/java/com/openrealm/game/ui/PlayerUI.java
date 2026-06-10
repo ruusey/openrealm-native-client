@@ -3900,8 +3900,7 @@ public class PlayerUI {
         if (p == null) return null;
         final int classId = p.getClassId();
         final com.openrealm.game.model.AnimationModel anim =
-                (com.openrealm.game.data.GameDataManager.ANIMATIONS != null)
-                ? com.openrealm.game.data.GameDataManager.ANIMATIONS.get(classId) : null;
+                com.openrealm.game.data.GameDataManager.getAnimation("player", classId);
         if (anim == null || anim.getAnimations() == null) {
             // Fallback to the live current frame so SOMETHING shows up
             // until anim data lands.

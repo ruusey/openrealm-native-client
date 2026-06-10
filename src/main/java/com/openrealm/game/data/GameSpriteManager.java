@@ -571,8 +571,7 @@ public class GameSpriteManager {
         if (GameSpriteManager.TEXTURE_CACHE == null) return null;
 
         // Try data-driven path first (animations.json loaded)
-        AnimationModel animModel = GameDataManager.ANIMATIONS != null
-                ? GameDataManager.ANIMATIONS.get(cls.classId) : null;
+        AnimationModel animModel = GameDataManager.getAnimation("player", cls.classId);
 
         if (animModel != null) {
             return loadClassSpritesFromData(cls, animModel);
@@ -584,27 +583,51 @@ public class GameSpriteManager {
     }
 
     private static SpriteSheet loadClassSpritesFromData(CharacterClass cls, AnimationModel animModel) {
-        Texture classTexture = GameSpriteManager.TEXTURE_CACHE.get(animModel.getSpriteKey());
-        if (classTexture == null) return null;
+        final SpriteSheet sheet = buildAnimatedSpriteSheet(animModel);
+        if (sheet == null) {
+            log.warn("No texture for classId={} spriteKey={}", cls.classId, animModel.getSpriteKey());
+        }
+        return sheet;
+    }
 
-        // Determine the first frame's row to use as the initial sprite position
-        AnimationSetModel idleSide = animModel.getAnimations().get("idle_side");
-        int initRow = idleSide != null ? idleSide.getFrames().get(0).getRow() : 0;
-        int initCol = idleSide != null ? idleSide.getFrames().get(0).getCol() : 0;
+    /**
+     * Animated enemy sprites from the enemy's AnimationModel (objectType
+     * "enemy", keyed by enemyId). Returns null when the enemy has no animation
+     * entry, signalling the caller to fall back to a static single-frame sheet.
+     */
+    public static SpriteSheet loadEnemySprites(int enemyId) {
+        final AnimationModel animModel = GameDataManager.getAnimation("enemy", enemyId);
+        if (animModel == null) return null;
+        return buildAnimatedSpriteSheet(animModel);
+    }
+
+    /**
+     * Build a SpriteSheet with named animation sets (idle/walk/attack...) from
+     * an AnimationModel. Shared by player classes and animated enemies. Each
+     * frame's effective (width, height) follows a fallback chain:
+     *   frame.spriteWidth  -> set.spriteWidth  -> anim.spriteSize
+     *   frame.spriteHeight -> set.spriteHeight -> anim.spriteHeight (or spriteSize)
+     * When the resolved size matches the sheet's default cell we use the
+     * precomputed grid region; otherwise we slice on-the-fly with
+     * getSubSpritePx so a wider/taller attack frame can overhang the grid
+     * without the sheet needing a uniform cell size.
+     */
+    public static SpriteSheet buildAnimatedSpriteSheet(AnimationModel animModel) {
+        if (GameSpriteManager.TEXTURE_CACHE == null || animModel == null
+                || animModel.getAnimations() == null) return null;
+        final Texture texture = GameSpriteManager.TEXTURE_CACHE.get(animModel.getSpriteKey());
+        if (texture == null) return null;
+
+        // Use idle_side's first frame as the initial sprite position.
+        final AnimationSetModel idleSide = animModel.getAnimations().get("idle_side");
+        final boolean haveIdle = idleSide != null && idleSide.getFrames() != null && !idleSide.getFrames().isEmpty();
+        int initRow = haveIdle ? idleSide.getFrames().get(0).getRow() : 0;
+        int initCol = haveIdle ? idleSide.getFrames().get(0).getCol() : 0;
 
         int spW = animModel.getSpriteSize() > 0 ? animModel.getSpriteSize() : GlobalConstants.BASE_SPRITE_SIZE;
         int spH = animModel.getEffectiveSpriteHeight() > 0 ? animModel.getEffectiveSpriteHeight() : GlobalConstants.BASE_SPRITE_SIZE;
-        final SpriteSheet classSprites = new SpriteSheet(classTexture, spW,
-                spH, initCol, initRow);
+        final SpriteSheet sheet = new SpriteSheet(texture, spW, spH, initCol, initRow);
 
-        // Build each animation set from the JSON data. Each frame's effective
-        // (width, height) follows a fallback chain:
-        //   frame.spriteWidth  -> set.spriteWidth  -> anim.spriteSize
-        //   frame.spriteHeight -> set.spriteHeight -> anim.spriteHeight (or spriteSize)
-        // When the resolved size matches the sheet's default cell we use the
-        // precomputed grid region; otherwise we slice on-the-fly with
-        // getSubSpritePx so a wider attack frame can span multiple cells
-        // without the sheet needing a uniform grid.
         for (Map.Entry<String, AnimationSetModel> entry : animModel.getAnimations().entrySet()) {
             String animName = entry.getKey();
             AnimationSetModel animSet = entry.getValue();
@@ -617,36 +640,25 @@ public class GameSpriteManager {
                 int fh = frame.getSpriteHeight() > 0 ? frame.getSpriteHeight()
                         : (setH > 0 ? setH : spH);
                 if (fw == spW && fh == spH) {
-                    // Default cell — use the cached grid region.
-                    frames.add(classSprites.getSubSprite(frame.getCol(), frame.getRow()));
+                    frames.add(sheet.getSubSprite(frame.getCol(), frame.getRow()));
                 } else {
-                    // Wide / tall override — slice directly from the texture.
-                    // (col, row) still map to the top-left grid cell of the
-                    // frame; the override then extends right/down from there.
+                    // (col, row) map to the frame's top-left grid cell; the
+                    // override then overhangs right/down from there.
                     int pxX = frame.getCol() * spW;
                     int pxY = frame.getRow() * spH;
-                    frames.add(classSprites.getSubSpritePx(pxX, pxY, fw, fh));
+                    frames.add(sheet.getSubSpritePx(pxX, pxY, fw, fh));
                 }
             }
-            classSprites.addAnimSet(animName, frames, new ArrayList<>(animSet.getDurations()));
+            sheet.addAnimSet(animName, frames, new ArrayList<>(animSet.getDurations()));
         }
 
-        classSprites.setAnimSet("idle_side");
-        // Fallback: if "idle_side" wasn't in the animation map for this
-        // class, sprites stays empty and getCurrentFrame() returns null,
-        // making the player invisible. Pick the FIRST defined anim set
-        // instead so at least the entity renders. This was the root cause
-        // of remote-player-invisible reports despite the spriteSheet being
-        // non-null — diagnostic only checked null, not frame count.
-        if (classSprites.getFrameCount() == 0
-                && animModel.getAnimations() != null
-                && !animModel.getAnimations().isEmpty()) {
-            final String fallbackName = animModel.getAnimations().keySet().iterator().next();
-            log.warn("No idle_side animation for classId={}, falling back to '{}'",
-                    cls.classId, fallbackName);
-            classSprites.setAnimSet(fallbackName);
+        sheet.setAnimSet("idle_side");
+        // If idle_side was absent the playback list stays empty and the entity
+        // renders invisible; fall back to the first defined set so it still shows.
+        if (sheet.getFrameCount() == 0 && !animModel.getAnimations().isEmpty()) {
+            sheet.setAnimSet(animModel.getAnimations().keySet().iterator().next());
         }
-        return classSprites;
+        return sheet;
     }
 
     public static void disposeAll() {
