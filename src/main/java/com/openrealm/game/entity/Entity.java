@@ -253,7 +253,7 @@ public abstract class Entity extends GameObject {
      * WALK_FRAME_SECONDS (game.js updateInterpolation) so both clients look
      * identical.
      */
-    private static final float WALK_FRAME_SECONDS = 0.13f;
+    private static final float WALK_FRAME_SECONDS = 0.185f;
     /** Webclient main.js ~2160: 80ms per attack frame. */
     private static final float ATTACK_FRAME_SECONDS = 0.08f;
     private float animTimer = 0f;
