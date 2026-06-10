@@ -536,6 +536,45 @@ public class Player extends Entity {
 		return stats;
 	}
 
+	/** Total stat contribution of equipped items (item stats + pixel-forge
+	 *  enchantments). Gems are combat effects (crit/multishot/etc.), not stat
+	 *  lines, so they don't appear here. */
+	public Stats getEquipmentBonus() {
+		Stats bonus = new Stats();
+		final GameItem[] equipment = this.getSlots(0, EQUIPMENT_SLOT_COUNT);
+		for (final GameItem item : equipment) {
+			if (item == null) continue;
+			bonus = bonus.concat(item.getStats());
+			if (item.getEnchantments() != null) {
+				for (final Enchantment e : item.getEnchantments()) {
+					final short delta = e.getDeltaValue();
+					switch (e.getStatId()) {
+					case 0: bonus.setVit((short) (bonus.getVit() + delta)); break;
+					case 1: bonus.setWis((short) (bonus.getWis() + delta)); break;
+					case 2: bonus.setHp(bonus.getHp() + delta); break;
+					case 3: bonus.setMp((short) (bonus.getMp() + delta)); break;
+					case 4: bonus.setStr((short) (bonus.getStr() + delta)); break;
+					case 5: bonus.setDef((short) (bonus.getDef() + delta)); break;
+					case 6: bonus.setSpd((short) (bonus.getSpd() + delta)); break;
+					case 7: bonus.setDex((short) (bonus.getDex() + delta)); break;
+					}
+				}
+			}
+		}
+		return bonus;
+	}
+
+	/** Leveled/allocated stats (the wire value minus equipment). A stat is
+	 *  "maxed" when this base hits the class cap — equipment that pushes the
+	 *  effective stat over the cap must NOT read as maxed. */
+	public Stats getBaseStats() {
+		if (this.stats == null) return new Stats();
+		// Embedded-server role stores raw base stats; only the networked client
+		// receives equipment-folded stats that must be subtracted back out.
+		if (!this.statsServerComputed) return this.stats.clone();
+		return this.stats.subtract(this.getEquipmentBonus());
+	}
+
 	public void drinkHp() {
 		this.stats.setHp((short) (this.stats.getHp() + 5));
 	}
@@ -1002,31 +1041,35 @@ public class Player extends Entity {
 	public boolean isStatMaxed(int statIdx) {
 		final CharacterClassModel characterClass = GameDataManager.CHARACTER_CLASSES.get(this.classId);
 		final Stats maxStats = characterClass.getMaxStats();
+		// Compare the BASE (leveled) stat to the cap, not the equipment-folded
+		// wire value — equipment that pushes the effective stat over the cap must
+		// not read as maxed.
+		final Stats s = this.getBaseStats();
 		boolean maxed = false;
 		switch (statIdx) {
 		case 0:
-			maxed = this.stats.getHp() >= maxStats.getHp();
+			maxed = s.getHp() >= maxStats.getHp();
 			break;
 		case 1:
-			maxed = this.stats.getMp() >= maxStats.getMp();
+			maxed = s.getMp() >= maxStats.getMp();
 			break;
 		case 2:
-			maxed = this.stats.getDef() >= maxStats.getDef();
+			maxed = s.getDef() >= maxStats.getDef();
 			break;
 		case 3:
-			maxed = this.stats.getStr() >= maxStats.getStr();
+			maxed = s.getStr() >= maxStats.getStr();
 			break;
 		case 4:
-			maxed = this.stats.getSpd() >= maxStats.getSpd();
+			maxed = s.getSpd() >= maxStats.getSpd();
 			break;
 		case 5:
-			maxed = this.stats.getDex() >= maxStats.getDex();
+			maxed = s.getDex() >= maxStats.getDex();
 			break;
 		case 6:
-			maxed = this.stats.getVit() >= maxStats.getVit();
+			maxed = s.getVit() >= maxStats.getVit();
 			break;
 		case 7:
-			maxed = this.stats.getWis() >= maxStats.getWis();
+			maxed = s.getWis() >= maxStats.getWis();
 			break;
 		}
 		return maxed;

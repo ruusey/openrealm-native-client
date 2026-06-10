@@ -232,9 +232,26 @@ public final class UpdateChecker {
             final String installer = out.getAbsolutePath();
             if (appPath != null && !appPath.isBlank()) {
                 log.info("[UPDATE] Launching installer at {} (auto-relaunch {})", installer, appPath);
-                final String ps = "Start-Sleep -Seconds 1; "
-                        + "Start-Process -FilePath '" + installer + "' -Wait; "
-                        + "Start-Process -FilePath '" + appPath + "'";
+                // Wait for the install to TRULY commit before relaunching. The
+                // jpackage installer is a Burn bootstrapper that elevates into a
+                // child process, so Start-Process -Wait can return before the MSI
+                // finishes replacing files. If we relaunched immediately the app
+                // came back as the OLD version, re-detected the update, and fired
+                // a SECOND installer while the first was still committing ->
+                // Windows error 1618 ("complete the current install first").
+                // So: record the launcher's timestamp, run the installer, then
+                // poll until the launcher EXE is actually rewritten (capped at
+                // 180s) before relaunching the now-updated build.
+                final String ps =
+                        "$app='" + appPath + "';"
+                        + "$t0=(Get-Item -LiteralPath $app).LastWriteTimeUtc;"
+                        + "Start-Sleep -Seconds 1;"
+                        + "$p=Start-Process -FilePath '" + installer + "' -Wait -PassThru;"
+                        + "if($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010){"
+                        + "$d=(Get-Date).AddSeconds(180);"
+                        + "while((Get-Date) -lt $d -and (Get-Item -LiteralPath $app).LastWriteTimeUtc -le $t0){Start-Sleep -Milliseconds 500}"
+                        + "}"
+                        + "Start-Process -FilePath $app";
                 new ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps)
                         .start();
             } else {
