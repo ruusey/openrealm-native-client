@@ -283,7 +283,13 @@ public abstract class Entity extends GameObject {
             if (frameCount < 1) frameCount = 1;
             while (this.attackFrameTimer >= ATTACK_FRAME_SECONDS) {
                 this.attackFrameTimer -= ATTACK_FRAME_SECONDS;
-                this.attackFrame = (this.attackFrame + 1) % frameCount;
+                // Clamp (not modulo): play the attack clip ONCE and hold the
+                // last frame for the rest of the attack window. Looping made a
+                // single click play the 2-frame clip ~twice over the 350ms hold.
+                // Each new shot resets attackFrame to 0 (triggerAttackAnimation),
+                // so rapid fire still replays it. Webclient parity (main.js
+                // clamps fIdx = min(attackFrame, frames-1)).
+                this.attackFrame = Math.min(this.attackFrame + 1, frameCount - 1);
             }
             sheet.setAnimationFrame(this.attackFrame);
             // Keep the walk accumulator advancing while attacking so motion that
