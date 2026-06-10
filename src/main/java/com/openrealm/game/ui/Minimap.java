@@ -408,13 +408,16 @@ public class Minimap {
         batch.begin();
 
         // Draw the cached map portion (whole-realm view, scaled to the panel).
-        // libGDX SpriteBatch.draw with sub-rect uses TOP-LEFT origin for
-        // src in TEXTURE coords. Our map pixmap was built top-down (y=0 at
-        // top of map), so sub-rect math is direct.
+        // The HUD batch uses the y-DOWN ui camera, under which this draw
+        // overload renders the texture vertically flipped (map row 0 would land
+        // at the screen bottom). The player/other dots below are plotted top-down
+        // (drawY + (tileY - srcY)*scaleY), so pass flipY=true to make the map
+        // tiles share that orientation — otherwise the dots are mirrored on Y
+        // relative to the discovered tiles.
         batch.draw(this.mapTexture,
                 this.drawX, this.drawY, this.sizePx, this.sizePx,
                 srcXi, srcYi, viewWi, viewHi,
-                false, false);
+                false, true);
 
         // Player dots overlay
         batch.end();

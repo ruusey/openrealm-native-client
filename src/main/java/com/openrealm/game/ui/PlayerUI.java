@@ -759,8 +759,11 @@ public class PlayerUI {
                 if (this.isTrading) return;
                 if (this.isDragging) return;
                 this.activeTooltip = null;
-                if (!this.canSwap()) return;
-                this.setActionTime();
+                // No swap-cooldown gate here: the webclient lets you chain-click
+                // loot to grab a bag fast, and the 1s canSwap() throttle DROPPED
+                // (not queued) rapid clicks, so quick picks silently failed. Each
+                // click sends its own moveItem; the server is authoritative and
+                // no-ops a duplicate pick of an already-taken slot.
                 // Mirror webclient onSlotClick: just send moveItem with
                 // target=first-backpack-slot and let the server's
                 // ground-loot branch route it via firstEmptyInvSlot() —
