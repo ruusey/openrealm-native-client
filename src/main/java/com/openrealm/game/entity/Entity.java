@@ -246,17 +246,17 @@ public abstract class Entity extends GameObject {
     }
 
     /**
-     * Walk cycle advances on a fixed wall-clock cadence (seconds per frame)
-     * while moving, NOT on distance traveled — so the gait looks the same
-     * regardless of how fast the entity moves, and a slow enemy animates as
-     * briskly as a fast player. MUST stay in lockstep with the webclient's
-     * WALK_FRAME_SECONDS (game.js updateInterpolation) so both clients look
-     * identical.
+     * Walk cycle advances per pixel of ACTUAL movement (distance-based), so the
+     * gait scales with speed — brisk while chasing, proportionally slower while
+     * orbiting/strafing at close range (the server drops close-range speed to
+     * ~30%). A frame swaps every WALK_PX_PER_FRAME px. MUST match the webclient's
+     * WALK_PX_PER_FRAME (game.js updateInterpolation) so both clients look the
+     * same. (dx/dy are px/tick at 64Hz → px/sec = ×64.)
      */
-    private static final float WALK_FRAME_SECONDS = 0.185f;
+    private static final float WALK_PX_PER_FRAME = 24f;
     /** Webclient main.js ~2160: 80ms per attack frame. */
     private static final float ATTACK_FRAME_SECONDS = 0.08f;
-    private float animTimer = 0f;
+    private float animDistance = 0f;
     private int animFrame = 0;
     private float attackFrameTimer = 0f;
     private int attackFrame = 0;
@@ -286,15 +286,15 @@ public abstract class Entity extends GameObject {
                 this.attackFrame = (this.attackFrame + 1) % frameCount;
             }
             sheet.setAnimationFrame(this.attackFrame);
-            // Keep the walk cadence ticking while attacking so motion that
+            // Keep the walk accumulator advancing while attacking so motion that
             // resumes after the attack ends doesn't snap a stale frame.
             final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
             if (pace > 0.1f) {
-                this.animTimer += dt;
+                this.animDistance += pace * 64f * dt;
                 int wfc = sheet.getFrameCount();
                 if (wfc < 2) wfc = 2;
-                while (this.animTimer >= WALK_FRAME_SECONDS) {
-                    this.animTimer -= WALK_FRAME_SECONDS;
+                while (this.animDistance >= WALK_PX_PER_FRAME) {
+                    this.animDistance -= WALK_PX_PER_FRAME;
                     this.animFrame = (this.animFrame + 1) % wfc;
                 }
             }
@@ -307,18 +307,18 @@ public abstract class Entity extends GameObject {
 
         final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
         if (pace > 0.1f) {
-            this.animTimer += dt;
+            this.animDistance += pace * 64f * dt;
             // 'while' rather than 'if' so a single big-dt frame still advances
             // the right number of frames after a hitch.
             int frameCount = sheet.getFrameCount();
             if (frameCount < 2) frameCount = 2;
-            while (this.animTimer >= WALK_FRAME_SECONDS) {
-                this.animTimer -= WALK_FRAME_SECONDS;
+            while (this.animDistance >= WALK_PX_PER_FRAME) {
+                this.animDistance -= WALK_PX_PER_FRAME;
                 this.animFrame = (this.animFrame + 1) % frameCount;
             }
         } else {
             // Park on idle frame 0 when stationary.
-            this.animTimer = 0f;
+            this.animDistance = 0f;
             this.animFrame = 0;
         }
 
