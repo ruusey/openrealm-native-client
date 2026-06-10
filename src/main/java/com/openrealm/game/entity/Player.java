@@ -354,6 +354,9 @@ public class Player extends Entity {
 	// Backpack is two 20-slot pages (Main 5..24, Backpack 25..44) shown as tabs.
 	public static final int BACKPACK_SIZE = 40;
 	public static final int INVENTORY_SIZE = EQUIPMENT_SLOT_COUNT + BACKPACK_SIZE; // 45
+	// Only the Main page (the first 20 backpack slots) is tradeable; the
+	// second Backpack page stays out of trades.
+	public static final int TRADE_SLOT_COUNT = 20;
 
 	private void resetInventory() {
 		this.inventory = new GameItem[INVENTORY_SIZE];
@@ -1125,7 +1128,7 @@ public class Player extends Entity {
 	}
 
 	public GameItem[] selectGameItems(Boolean[] selectedIdx) {
-		GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + 8);
+		GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + TRADE_SLOT_COUNT);
 		if (selectedIdx.length != inv.length) {
 			System.err.println("SELECT GAME ITEM IDX SIZES NOT EQUAL");
 			return null;
@@ -1143,7 +1146,7 @@ public class Player extends Entity {
 	}
 
 	public NetGameItemRef[] getInventoryAsNetGameItemRefs() {
-		final GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + 8);
+		final GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + TRADE_SLOT_COUNT);
 		final List<NetGameItemRef> results = new ArrayList<>();
 		for (int i = 0; i < inv.length; i++) {
 			if (inv[i] == null)
