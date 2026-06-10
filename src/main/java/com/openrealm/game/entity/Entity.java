@@ -246,42 +246,17 @@ public abstract class Entity extends GameObject {
     }
 
     /**
-     * Walk cycle driven by pixels traveled, NOT elapsed time. Direct port
-     * of the web client's loop in game.js around line 1290:
-     * <pre>
-     *   pace = sqrt(dx*dx + dy*dy);                 // px / tick (64Hz)
-     *   if (pace &gt; 0.1) {
-     *     animDistance += pace * 64 * dt;            // px / sec
-     *     while (animDistance &gt; PX_PER_FRAME) {
-     *       animDistance -= PX_PER_FRAME;
-     *       animFrame = (animFrame + 1) % 2;
-     *     }
-     *   } else {
-     *     animDistance = 0;                          // reset on stop
-     *   }
-     * </pre>
-     * One full 2-frame leg-swap cycle covers 1.5 tiles regardless of
-     * actual speed, which is why the web client looks natural at every
-     * SPD value. The previous time-based SpriteSheet.animate() (which
-     * just incremented a counter every render frame) cycled WAY too
-     * fast at 144 FPS because it had no relation to actual locomotion.
+     * Walk cycle advances on a fixed wall-clock cadence (seconds per frame)
+     * while moving, NOT on distance traveled — so the gait looks the same
+     * regardless of how fast the entity moves, and a slow enemy animates as
+     * briskly as a fast player. MUST stay in lockstep with the webclient's
+     * WALK_FRAME_SECONDS (game.js updateInterpolation) so both clients look
+     * identical.
      */
-    /**
-     * Pixels of motion required per walk-frame swap. Web client uses 48
-     * with a 2-frame cycle (one stride per 96 px ≈ 3 tiles). Native
-     * spritesheets often have 4-frame walk cycles, so to match the
-     * webclient's perceived gait we need 4*48 = 192 px per stride at
-     * the web's PX_PER_FRAME=24, OR keep the per-frame cost the same.
-     *
-     * Bumped 48 -> 96: every walk frame requires 96 px of travel. At
-     * 4-frame cycle that's 384 px per stride (~12 tiles), so even max-
-     * spd characters cycle at a calm pace rather than running 2x faster
-     * than their actual locomotion.
-     */
-    private static final float PX_PER_FRAME = 96f;
+    private static final float WALK_FRAME_SECONDS = 0.13f;
     /** Webclient main.js ~2160: 80ms per attack frame. */
     private static final float ATTACK_FRAME_SECONDS = 0.08f;
-    private float animDistance = 0f;
+    private float animTimer = 0f;
     private int animFrame = 0;
     private float attackFrameTimer = 0f;
     private int attackFrame = 0;
@@ -311,15 +286,15 @@ public abstract class Entity extends GameObject {
                 this.attackFrame = (this.attackFrame + 1) % frameCount;
             }
             sheet.setAnimationFrame(this.attackFrame);
-            // Keep the walk accumulator fresh while attacking so motion that
+            // Keep the walk cadence ticking while attacking so motion that
             // resumes after the attack ends doesn't snap a stale frame.
             final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
             if (pace > 0.1f) {
-                this.animDistance += pace * 64f * dt;
+                this.animTimer += dt;
                 int wfc = sheet.getFrameCount();
                 if (wfc < 2) wfc = 2;
-                while (this.animDistance > PX_PER_FRAME) {
-                    this.animDistance -= PX_PER_FRAME;
+                while (this.animTimer >= WALK_FRAME_SECONDS) {
+                    this.animTimer -= WALK_FRAME_SECONDS;
                     this.animFrame = (this.animFrame + 1) % wfc;
                 }
             }
@@ -332,22 +307,18 @@ public abstract class Entity extends GameObject {
 
         final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
         if (pace > 0.1f) {
-            this.animDistance += pace * 64f * dt;
-            // 'while' rather than 'if' so a single big-dt frame still
-            // advances the right number of frames (matches web behaviour
-            // where multiple PX_PER_FRAME steps can fire in one rAF if
-            // the entity moved especially fast).
+            this.animTimer += dt;
+            // 'while' rather than 'if' so a single big-dt frame still advances
+            // the right number of frames after a hitch.
             int frameCount = sheet.getFrameCount();
             if (frameCount < 2) frameCount = 2;
-            while (this.animDistance > PX_PER_FRAME) {
-                this.animDistance -= PX_PER_FRAME;
+            while (this.animTimer >= WALK_FRAME_SECONDS) {
+                this.animTimer -= WALK_FRAME_SECONDS;
                 this.animFrame = (this.animFrame + 1) % frameCount;
             }
         } else {
-            // Reset accumulator + park on idle frame 0 when stationary
-            // so the next step doesn't fire instantly from leftover
-            // travel and idle pose stays consistent.
-            this.animDistance = 0f;
+            // Park on idle frame 0 when stationary.
+            this.animTimer = 0f;
             this.animFrame = 0;
         }
 
