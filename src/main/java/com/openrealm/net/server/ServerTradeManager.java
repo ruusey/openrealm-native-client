@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -211,11 +212,11 @@ public class ServerTradeManager {
 
 			if (selection0 != null && selection1 != null) {
 				final GameItem[] p0Selection = target.selectGameItems(selection0.getSelection());
-				final GameItem[] p0Cloned = Stream.of(p0Selection).map(GameItem::clone).collect(Collectors.toList())
-						.toArray(new GameItem[0]);
+				final GameItem[] p0Cloned = Stream.of(p0Selection).map(ServerTradeManager::cloneForRecipient)
+						.collect(Collectors.toList()).toArray(new GameItem[0]);
 				final GameItem[] p1Selection = toRespond.selectGameItems(selection1.getSelection());
-				final GameItem[] p1Cloned = Stream.of(p1Selection).map(GameItem::clone).collect(Collectors.toList())
-						.toArray(new GameItem[0]);
+				final GameItem[] p1Cloned = Stream.of(p1Selection).map(ServerTradeManager::cloneForRecipient)
+						.collect(Collectors.toList()).toArray(new GameItem[0]);
 
 				target.removeItems(p0Selection);
 				toRespond.removeItems(p1Selection);
@@ -284,6 +285,16 @@ public class ServerTradeManager {
 		final UpdateTradePacket toSendToTraders = new UpdateTradePacket(playersSelections);
 		mgr.enqueueServerPacket(toRespond, toSendToTraders);
 		mgr.enqueueServerPacket(updateSource, toSendToTraders);
+	}
+
+	/** Clone an item for the receiving player with a fresh UID. clone()
+	 *  copies the source uid, so without this every trade hands out an item
+	 *  whose UID collides with the sender's original — which then cascades
+	 *  into Player.removeItems wiping every UID-equal slot on a later trade. */
+	private static GameItem cloneForRecipient(GameItem item) {
+		final GameItem copy = item.clone();
+		copy.setUid(UUID.randomUUID().toString());
+		return copy;
 	}
 
 	public static void initTrade(Player requestor, RequestTradePacket request) throws IllegalArgumentException {

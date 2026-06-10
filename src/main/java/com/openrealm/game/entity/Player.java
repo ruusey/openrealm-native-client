@@ -1194,15 +1194,21 @@ public class Player extends Entity {
 	}
 
 	public void removeItems(GameItem[] items) {
-		final GameItem[] inv = this.getSlots(EQUIPMENT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT + 8);
-
-		for (int i = 0; i < inv.length; i++) {
-			GameItem invItem = inv[i];
-			if (invItem == null)
+		// Remove exactly ONE inventory slot per item handed in. selectGameItems
+		// returns the live inventory objects, so match by reference identity
+		// first; the UID fallback also stops at its first hit. Matching every
+		// UID-equal slot would wipe a whole row of items that share a UID —
+		// and clone() copies the uid, so trades routinely create duplicates.
+		for (GameItem toRemove : items) {
+			if (toRemove == null)
 				continue;
-			for (GameItem toRemove : items) {
-				if (invItem.getUid() != null && invItem.getUid().equals(toRemove.getUid())) {
-					this.inventory[i + EQUIPMENT_SLOT_COUNT] = null;
+			for (int i = EQUIPMENT_SLOT_COUNT; i < EQUIPMENT_SLOT_COUNT + TRADE_SLOT_COUNT; i++) {
+				final GameItem invItem = this.inventory[i];
+				if (invItem == null)
+					continue;
+				if (invItem == toRemove
+						|| (invItem.getUid() != null && invItem.getUid().equals(toRemove.getUid()))) {
+					this.inventory[i] = null;
 					break;
 				}
 			}
