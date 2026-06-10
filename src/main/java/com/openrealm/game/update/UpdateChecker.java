@@ -221,12 +221,28 @@ public final class UpdateChecker {
         }
 
         try {
-            log.info("[UPDATE] Launching installer at {}", out.getAbsolutePath());
-            new ProcessBuilder(out.getAbsolutePath())
-                    .inheritIO()
-                    .start();
-            // Quit so the installer can replace the running EXE. The installer
-            // process is detached and survives this exit.
+            // jpackage sets this to the installed launcher EXE path. When
+            // present, run the installer and AUTO-RELAUNCH the game once it
+            // finishes so the user lands back in-game instead of having to
+            // start the EXE again. A detached, hidden PowerShell helper waits
+            // on the installer (Start-Process -Wait) — by then this process has
+            // exited and the launcher EXE has been replaced, so relaunching the
+            // same path runs the new build.
+            final String appPath = System.getProperty("jpackage.app-path");
+            final String installer = out.getAbsolutePath();
+            if (appPath != null && !appPath.isBlank()) {
+                log.info("[UPDATE] Launching installer at {} (auto-relaunch {})", installer, appPath);
+                final String ps = "Start-Sleep -Seconds 1; "
+                        + "Start-Process -FilePath '" + installer + "' -Wait; "
+                        + "Start-Process -FilePath '" + appPath + "'";
+                new ProcessBuilder("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps)
+                        .start();
+            } else {
+                log.info("[UPDATE] Launching installer at {} (no jpackage.app-path; manual relaunch)", installer);
+                new ProcessBuilder(installer).start();
+            }
+            // Quit so the installer can replace the running EXE. The spawned
+            // installer / relaunch process is detached and survives this exit.
             System.exit(0);
         } catch (Exception e) {
             log.error("[UPDATE] Failed to launch installer: {}", e.toString());

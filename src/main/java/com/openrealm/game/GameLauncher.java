@@ -236,6 +236,13 @@ public class GameLauncher {
         }
 
         new Lwjgl3Application(new OpenRealmGame(), config);
+
+        // The LWJGL3 app loop above blocks until the game window is closed.
+        // Force the JVM down afterwards: the AWT event-dispatch thread (started
+        // by the Swing update/crash dialogs) and the network reader/heartbeat
+        // threads are non-daemon, so without this the process — and the jpackage
+        // console window behind it — lingers until manually killed.
+        System.exit(0);
     }
 
     private static void pingClient() {
