@@ -3127,13 +3127,12 @@ public class PlayerUI {
         batch.begin();
 
         font.setColor(0.95f, 0.85f, 0.45f, 1f);
-        // True vertical center: glyph baseline at boxY + boxH/2 + gl.height/2
-        // (cap height included), which puts the visual center of the
-        // capital glyphs at the exact box center. The previous formula
-        // with - 2f fudge had the text riding the bottom of the box.
+        // Under the flipped y-down cam, font.draw's y is the TOP of the text, so
+        // center the block: top = boxTop + (boxH - textH)/2. The previous
+        // "+ gl.height/2" form dropped the text below center (riding the bottom).
         font.draw(batch, text,
                 boxX + (boxW - gl.width) / 2f,
-                boxY + boxH / 2f + gl.height / 2f);
+                boxY + (boxH - gl.height) / 2f);
         font.setColor(Color.WHITE);
     }
 
