@@ -80,11 +80,6 @@ public class TileManager {
     private final List<Tile> decorationTilesBuf = new ArrayList<>(64);
     private final List<Tile> waterTilesBuf      = new ArrayList<>(128);
     private final List<Tile> overWaterTilesBuf  = new ArrayList<>(32);
-    /** Discovered, out-of-sight collision billboards rendered by the fog pass.
-     *  Collected so they get the same bottom-edge stroke as in-sight tiles —
-     *  without this the stroke vanished the instant a tile left the sight
-     *  circle even though the tile stayed fully drawn (FOG_BRIGHTNESS=1). */
-    private final List<Tile> fogStrokeTilesBuf  = new ArrayList<>(128);
     /** Reusable Vector2f for the per-frame normalized player position
      *  in render(). Used to be `new Vector2f(...)` every frame. */
     private final Vector2f posNormalizedBuf = new Vector2f();
@@ -853,7 +848,15 @@ public class TileManager {
         final int screenTilesX = (int) Math.ceil((scanMaxX - scanMinX) / ts) + 2;
         final int screenTilesY = (int) Math.ceil((scanMaxY - scanMinY) / ts) + 2;
         final float radiusSqInner = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
-        final List<Tile> fogStrokeTiles = this.fogStrokeTilesBuf; fogStrokeTiles.clear();
+        // Tile buckets, declared before the fog pass so on-screen but out-of-sight
+        // collision objects route into the SAME object/decoration buffers as
+        // in-sight ones — that keeps their shadow + outline present until they
+        // scroll off-screen, instead of dropping to a bare stroke at the sight edge.
+        final List<Tile> wallTiles       = this.wallTilesBuf;       wallTiles.clear();
+        final List<Tile> objectTiles     = this.objectTilesBuf;     objectTiles.clear();
+        final List<Tile> decorationTiles = this.decorationTilesBuf; decorationTiles.clear();
+        final List<Tile> waterTiles      = this.waterTilesBuf;      waterTiles.clear();
+        final List<Tile> overWaterTiles  = this.overWaterTilesBuf;  overWaterTiles.clear();
         batch.setColor(FOG_BRIGHTNESS, FOG_BRIGHTNESS, FOG_BRIGHTNESS, 1f);
         for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {
             for (int sy = syMin; sy < syMin + screenTilesY; sy++) {
@@ -865,34 +868,30 @@ public class TileManager {
                 Tile baseTile = (Tile) this.mapLayers.get(0).getBlocks()[sy][sx];
                 if (baseTile != null) baseTile.render(batch);
                 Tile colTile = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
-                if (colTile != null && !colTile.isVoid()) {
-                    colTile.render(batch);
-                    // Non-wall collision billboards in fog get the same bottom
-                    // stroke as in-sight ones so the outline stays put as tiles
-                    // cross the sight boundary.
-                    if (colTile.getData() != null && !colTile.getData().isWall()) {
-                        fogStrokeTiles.add(colTile);
+                if (colTile != null && !colTile.isVoid()
+                        && (colTile.getData() == null || !colTile.getData().isWall())) {
+                    // Route on-screen out-of-sight collision objects into the
+                    // normal buffers so Pass 3/4 give them the full shadow +
+                    // outline (not just a stroke). Walls are handled by the
+                    // full-screen wall scan below. Not rendered here — the
+                    // object passes draw the sprite.
+                    final boolean baseIsWater = baseTile != null && baseTile.getData() != null
+                            && baseTile.getData().slows() && !baseTile.getData().hasCollision();
+                    if (baseIsWater) {
+                        overWaterTiles.add(colTile);
+                    } else if (colTile.getData() != null && colTile.getData().hasCollision()) {
+                        objectTiles.add(colTile);
+                    } else {
+                        decorationTiles.add(colTile);
                     }
                 }
             }
         }
         batch.setColor(1f, 1f, 1f, 1f);
 
-        // Separate collision layer tiles into walls, objects, and decorations.
-        // Reuse the per-frame buffers (cleared each call) so a busy realm
-        // doesn't churn 5 fresh ArrayLists × 60 fps through young-gen.
-        final List<Tile> wallTiles       = this.wallTilesBuf;       wallTiles.clear();
-        final List<Tile> objectTiles     = this.objectTilesBuf;     objectTiles.clear();
-        final List<Tile> decorationTiles = this.decorationTilesBuf; decorationTiles.clear();
-        final List<Tile> waterTiles      = this.waterTilesBuf;      waterTiles.clear();
-        // Collision/decoration tiles whose BASE tile is water (e.g. stones,
-        // tile 168, lining the nexus river edges). Pass 5 redraws every
-        // water tile on top to prevent shadow-ellipses from bleeding into
-        // the river — the side effect was that anything drawn from
-        // decorationTiles over water got clobbered. We render this list
-        // in its own pass AFTER the water redraw so the stones land on
-        // top of the water surface like they should.
-        final List<Tile> overWaterTiles  = this.overWaterTilesBuf;  overWaterTiles.clear();
+        // (Tile buckets declared above, before the fog pass.) overWaterTiles holds
+        // collision/decoration tiles whose BASE tile is water (river-edge stones);
+        // Pass 6 draws them after the water redraw so they aren't painted over.
 
         // FIRST: scan the FULL SCREEN VIEWPORT (much larger than the
         // 10-tile sight square) for walls. Every wall the camera shows
@@ -1201,7 +1200,6 @@ public class TileManager {
         for (Tile t : objectTiles)     t.renderBottomOutline(batch);
         for (Tile t : decorationTiles) t.renderBottomOutline(batch);
         for (Tile t : overWaterTiles)  t.renderBottomOutline(batch);
-        for (Tile t : fogStrokeTiles)  t.renderBottomOutline(batch);
 
         this.releaseMapLock();
     }

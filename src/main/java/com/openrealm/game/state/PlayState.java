@@ -1903,29 +1903,11 @@ public class PlayState extends GameState {
             final float wy = ent.getPos().getWorldVar().y + s * 0.92f;
             shapes.ellipse(wx - s * 0.4f, wy - s * 0.06f, s * 0.8f, s * 0.24f);
         }
-        // Decoration collision objects (trees, rocks, statues). The
-        // TileManager populates these buffers during its render() above;
-        // they're still valid here because we haven't yet entered the
-        // next frame. Smaller / lower-alpha shadow than entities so a
-        // forest of trees doesn't look like a forest of dark blobs.
-        //
-        // We intentionally SKIP overWaterTiles (collision tiles whose
-        // base is a slowing liquid — water, lava). A shadow doesn't
-        // belong on a fluid surface. Matches the webclient PASS 2
-        // base-slows check.
-        final TileManager tm = this.realmManager.getRealm().getTileManager();
-        if (tm != null) {
-            shapes.setColor(0f, 0f, 0f, 0.25f);
-            final List<Tile> objTiles = tm.getObjectTilesView();
-            for (int i = 0; i < objTiles.size(); i++) {
-                final Tile t = objTiles.get(i);
-                final int s = t.getWidth() > 0 ? t.getWidth() : 32;
-                final float wx = t.getPos().getWorldVar().x + s * 0.5f;
-                final float wy = t.getPos().getWorldVar().y + s * 0.95f;
-                shapes.ellipse(wx - s * 0.32f, wy - s * 0.045f, s * 0.64f, s * 0.18f);
-            }
-            // overWaterTiles: shadows deliberately omitted (see comment above).
-        }
+        // Collision-object shadows (trees, rocks, cacti, statues) are drawn by
+        // TileManager Pass 3, UNDER each object sprite. Don't redraw them here —
+        // doing so stacked a second oval on top of every object (the cactus/palm
+        // double-shadow). Entities, portals, and loot still shadow here because
+        // their sprites are drawn after this pass.
         // Portals + loot containers — drawn LATER in the frame after this
         // pass, but the ground shadow needs to render before everything
         // else for the "sprite stands on shadow" stack. Pull the same
