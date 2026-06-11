@@ -732,12 +732,15 @@ public class Enemy extends Entity {
             return;
         }
 
+        // Mirror getPhaseSpeed's SLOWED scaling here so phase-less enemies'
+        // client-side prediction matches the (now SLOWED-aware) server chase.
+        final float speed = this.hasEffect(StatusEffectType.SLOWED) ? CHASE_SPEED * 0.5f : CHASE_SPEED;
         if (this.getPos().distanceTo(player.getPos()) < this.chaseRange
                 && this.getPos().distanceTo(player.getPos()) >= this.attackRange) {
-            if (this.pos.y > player.pos.y + 1) { this.up = true; this.dy = -CHASE_SPEED; } else { this.up = false; }
-            if (this.pos.y < player.pos.y - 1) { this.down = true; this.dy = CHASE_SPEED; } else { this.down = false; }
-            if (this.pos.x > player.pos.x + 1) { this.left = true; this.dx = -CHASE_SPEED; } else { this.left = false; }
-            if (this.pos.x < player.pos.x - 1) { this.right = true; this.dx = CHASE_SPEED; } else { this.right = false; }
+            if (this.pos.y > player.pos.y + 1) { this.up = true; this.dy = -speed; } else { this.up = false; }
+            if (this.pos.y < player.pos.y - 1) { this.down = true; this.dy = speed; } else { this.down = false; }
+            if (this.pos.x > player.pos.x + 1) { this.left = true; this.dx = -speed; } else { this.left = false; }
+            if (this.pos.x < player.pos.x - 1) { this.right = true; this.dx = speed; } else { this.right = false; }
         }
     }
 
