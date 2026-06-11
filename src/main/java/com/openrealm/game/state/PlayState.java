@@ -46,6 +46,7 @@ import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.game.ui.ActiveVisualEffect;
 import com.openrealm.game.ui.ChatBubble;
 import com.openrealm.game.ui.EffectText;
+import com.openrealm.game.ui.Minimap;
 import com.openrealm.game.ui.PerfMetrics;
 import com.openrealm.game.ui.PlayerUI;
 import com.openrealm.net.client.packet.CreateEffectPacket;
@@ -2286,10 +2287,12 @@ public class PlayState extends GameState {
 
         this.renderCloseLoot(batch);
 
-        // Client-side /dev overlay: top-center FPS / ping / jitter / resolution
-        // bar (toggled by the /dev chat command). batch is active here.
+        // Client-side /dev overlay: FPS / ping / jitter / resolution bar pinned
+        // above the minimap (toggled by the /dev chat command). batch is active here.
         if (PerfMetrics.get().isDevVisible()) {
-            PerfMetrics.get().renderDevBar(batch, font);
+            final Minimap devMinimap = this.pui.getMinimap();
+            PerfMetrics.get().renderDevBar(batch, font,
+                    devMinimap.getDrawX(), devMinimap.getDrawY(), devMinimap.getSizePx());
         }
 
         if (this.debugMode) {

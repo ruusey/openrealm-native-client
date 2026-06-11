@@ -155,12 +155,14 @@ public final class PerfMetrics {
     private static final Color COLOR_BAD  = new Color(1f, 0.4f, 0.4f, 1f);
 
     /**
-     * Top-center single-line overlay mirroring the web client's /dev bar:
+     * Single-line overlay mirroring the web client's /dev bar:
      * {@code FPS n | PING n ms | JITTER n ms | RES WxH}, FPS/PING color-coded.
-     * Drawn by PlayState in UI-camera space (batch already active). Under the
-     * y-down flipped cam, font.draw y is the TOP of the glyphs.
+     * Pinned just above the minimap (right-aligned to it, overlapping its top edge
+     * when there's no room above). Drawn by PlayState in UI-camera space (batch
+     * already active). Under the y-down flipped cam, font.draw y is the TOP of the glyphs.
      */
-    public void renderDevBar(SpriteBatch batch, BitmapFont font) {
+    public void renderDevBar(SpriteBatch batch, BitmapFont font,
+            float minimapX, float minimapY, float minimapSize) {
         final int w = Gdx.graphics != null ? Gdx.graphics.getWidth() : 0;
         final int h = Gdx.graphics != null ? Gdx.graphics.getHeight() : 0;
         final String fpsStr  = "FPS " + this.fps;
@@ -171,8 +173,10 @@ public final class PerfMetrics {
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.7f);
         this.devLayout.setText(font, fpsStr + sep + pingStr + sep + jitStr + sep + resStr);
-        float x = (w - this.devLayout.width) / 2f;
-        final float y = 6f;
+        // Right-align the bar to the minimap's right edge, sitting just above it.
+        float x = (minimapX + minimapSize) - this.devLayout.width;
+        if (x < 4f) x = 4f;
+        final float y = Math.max(2f, minimapY - this.devLayout.height - 2f);
         x = this.drawDevSeg(batch, font, fpsStr, x, y,
                 this.fps >= 55 ? COLOR_GOOD : this.fps >= 30 ? COLOR_WARN : COLOR_BAD);
         x = this.drawDevSeg(batch, font, sep, x, y, Color.GRAY);
