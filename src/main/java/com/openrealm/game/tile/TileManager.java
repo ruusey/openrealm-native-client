@@ -83,6 +83,9 @@ public class TileManager {
     /** Reusable Vector2f for the per-frame normalized player position
      *  in render(). Used to be `new Vector2f(...)` every frame. */
     private final Vector2f posNormalizedBuf = new Vector2f();
+    /** Reusable region for the wall top-half re-stamp; avoids a new
+     *  TextureRegion per wall per frame in the wall pass. */
+    private final TextureRegion wallTopHalfScratch = new TextureRegion();
 
     /** Per-tile highlight color cache, indexed by tileId. Sampled once
      *  from the wall sprite's pixmap (lightened by 35%) so the N+W
@@ -999,12 +1002,10 @@ public class TileManager {
         drawTileSeams(batch, posNormalized, radiusSq, ts, mapW, mapH);
 
         if (!wallTiles.isEmpty()) {
-            java.util.HashSet<Long> wallSet = new java.util.HashSet<>(wallTiles.size() * 2);
-            for (Tile t : wallTiles) {
-                wallSet.add(((long) t.getRow() << 32) | (t.getCol() & 0xffffffffL));
-            }
-            final java.util.function.BiPredicate<Long, Long> isWallAt = (row, col) ->
-                    wallSet.contains((row << 32) | (col & 0xffffffffL));
+            // Wall adjacency is read straight from the collision layer rather
+            // than a per-frame set: every on-screen wall's 4 neighbors fall
+            // inside the viewport+2 scan, so the result is identical to the old
+            // HashSet<Long> while allocating nothing (no Long boxing per check).
 
             // (Silhouette pass removed — the sprite-shaped +1/+1 shadow leaked
             // onto the SE corner ground at wall endpoints as a dark blob. The
@@ -1029,10 +1030,10 @@ public class TileManager {
                 float wy = t.getPos().getWorldVar().y;
                 final long row = t.getRow();
                 final long col = t.getCol();
-                boolean wN = isWallAt.test(row - 1, col);
-                boolean wS = isWallAt.test(row + 1, col);
-                boolean wW = isWallAt.test(row, col - 1);
-                boolean wE = isWallAt.test(row, col + 1);
+                boolean wN = isWallTileAt(row - 1, col, mapW, mapH);
+                boolean wS = isWallTileAt(row + 1, col, mapW, mapH);
+                boolean wW = isWallTileAt(row, col - 1, mapW, mapH);
+                boolean wE = isWallTileAt(row, col + 1, mapW, mapH);
 
                 // Wall extrusion bands. 6-8 thin 1px stripes per face instead
                 // of 3 chunky stripes — smoother alpha falloff so the wall→
@@ -1084,7 +1085,7 @@ public class TileManager {
             for (Tile t : wallTiles) {
                 final long row = t.getRow();
                 final long col = t.getCol();
-                if (!isWallAt.test(row + 1, col)) continue;
+                if (!isWallTileAt(row + 1, col, mapW, mapH)) continue;
                 final TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
                 if (region == null) continue;
                 final int sz = t.getWidth();
@@ -1094,9 +1095,9 @@ public class TileManager {
                 final int srcW = region.getRegionWidth();
                 final int srcH = region.getRegionHeight();
                 final int srcHalfH = Math.max(1, srcH / 2);
-                final TextureRegion topHalf = new TextureRegion(region.getTexture(),
-                        region.getRegionX(), region.getRegionY(), srcW, srcHalfH);
-                batch.draw(topHalf, wx, wy, sz, sz);
+                this.wallTopHalfScratch.setTexture(region.getTexture());
+                this.wallTopHalfScratch.setRegion(region.getRegionX(), region.getRegionY(), srcW, srcHalfH);
+                batch.draw(this.wallTopHalfScratch, wx, wy, sz, sz);
             }
 
             // N + W highlights on edge walls (top-light from NW). Drawn
@@ -1115,8 +1116,8 @@ public class TileManager {
                 float wy = t.getPos().getWorldVar().y;
                 final long row = t.getRow();
                 final long col = t.getCol();
-                boolean wN = isWallAt.test(row - 1, col);
-                boolean wW = isWallAt.test(row, col - 1);
+                boolean wN = isWallTileAt(row - 1, col, mapW, mapH);
+                boolean wW = isWallTileAt(row, col - 1, mapW, mapH);
                 final float[] hl = wallHighlightColor((int) t.getTileId());
                 if (!wN) {
                     shapes.setColor(hl[0], hl[1], hl[2], 0.20f); shapes.rect(wx, wy,     sz, 2);
@@ -1202,6 +1203,14 @@ public class TileManager {
         for (Tile t : overWaterTiles)  t.renderBottomOutline(batch);
 
         this.releaseMapLock();
+    }
+
+    /** True if the collision-layer tile at (row,col) is a non-void wall.
+     *  Out-of-bounds reads as not-a-wall, matching the old set's behavior. */
+    private boolean isWallTileAt(long row, long col, int mapW, int mapH) {
+        if (row < 0 || col < 0 || col >= mapW || row >= mapH) return false;
+        final Tile ct = (Tile) this.mapLayers.get(1).getBlocks()[(int) row][(int) col];
+        return ct != null && !ct.isVoid() && ct.getData() != null && ct.getData().isWall();
     }
 
     /**
