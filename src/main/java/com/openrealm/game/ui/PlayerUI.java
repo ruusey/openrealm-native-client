@@ -477,7 +477,7 @@ public class PlayerUI {
         final int panelW = OpenRealmGame.width / 5;
         final int minimapSize = Math.max(96, Math.min(panelW - 2 * PANEL_INSET,
                 OpenRealmGame.height / 4));
-        this.layoutMinimapY = FAME_Y + FAME_H + 6;
+        this.layoutMinimapY = PANEL_INSET;
         this.layoutMinimapBot = this.layoutMinimapY + minimapSize;
         this.layoutBarsY    = this.layoutMinimapBot + 6;          // 3 bars * 22 = 66
         this.layoutStatsY   = this.layoutBarsY + 22 * 3 + 8;      // 3-row stats
@@ -1806,7 +1806,6 @@ public class PlayerUI {
             } catch (Throwable t) {
                 log.warn("Minimap render failed (recovering): {}", t.toString());
             }
-            this.renderRealmInfo(batch, shapes, font);
         }
 
         // (Sprite-HUD already drawn earlier in render() when atlas is ready.)
