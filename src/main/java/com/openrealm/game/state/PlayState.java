@@ -2810,6 +2810,18 @@ public class PlayState extends GameState {
             renderGroundPound(shapes, cx, cy, maxRadius, t);
             return;
         }
+        if (type == CreateEffectPacket.EFFECT_DRUID_ROOTS) {
+            renderDruidRoots(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_DRUID_MOONLIGHT) {
+            renderDruidMoonlight(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+        if (type == CreateEffectPacket.EFFECT_DRUID_WILD_SURGE) {
+            renderDruidWildSurge(shapes, cx, cy, maxRadius, t);
+            return;
+        }
         if (type == CreateEffectPacket.EFFECT_SOUL_VORTEX) {
             renderSoulVortex(shapes, vfx, cx, cy, maxRadius, t);
             return;
@@ -4187,6 +4199,206 @@ public class PlayState extends GameState {
             shapes.setColor(0.88f, 0.78f, 0.56f, alpha * earlyA * 0.8f);
             drawCircle(shapes, cx, cy, 18f * earlyA + 8f, 18);
         }
+        shapes.end();
+    }
+
+    /** Druid Root Growth — gnarled roots writhe outward from the caster with a green
+     *  ensnaring pulse, marking the DoT zone. Y-up coordinate space. */
+    private void renderDruidRoots(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) * 5.0f;
+        final float tt = System.currentTimeMillis() * 0.001f;
+        final float grow = Math.min(1f, t * 2.2f);
+
+        // Earthen ground disc
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.10f, 0.18f, 0.07f, alpha * 0.30f);
+        drawCircle(shapes, cx, cy, radius, 40);
+        shapes.end();
+
+        // Writhing bark-brown root tendrils
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        final int tendrils = 9;
+        final int segs = 9;
+        for (int i = 0; i < tendrils; i++) {
+            final float baseA = (i / (float) tendrils) * (float) Math.PI * 2f + i * 0.37f;
+            final float cosA = (float) Math.cos(baseA), sinA = (float) Math.sin(baseA);
+            final float perpX = -sinA, perpY = cosA;
+            final float phase = tt * 1.6f + i;
+            float prevX = cx, prevY = cy;
+            shapes.setColor(0.32f, 0.20f, 0.09f, alpha * 0.9f);
+            for (int s = 1; s <= segs; s++) {
+                final float sT = s / (float) segs;
+                final float sR = radius * sT * grow;
+                final float wave = (float) Math.sin(phase + sT * Math.PI * 2.4f) * 10f * sT;
+                final float px = cx + cosA * sR + perpX * wave;
+                final float py = cy + sinA * sR + perpY * wave;
+                shapes.line(prevX, prevY, px, py);
+                prevX = px; prevY = py;
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Green ensnaring pulse ring
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        final float pulse = 0.55f + 0.45f * (float) Math.sin(tt * 4f);
+        shapes.setColor(0.30f, 0.85f, 0.25f, alpha * 0.7f * pulse);
+        drawCircleOutline(shapes, cx, cy, radius * (0.6f + 0.4f * grow), 40);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Sprouting leaf tips + central bulb
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (int i = 0; i < tendrils; i++) {
+            final float baseA = (i / (float) tendrils) * (float) Math.PI * 2f + i * 0.37f;
+            final float cosA = (float) Math.cos(baseA), sinA = (float) Math.sin(baseA);
+            final float perpX = -sinA, perpY = cosA;
+            final float phase = tt * 1.6f + i;
+            final float sR = radius * grow;
+            final float wave = (float) Math.sin(phase + (float) Math.PI * 2.4f) * 10f;
+            final float px = cx + cosA * sR + perpX * wave;
+            final float py = cy + sinA * sR + perpY * wave;
+            shapes.setColor(0.20f, 0.55f, 0.16f, alpha * 0.9f);
+            drawCircle(shapes, px, py, 5f, 8);
+            shapes.setColor(0.45f, 0.95f, 0.35f, alpha);
+            drawCircle(shapes, px, py, 2.5f, 6);
+        }
+        shapes.setColor(0.20f, 0.45f, 0.14f, alpha * 0.8f);
+        drawCircle(shapes, cx, cy, 11f, 16);
+        shapes.setColor(0.55f, 0.95f, 0.40f, alpha);
+        drawCircle(shapes, cx, cy, 6f, 14);
+        shapes.end();
+    }
+
+    /** Druid Moonlight — night-blue healing aura with a silver crescent moon,
+     *  descending moonbeams and rising healing motes. Y-up. */
+    private void renderDruidMoonlight(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.75f ? 1.0f : 1.0f - (t - 0.75f) * 4.0f;
+        final float tt = System.currentTimeMillis() * 0.001f;
+        final float ringR = radius * (0.35f + 0.65f * Math.min(1f, t * 1.8f));
+
+        // Night-blue base
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.10f, 0.12f, 0.30f, alpha * 0.30f);
+        drawCircle(shapes, cx, cy, radius, 44);
+        shapes.setColor(0.18f, 0.22f, 0.45f, alpha * 0.18f);
+        drawCircle(shapes, cx, cy, ringR * 0.9f, 40);
+        shapes.end();
+
+        // Silver moon-glow rings
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(0.85f, 0.90f, 1.00f, alpha * 0.9f);
+        drawCircleOutline(shapes, cx, cy, ringR, 44);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.70f, 0.80f, 1.00f, alpha * 0.7f);
+        drawCircleOutline(shapes, cx, cy, ringR * 0.9f, 44);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Slanted moonbeams
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(3f);
+        final int beams = 6;
+        for (int i = 0; i < beams; i++) {
+            final float a = (i / (float) beams) * (float) Math.PI * 2f + tt * 0.3f;
+            final float beamA = alpha * (0.25f + 0.35f * (0.5f + 0.5f * (float) Math.sin(tt * 2f + i)));
+            shapes.setColor(0.80f, 0.88f, 1.00f, beamA);
+            final float ox = (float) Math.cos(a) * radius * 0.9f;
+            final float oy = (float) Math.sin(a) * radius * 0.9f;
+            shapes.line(cx + ox, cy + oy + radius * 0.5f, cx + ox * 0.4f, cy + oy * 0.4f);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Rising healing motes (+y) + crescent moon
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int motes = 14;
+        for (int i = 0; i < motes; i++) {
+            final float seed = i * 0.453f;
+            final float ph = (t * 1.1f + seed) % 1f;
+            final float mA = (float) Math.sin(ph * Math.PI) * alpha;
+            if (mA <= 0.05f) continue;
+            final float a = seed * (float) Math.PI * 2f + tt * 0.6f;
+            final float dist = radius * (0.2f + 0.7f * ((seed * 13f) % 1f));
+            final float mx = cx + (float) Math.cos(a) * dist;
+            final float my = cy + (float) Math.sin(a) * dist * 0.5f + ph * radius * 0.5f;
+            shapes.setColor(0.70f, 0.85f, 1.00f, mA * 0.8f);
+            drawCircle(shapes, mx, my, 4f, 8);
+            shapes.setColor(1f, 1f, 1f, mA);
+            drawCircle(shapes, mx, my, 1.8f, 6);
+        }
+        // Crescent: silver disc carved by an offset night-blue disc.
+        final float moonR = 14f + 2f * (float) Math.sin(tt * 2f);
+        shapes.setColor(0.92f, 0.95f, 1.00f, alpha * 0.95f);
+        drawCircle(shapes, cx, cy, moonR, 24);
+        shapes.setColor(0.10f, 0.12f, 0.30f, alpha);
+        drawCircle(shapes, cx + moonR * 0.5f, cy + moonR * 0.18f, moonR * 0.92f, 24);
+        shapes.end();
+    }
+
+    /** Druid Wild Surge (ultimate) — spiraling vine arms, bursting leaves and a
+     *  radiant verdant core. Y-up. */
+    private void renderDruidWildSurge(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) * 5.0f;
+        final float tt = System.currentTimeMillis() * 0.001f;
+
+        // Verdant ground halo
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.10f, 0.40f, 0.10f, alpha * 0.25f);
+        drawCircle(shapes, cx, cy, radius * (0.6f + 0.4f * Math.min(1f, t * 2f)), 44);
+        shapes.end();
+
+        // Spiraling vine arms
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        final int arms = 3;
+        final int segs = 26;
+        for (int arm = 0; arm < arms; arm++) {
+            final float armOff = (arm / (float) arms) * (float) Math.PI * 2f;
+            shapes.setColor(0.25f, 0.80f, 0.25f, alpha * 0.9f);
+            float prevX = cx, prevY = cy;
+            boolean has = false;
+            for (int s = 0; s <= segs; s++) {
+                final float sT = s / (float) segs;
+                final float rr = radius * sT;
+                final float a = armOff + sT * (float) Math.PI * 3f + tt * 1.4f;
+                final float px = cx + (float) Math.cos(a) * rr;
+                final float py = cy + (float) Math.sin(a) * rr;
+                if (has) shapes.line(prevX, prevY, px, py);
+                prevX = px; prevY = py; has = true;
+            }
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+
+        // Bursting leaves + radiant core
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int leaves = 18;
+        for (int i = 0; i < leaves; i++) {
+            final float seed = i * 0.371f;
+            final float ph = (t * 1.3f + seed) % 1f;
+            final float lA = (float) Math.sin(ph * Math.PI) * alpha;
+            if (lA <= 0.05f) continue;
+            final float a = seed * (float) Math.PI * 2f + tt * 0.5f;
+            final float orbR = radius * (0.2f + 0.8f * ph);
+            final float lx = cx + (float) Math.cos(a) * orbR;
+            final float ly = cy + (float) Math.sin(a) * orbR;
+            shapes.setColor(0.20f, 0.60f, 0.18f, lA * 0.85f);
+            drawCircle(shapes, lx, ly, 5f, 8);
+            shapes.setColor(0.80f, 1.00f, 0.30f, lA);
+            drawCircle(shapes, lx, ly, 2.5f, 6);
+        }
+        final float surge = 0.55f + 0.45f * (float) Math.sin(tt * 6f);
+        shapes.setColor(0.50f, 0.95f, 0.25f, alpha * 0.7f * surge);
+        drawCircle(shapes, cx, cy, 14f, 18);
+        shapes.setColor(0.90f, 1.00f, 0.55f, alpha * surge);
+        drawCircle(shapes, cx, cy, 7f, 14);
         shapes.end();
     }
 

@@ -146,6 +146,12 @@ public class CreateEffectPacket extends Packet {
 	/** Heavy DPS Ground Pound — expanding dust ring + radial ground-crack
 	 *  lines + lingering dust cloud. Brown/tan palette. */
 	public static final short EFFECT_GROUND_POUND    = 58;
+	/** Druid Root Growth — writhing roots/vines erupt outward, green ensnaring pulse. */
+	public static final short EFFECT_DRUID_ROOTS     = 59;
+	/** Druid Moonlight — night-blue aura, silver crescent moon, healing motes. */
+	public static final short EFFECT_DRUID_MOONLIGHT = 60;
+	/** Druid Wild Surge (ultimate) — spiraling vine arms, bursting leaves, verdant core. */
+	public static final short EFFECT_DRUID_WILD_SURGE = 61;
 
 	public static CreateEffectPacket aoeEffect(short type, float x, float y, float radius, short duration) {
 		return aoeEffect(type, x, y, radius, duration, (byte) 0);
