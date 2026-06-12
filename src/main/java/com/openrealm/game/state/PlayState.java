@@ -4219,7 +4219,7 @@ public class PlayState extends GameState {
         // Writhing bark-brown root tendrils
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(5f);
-        final int tendrils = 9;
+        final int tendrils = 11;
         final int segs = 9;
         for (int i = 0; i < tendrils; i++) {
             final float baseA = (i / (float) tendrils) * (float) Math.PI * 2f + i * 0.37f;
