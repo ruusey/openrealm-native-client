@@ -21,4 +21,8 @@ public class ProjectileGroup extends SpriteModel {
      *  spinning blade rather than an arrow. Used by shuriken groups
      *  1000-1005 (Ninja Star Throw + Blade abilities). */
     private boolean spinning;
+    /** Optional "#RRGGBB" tint. When set, the renderer draws a short fading
+     *  afterimage trail in this colour behind the projectile (e.g. Trapper
+     *  Tar Shot's sticky black streak). Null disables the trail. */
+    private String trailColor;
 }

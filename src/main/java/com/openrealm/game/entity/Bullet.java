@@ -377,8 +377,47 @@ public class Bullet extends GameObject  {
         float wy = this.pos.getWorldVar().y;
         float halfSize = this.size / 2f;
 
+        // Sticky afterimage trail (e.g. Trapper Tar Shot): fading tinted copies
+        // of the sprite trailing back along the flight line. Drawn before the
+        // body so the projectile stays on top. Only non-spinning straight
+        // projectiles request a trail, so backward = -(sin,cos)*step is exact.
+        final String trailColor = group.getTrailColor();
+        if (trailColor != null) {
+            final float[] rgb = parseTrailColor(trailColor);
+            final float prev = batch.getPackedColor();
+            final float spacing = this.size * 0.34f;
+            for (int i = TRAIL_SEGMENTS; i >= 1; i--) {
+                final float f = i / (float) TRAIL_SEGMENTS;
+                final float a = 0.55f * (1f - f);
+                final float seg = this.size * (1f - 0.12f * i);
+                final float off = (this.size - seg) * 0.5f;
+                final float tx = wx - this.sinAngle * spacing * i;
+                final float ty = wy - this.cosAngle * spacing * i;
+                batch.setColor(rgb[0], rgb[1], rgb[2], a);
+                batch.draw(frame, tx + off, ty + off, seg / 2f, seg / 2f,
+                        seg, seg, 1f, 1f, rotationDeg);
+            }
+            batch.setPackedColor(prev);
+        }
+
         // draw with rotation around center
         batch.draw(frame, wx, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+    }
+
+    private static final int TRAIL_SEGMENTS = 5;
+
+    /** Parse a "#RRGGBB" trail colour to normalized RGB; black on bad input. */
+    private static float[] parseTrailColor(String hex) {
+        try {
+            final int rgb = Integer.parseInt(hex.startsWith("#") ? hex.substring(1) : hex, 16);
+            return new float[] {
+                ((rgb >> 16) & 0xFF) / 255f,
+                ((rgb >> 8) & 0xFF) / 255f,
+                (rgb & 0xFF) / 255f
+            };
+        } catch (NumberFormatException e) {
+            return new float[] { 0f, 0f, 0f };
+        }
     }
 
     private static final float OUTLINE_OFFSET = 1f;

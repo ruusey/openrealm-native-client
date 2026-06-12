@@ -151,10 +151,16 @@ public class AbilityTooltip {
             }
         }
 
-        // Damage breakdown with stat scalings.
-        if (this.ability.getBaseDamage() > 0) {
+        // Damage breakdown. Shown whenever the ability deals damage from ANY
+        // source — base, stat scaling, or both — so scaling-only abilities
+        // (e.g. Trapper, which has no baseDamage) still surface a number
+        // instead of looking damage-less despite their "damaging" description.
+        {
             long total = this.ability.getBaseDamage();
-            StringBuilder breakdown = new StringBuilder(Long.toString(this.ability.getBaseDamage()));
+            final List<String> parts = new ArrayList<>();
+            if (this.ability.getBaseDamage() > 0) {
+                parts.add(Long.toString(this.ability.getBaseDamage()));
+            }
             if (this.ability.getScalings() != null) {
                 for (AbilityScaling sc : this.ability.getScalings()) {
                     if (sc == null) continue;
@@ -165,16 +171,19 @@ public class AbilityTooltip {
                         total += contrib;
                         final String label = sc.isSkillPointScaling() ? ("SP*" + this.investedSp)
                                 : (sc.getStat() != null ? sc.getStat() : "");
-                        breakdown.append(" +").append(contrib).append(" (").append(label).append(")");
+                        parts.add("+" + contrib + " (" + label + ")");
                     }
                 }
             }
-            final boolean pierce = (this.ability.getTags() != null
-                    && this.ability.getTags().contains("armor_pierce"));
-            final Color dmgColor = pierce ? DMG_PIERCE : DMG_COLOR;
-            lines.add(new Line((pierce ? "Armor-Pierce Damage: " : "Damage: ") + total, dmgColor));
-            for (String wl : wrapLines(font, "= " + breakdown.toString(), maxTextW)) {
-                lines.add(new Line("  " + wl, GREEN_BONUS));
+            if (total > 0) {
+                final boolean pierce = (this.ability.getTags() != null
+                        && this.ability.getTags().contains("armor_pierce"));
+                final Color dmgColor = pierce ? DMG_PIERCE : DMG_COLOR;
+                lines.add(new Line((pierce ? "Armor-Pierce Damage: " : "Damage: ") + total, dmgColor));
+                final String breakdown = parts.isEmpty() ? Long.toString(total) : String.join(" ", parts);
+                for (String wl : wrapLines(font, "= " + breakdown, maxTextW)) {
+                    lines.add(new Line("  " + wl, GREEN_BONUS));
+                }
             }
         }
 
