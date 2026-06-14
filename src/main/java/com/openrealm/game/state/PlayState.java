@@ -366,6 +366,11 @@ public class PlayState extends GameState {
                 } else if (gameObject[i] instanceof Bullet) {
                     final Bullet bul = (Bullet) gameObject[i];
                     bul.update(bulletScale);
+                    // ANCHORED walls follow their source entity as it moves.
+                    if (bul.hasFlag(ProjectileFlag.ANCHORED)) {
+                        final Enemy src = clientRealm.getEnemies().get(bul.getSrcEntityId());
+                        if (src != null) bul.anchorFollow(src.getPos().x, src.getPos().y);
+                    }
                     boolean expired = bul.remove(0L);
                     // Terrain collision: skip for pass-through projectiles.
                     // Use bullet center; isCollisionTile returns true for OOB

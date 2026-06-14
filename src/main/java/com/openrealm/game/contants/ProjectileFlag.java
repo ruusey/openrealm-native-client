@@ -22,7 +22,17 @@ public enum ProjectileFlag {
      * so a single bullet can't damage the same enemy twice. Used for bows,
      * archer quivers, and knight stun shields.
      */
-    PASS_THROUGH_ENEMIES((short) 25);
+    PASS_THROUGH_ENEMIES((short) 25),
+    /**
+     * Line/wall projectile: extends {@code length} px perpendicular to its
+     * facing angle, centered on its position, with {@code size} as thickness.
+     * Rendered as a sprite tiled along the line. Travels along the angle at
+     * magnitude (face-first); static when magnitude is 0. Collision/damage is
+     * server-authoritative.
+     */
+    LINE_SEGMENT((short) 30),
+    /** Re-positions to its source entity each tick (a wall that tracks a boss). */
+    ANCHORED((short) 31);
 
     public static final Map<Short, ProjectileFlag> map = new HashMap<>();
     static {

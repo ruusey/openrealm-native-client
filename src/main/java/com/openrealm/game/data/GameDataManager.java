@@ -44,6 +44,12 @@ public class GameDataManager {
 	public static final transient ObjectMapper JSON_MAPPER = new ObjectMapper()
 		.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
+	// {{...}} angle placeholders — PI_EXPR matches unit-circle radian forms:
+	// PI, 2*PI, 2PI, PI/4, 3*PI/2, 3PI/2, -PI/2, 1.5*PI. Keep in sync with the
+	// server's GameDataManager.
+	private static final Pattern INJECT_VAR = Pattern.compile("\\{\\{(.*?)}}");
+	private static final Pattern PI_EXPR = Pattern.compile("^(-?\\d*\\.?\\d*)\\*?PI(?:/(-?\\d*\\.?\\d+))?$");
+
 	public static Map<Integer, ProjectileGroup>               PROJECTILE_GROUPS = null;
 	public static Map<Byte, WeaponArchetypeModel>             WEAPON_ARCHETYPES = null;
 	public static Map<Integer, GameItem>                      GAME_ITEMS = null;
@@ -541,29 +547,33 @@ public class GameDataManager {
 	}
 
 	private static String replaceInjectVariables(String input) {
-		String randomizeRegex = "\\{\\{(.*?)}}";
-		Pattern pattern = Pattern.compile(randomizeRegex);
-		Matcher matcher = pattern.matcher(input);
+		Matcher matcher = INJECT_VAR.matcher(input);
 		while (matcher.find()) {
-			String match = matcher.group(1);
-			if (match.contains("PI/")) {
-				String[] split = match.split("/");
-
-				float multF = 1.0f;
-				if (split[0].length() > 2) {
-					int endIndex = split[0].indexOf("P");
-					multF = Float.parseFloat(split[0].substring(0, endIndex));
-				}
-				float angle = (float) ((multF * Math.PI) / Float.parseFloat(split[1]));
-				input = GameDataManager.replaceGen(input, match, angle + "");
-
-			} else if (match.contains("PI")) {
-				float angle = (float) Math.PI;
-				input = GameDataManager.replaceGen(input, match, angle + "");
+			final String match = matcher.group(1);
+			final float angle = evalPiExpression(match);
+			if (!Float.isNaN(angle)) {
+				input = GameDataManager.replaceGen(input, match, Float.toString(angle));
 			}
 		}
 		return input;
+	}
 
+	/**
+	 * Evaluate a unit-circle radian expression to radians: PI, 2*PI, 2PI, PI/4,
+	 * 3*PI/2, 3PI/2, -PI/2, 1.5*PI, etc. Returns NaN when it isn't a PI form.
+	 */
+	public static float evalPiExpression(final String expr) {
+		if (expr == null) return Float.NaN;
+		final String e = expr.replace(" ", "");
+		if (!e.contains("PI")) return Float.NaN;
+		final Matcher m = PI_EXPR.matcher(e);
+		if (!m.matches()) return Float.NaN;
+		final String coefStr = m.group(1);
+		final String divStr = m.group(2);
+		final float coef = (coefStr == null || coefStr.isEmpty()) ? 1f
+				: (coefStr.equals("-") ? -1f : Float.parseFloat(coefStr));
+		final float div = (divStr == null || divStr.isEmpty()) ? 1f : Float.parseFloat(divStr);
+		return (float) (coef * Math.PI / div);
 	}
 
 	public static void loadSpriteModel(GameItem item) {

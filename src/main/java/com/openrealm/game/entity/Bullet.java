@@ -55,6 +55,17 @@ public class Bullet extends GameObject  {
     private float orbitRadius;
     private float orbitPhase; // starting angle in radians for this projectile
 
+    // LINE_SEGMENT wall: length (px) of the segment, which extends perpendicular
+    // to the facing angle; size is its thickness. lifetimeTicks forces expiry so
+    // a static (magnitude 0) wall whose range never decrements still despawns.
+    private short length;
+    private int lifetimeTicks;
+    // ANCHORED follow: offset of this bullet's top-left from the source entity's
+    // top-left, derived once at first sight so the wall tracks the moving enemy.
+    private boolean anchorReady;
+    private float anchorOffsetX;
+    private float anchorOffsetY;
+
     private long createdTime;
     /**
      * Server-tick at which this bullet was spawned. Used for O(1) tick-counter
@@ -220,6 +231,15 @@ public class Bullet extends GameObject  {
 
     /** Tick-counter aware expiry — pass the realm's current tickCounter. */
     public boolean remove(long currentTick) {
+        // Explicit lifetime governs static walls whose range never decrements.
+        // Client bullets carry no createdTick (currentTick is passed as 0), so
+        // fall back to the server-stamped createdTime at 64 ticks/sec.
+        if (this.lifetimeTicks > 0) {
+            if (this.createdTick != 0L) {
+                return (currentTick - this.createdTick) > this.lifetimeTicks;
+            }
+            return (Instant.now().toEpochMilli() - this.createdTime) > (this.lifetimeTicks * 1000L / 64L);
+        }
         if (this.range <= 0.0) return true;
         // createdTick == 0 indicates a legacy bullet not initialized via the
         // tick-aware spawn path; fall back to the wall-clock check so the
@@ -349,6 +369,22 @@ public class Bullet extends GameObject  {
         this.pos.y = centerY + radius * (float) Math.sin(startPhase);
     }
 
+    /**
+     * ANCHORED follow: derive the spawn-time offset from the source entity's
+     * top-left on first sight, then snap to it each tick so the wall tracks the
+     * moving enemy. Matches the server's anchorTo geometry.
+     */
+    public void anchorFollow(float sourceTopLeftX, float sourceTopLeftY) {
+        if (!this.anchorReady) {
+            this.anchorOffsetX = this.pos.x - sourceTopLeftX;
+            this.anchorOffsetY = this.pos.y - sourceTopLeftY;
+            this.anchorReady = true;
+            return;
+        }
+        this.pos.x = sourceTopLeftX + this.anchorOffsetX;
+        this.pos.y = sourceTopLeftY + this.anchorOffsetY;
+    }
+
     @Override
     public void render(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
@@ -376,6 +412,24 @@ public class Bullet extends GameObject  {
         float wx = this.pos.getWorldVar().x;
         float wy = this.pos.getWorldVar().y;
         float halfSize = this.size / 2f;
+
+        // LINE_SEGMENT wall: tile the sprite along the axis perpendicular to the
+        // facing angle (matching the server's lineHit geometry) instead of
+        // drawing one centered sprite. size is the line thickness; length the
+        // span. Drawn here and returned — no trail/outline for walls.
+        if (this.hasFlag(ProjectileFlag.LINE_SEGMENT) && this.length > 0) {
+            final float a = this.getAngle();
+            final float perpX = (float) Math.cos(a);
+            final float perpY = (float) -Math.sin(a);
+            final float half = this.length * 0.5f;
+            final int tiles = Math.max(1, Math.round(this.length / (float) this.size));
+            for (int i = 0; i <= tiles; i++) {
+                final float off = -half + ((float) i / tiles) * this.length;
+                batch.draw(frame, wx + perpX * off, wy + perpY * off, halfSize, halfSize,
+                        this.size, this.size, 1f, 1f, rotationDeg);
+            }
+            return;
+        }
 
         // Sticky afterimage trail (e.g. Trapper Tar Shot): fading tinted copies
         // of the sprite trailing back along the flight line. Drawn before the
@@ -428,6 +482,8 @@ public class Bullet extends GameObject  {
      *  sprite on top afterwards. */
     public void renderOutline(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
+        // Walls draw their own tiled sprites in render() with no outline.
+        if (this.hasFlag(ProjectileFlag.LINE_SEGMENT)) return;
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
 
