@@ -281,6 +281,12 @@ public class Bullet extends GameObject  {
                 || this.hasFlag(ProjectileFlag.INVERTED_PARAMETRIC)) {
             this.updateParametric(bulletScale);
         } else {
+            // LINE_SEGMENT walls spin in place when given a frequency (deg/tick) —
+            // matches the server so the rendered wall tracks the server hitbox.
+            if (this.frequency != 0 && this.hasFlag(ProjectileFlag.LINE_SEGMENT)) {
+                this.angle += (float) Math.toRadians(this.frequency * bulletScale);
+                cacheAngle();
+            }
             // Straight-line projectile — uses cached sin/cos.
             final float step = this.magnitude * bulletScale;
             final float velX = this.sinAngle * step;
@@ -423,10 +429,14 @@ public class Bullet extends GameObject  {
             final float perpY = (float) -Math.sin(a);
             final float half = this.length * 0.5f;
             final int tiles = Math.max(1, Math.round(this.length / (float) this.size));
+            // Align tiles to the wall axis so they form a straight line (and stay
+            // aligned as a spinning wall rotates). The group angleOffset is NOT
+            // applied — for a wall it just tilts the line off-axis.
+            final float lineRotDeg = (float) Math.toDegrees(-a + this.tfAngle);
             for (int i = 0; i <= tiles; i++) {
                 final float off = -half + ((float) i / tiles) * this.length;
                 batch.draw(frame, wx + perpX * off, wy + perpY * off, halfSize, halfSize,
-                        this.size, this.size, 1f, 1f, rotationDeg);
+                        this.size, this.size, 1f, 1f, lineRotDeg);
             }
             return;
         }
