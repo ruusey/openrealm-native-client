@@ -467,6 +467,11 @@ public class PlayState extends GameState {
                     final boolean isOwnBullet = (localId != -1L && b.getSrcEntityId() == localId);
                     if (!b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE) && !isOwnBullet) continue;
                     if (b.hasFlag(ProjectileFlag.PASS_THROUGH_ENEMIES)) continue;
+                    // Homing bullets are server-driven — never client-consume them.
+                    // The server removes a homing bullet on its authoritative hit
+                    // (UnloadPacket); a predicted local cull deleted our copy before
+                    // the server killed its copy, which got re-sent and orbited.
+                    if (b.hasFlag(ProjectileFlag.HOMING)) continue;
                     final float bSize = b.getSize() > 0 ? b.getSize() : 4f;
                     final float br = bSize * GlobalConstants.HIT_RADIUS_FACTOR;
                     final float bcx = b.getPos().x + bSize * 0.5f;
@@ -829,9 +834,11 @@ public class PlayState extends GameState {
                 weapon.getName(), projGroupId, archCount, gemMulti, totalBullets,
                 weapon.getEnchantments() == null ? 0 : weapon.getEnchantments().size());
 
-        long homingTargetId = 0L;
-        boolean homingResolved = false;
         for (final com.openrealm.game.model.Projectile proj : group.getProjectiles()) {
+            // Homing shots are NOT predicted — the server owns their path. A
+            // predicted copy hit instantly and was deleted, then the server's
+            // still-alive copy re-rendered and orbited. Render the server copy only.
+            if (proj.getFlags() != null && proj.getFlags().contains(ProjectileFlag.HOMING.flagId)) continue;
             float projAngleOffset = 0f;
             try { projAngleOffset = Float.parseFloat(proj.getAngle()); } catch (Exception ignored) {}
             final float shootAngle = baseAngle + projAngleOffset;
@@ -890,14 +897,6 @@ public class PlayState extends GameState {
                 // the server's does (player path used to ignore these).
                 b.setLifetimeTicks(proj.getLifetimeTicks());
                 b.setLength(proj.getLength());
-                // Homing predicted seeker locks the same enemy the server will:
-                // nearest enemy to the cursor at fire time.
-                if (proj.getFlags() != null && proj.getFlags().contains(ProjectileFlag.HOMING.flagId)) {
-                    if (!homingResolved) { homingTargetId = nearestEnemyToPoint(realm, dest); homingResolved = true; }
-                    b.setTargetEntityId(homingTargetId);
-                    // Never let a homing shot pursue forever — cap if unauthored.
-                    if (b.getLifetimeTicks() <= 0) b.setLifetimeTicks(384);
-                }
                 realm.addBullet(b);
             }
         }
@@ -2783,23 +2782,6 @@ public class PlayState extends GameState {
             shapes.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
         }
-    }
-
-    /** Nearest enemy to a point (the cursor) within the ~6-tile homing lock range;
-     *  0 if none. Mirrors the server's player-shot target selection. */
-    private long nearestEnemyToPoint(Realm realm, Vector2f point) {
-        if (realm == null || realm.getEnemies() == null) return 0L;
-        long best = 0L;
-        float bestSq = 192f * 192f;
-        for (final Enemy en : realm.getEnemies().values()) {
-            if (en == null) continue;
-            final float ecx = en.getPos().x + en.getSize() * 0.5f;
-            final float ecy = en.getPos().y + en.getSize() * 0.5f;
-            final float dx = ecx - point.x, dy = ecy - point.y;
-            final float d = dx * dx + dy * dy;
-            if (d < bestSq) { bestSq = d; best = en.getId(); }
-        }
-        return best;
     }
 
     private void drawReticleBrackets(ShapeRenderer shapes, float cx, float cy, float rad, float spin) {
