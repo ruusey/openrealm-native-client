@@ -825,6 +825,13 @@ public class ClientGameLogic {
 						tracked.setAngle(b.getAngle());
 						tracked.setTargetEntityId(b.getTargetEntityId());
 					} else {
+						// Hand off the predicted seeker to the server's authoritative
+						// copy: drop our predicted homing bullet (its steered angle
+						// won't match the dedup above) and add the server bullet so
+						// snap + skip-consume + unload-removal all apply to it.
+						cli.getRealm().getBullets().values().removeIf(pb -> pb != null && pb.isPredicted()
+								&& pb.getProjectileId() == b.getProjectileId()
+								&& pb.hasFlag(ProjectileFlag.HOMING));
 						cli.getRealm().addBulletIfNotExists(b);
 					}
 					continue;

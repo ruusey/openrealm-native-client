@@ -367,18 +367,30 @@ public class PlayState extends GameState {
                     ((Enemy) gameObject[i]).update(this.getRealmManager(), time);
                 } else if (gameObject[i] instanceof Bullet) {
                     final Bullet bul = (Bullet) gameObject[i];
-                    // HOMING: steer toward the target entity (matches the server) so
-                    // the visual tracks; the server stays authoritative for the hit.
                     if (bul.hasFlag(ProjectileFlag.HOMING)) {
                         GameObject tgt = clientRealm.getPlayer(bul.getTargetEntityId());
                         if (tgt == null && player != null && player.getId() == bul.getTargetEntityId()) tgt = player;
                         if (tgt == null) tgt = clientRealm.getEnemies().get(bul.getTargetEntityId());
-                        if (tgt != null) {
-                            bul.steerToward(tgt.getPos().x + tgt.getSize() * 0.5f, tgt.getPos().y + tgt.getSize() * 0.5f,
-                                    (float) Math.toRadians(bul.getFrequency() * bulletScale));
+                        // Advance the seeker in fixed 1/64s ticks (steer then move,
+                        // once per tick) to match the server's discretization exactly.
+                        // Per-frame variable-bulletScale stepping drew a slightly
+                        // different pursuit curve, so the path drifted between snapshots
+                        // and the server's position sync visibly snapped/flipped.
+                        final float maxTurn = (float) Math.toRadians(bul.getFrequency());
+                        float accum = bul.getHomingAccum() + bulletScale;
+                        int guard = 0;
+                        while (accum >= 1f && guard++ < 16) {
+                            accum -= 1f;
+                            if (tgt != null) {
+                                bul.steerToward(tgt.getPos().x + tgt.getSize() * 0.5f,
+                                        tgt.getPos().y + tgt.getSize() * 0.5f, maxTurn);
+                            }
+                            bul.update(1f);
                         }
+                        bul.setHomingAccum(accum);
+                    } else {
+                        bul.update(bulletScale);
                     }
-                    bul.update(bulletScale);
                     // ANCHORED walls follow their source entity as it moves.
                     if (bul.hasFlag(ProjectileFlag.ANCHORED)) {
                         final Enemy src = clientRealm.getEnemies().get(bul.getSrcEntityId());
@@ -834,11 +846,28 @@ public class PlayState extends GameState {
                 weapon.getName(), projGroupId, archCount, gemMulti, totalBullets,
                 weapon.getEnchantments() == null ? 0 : weapon.getEnchantments().size());
 
+        // Homing prediction target: nearest enemy to the cursor within ~6 tiles
+        // (mirrors the server) so the predicted seeker curves like the real one
+        // until the server's authoritative copy takes over.
+        long predictedHomingTarget = 0L;
+        boolean groupHasHoming = false;
+        for (final com.openrealm.game.model.Projectile pr : group.getProjectiles()) {
+            if (pr.getFlags() != null && pr.getFlags().contains(ProjectileFlag.HOMING.flagId)) { groupHasHoming = true; break; }
+        }
+        if (groupHasHoming && realm.getEnemies() != null) {
+            float bestSq = 192f * 192f;
+            for (final Enemy en : realm.getEnemies().values()) {
+                if (en == null || en.getPos() == null) continue;
+                final float ecx = en.getPos().x + en.getSize() * 0.5f;
+                final float ecy = en.getPos().y + en.getSize() * 0.5f;
+                final float dx = ecx - dest.x, dy = ecy - dest.y;
+                final float d = dx * dx + dy * dy;
+                if (d < bestSq) { bestSq = d; predictedHomingTarget = en.getId(); }
+            }
+        }
+        final long lockedHomingTarget = predictedHomingTarget;
+
         for (final com.openrealm.game.model.Projectile proj : group.getProjectiles()) {
-            // Homing shots are NOT predicted — the server owns their path. A
-            // predicted copy hit instantly and was deleted, then the server's
-            // still-alive copy re-rendered and orbited. Render the server copy only.
-            if (proj.getFlags() != null && proj.getFlags().contains(ProjectileFlag.HOMING.flagId)) continue;
             float projAngleOffset = 0f;
             try { projAngleOffset = Float.parseFloat(proj.getAngle()); } catch (Exception ignored) {}
             final float shootAngle = baseAngle + projAngleOffset;
@@ -897,6 +926,9 @@ public class PlayState extends GameState {
                 // the server's does (player path used to ignore these).
                 b.setLifetimeTicks(proj.getLifetimeTicks());
                 b.setLength(proj.getLength());
+                if (proj.getFlags() != null && proj.getFlags().contains(ProjectileFlag.HOMING.flagId)) {
+                    b.setTargetEntityId(lockedHomingTarget);
+                }
                 realm.addBullet(b);
             }
         }

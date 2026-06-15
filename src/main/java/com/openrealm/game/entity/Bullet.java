@@ -62,6 +62,9 @@ public class Bullet extends GameObject  {
     private int lifetimeTicks;
     // HOMING flag: id of the entity (player or enemy) this projectile steers toward.
     private long targetEntityId;
+    // HOMING client sim: fractional-tick accumulator so the client advances the
+    // seeker in fixed 1/64s ticks, matching the server's per-tick discretization.
+    private float homingAccum;
     // ANCHORED follow: offset of this bullet's top-left from the source entity's
     // top-left, derived once at first sight so the wall tracks the moving enemy.
     private boolean anchorReady;
