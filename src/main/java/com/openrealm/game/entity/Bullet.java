@@ -288,7 +288,11 @@ public class Bullet extends GameObject  {
                 cacheAngle();
             }
             // Straight-line projectile — uses cached sin/cos.
-            final float step = this.magnitude * bulletScale;
+            float speed = this.magnitude;
+            if (this.hasFlag(ProjectileFlag.SPEED_DECAY) || this.hasFlag(ProjectileFlag.SPEED_RAMP)) {
+                speed *= speedCurveMult();
+            }
+            final float step = speed * bulletScale;
             final float velX = this.sinAngle * step;
             final float velY = this.cosAngle * step;
             // dist == magnitude * bulletScale because (sinA² + cosA²) == 1.
@@ -389,6 +393,18 @@ public class Bullet extends GameObject  {
         }
         this.pos.x = sourceTopLeftX + this.anchorOffsetX;
         this.pos.y = sourceTopLeftY + this.anchorOffsetY;
+    }
+
+    /** Exponential speed multiplier over lifetime — must match the server. */
+    public float speedCurveMult() {
+        final float lifeMs = (this.lifetimeTicks > 0 ? this.lifetimeTicks : 192) * 1000f / 64f;
+        float p = (Instant.now().toEpochMilli() - this.createdTime) / lifeMs;
+        if (p < 0f) p = 0f; else if (p > 1f) p = 1f;
+        final float k = this.frequency > 0 ? this.frequency : 4f;
+        if (this.hasFlag(ProjectileFlag.SPEED_RAMP)) {
+            return (float) ((Math.exp(k * p) - 1.0) / (Math.exp(k) - 1.0));
+        }
+        return (float) ((Math.exp(-k * p) - Math.exp(-k)) / (1.0 - Math.exp(-k)));
     }
 
     @Override

@@ -32,7 +32,11 @@ public enum ProjectileFlag {
      */
     LINE_SEGMENT((short) 30),
     /** Re-positions to its source entity each tick (a wall that tracks a boss). */
-    ANCHORED((short) 31);
+    ANCHORED((short) 31),
+    /** Speed eases magnitude -> 0 over lifetimeTicks (frequency = curve sharpness). */
+    SPEED_DECAY((short) 32),
+    /** Speed eases 0 -> magnitude over lifetimeTicks (frequency = curve sharpness). */
+    SPEED_RAMP((short) 33);
 
     public static final Map<Short, ProjectileFlag> map = new HashMap<>();
     static {
