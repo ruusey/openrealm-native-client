@@ -445,10 +445,10 @@ public class Bullet extends GameObject  {
             final float perpY = (float) -Math.sin(a);
             final float half = this.length * 0.5f;
             final int tiles = Math.max(1, Math.round(this.length / (float) this.size));
-            // Align tiles to the wall axis so they form a straight line (and stay
-            // aligned as a spinning wall rotates). The group angleOffset is NOT
-            // applied — for a wall it just tilts the line off-axis.
-            final float lineRotDeg = (float) Math.toDegrees(-a + this.tfAngle);
+            // Point tiles ALONG the wall axis (perpendicular to facing) so they
+            // read as one straight line end-to-end — no tfAngle (that aligns to
+            // travel, i.e. across the wall). angleOffset stays as a fine-tune.
+            final float lineRotDeg = (float) Math.toDegrees(-a + angleOffset);
             for (int i = 0; i <= tiles; i++) {
                 final float off = -half + ((float) i / tiles) * this.length;
                 batch.draw(frame, wx + perpX * off, wy + perpY * off, halfSize, halfSize,
