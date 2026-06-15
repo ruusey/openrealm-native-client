@@ -25,6 +25,10 @@ public class Projectile {
     private short amplitude;
     private short frequency;
 
+    // LINE_SEGMENT span (thickness is `size`); forced-expiry tick count (walls/homing).
+    private short length;
+    private int lifetimeTicks;
+
     // Spawn position offset relative to enemy center (rotated by firing angle)
     private float spawnOffsetX;
     private float spawnOffsetY;

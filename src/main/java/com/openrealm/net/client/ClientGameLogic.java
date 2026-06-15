@@ -810,6 +810,25 @@ public class ClientGameLogic {
 					match.setPredicted(false);
 					continue;
 				}
+				// Homing: server-authoritative position. Deterministic replay
+				// doesn't hold for target-seeking paths, so snap an already-tracked
+				// homing bullet to the server pos/heading/target on every snapshot,
+				// and add a new one at the server state with NO straight-line
+				// catchup (the catchup below assumes straight motion and flings
+				// homing bullets onto random orbits when they cross the viewport
+				// boundary or get re-loaded).
+				if (b.hasFlag(ProjectileFlag.HOMING)) {
+					final Bullet tracked = cli.getRealm().getBullets().get(b.getId());
+					if (tracked != null && tracked.getPos() != null && b.getPos() != null) {
+						tracked.getPos().setX(b.getPos().x);
+						tracked.getPos().setY(b.getPos().y);
+						tracked.setAngle(b.getAngle());
+						tracked.setTargetEntityId(b.getTargetEntityId());
+					} else {
+						cli.getRealm().addBulletIfNotExists(b);
+					}
+					continue;
+				}
 				// Non-matched (NOT our own predicted) — typically another
 				// player's bullet. Fast-forward by RTT/2 along its angle
 				// so it visually appears where the server has it NOW

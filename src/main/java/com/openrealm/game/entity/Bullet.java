@@ -233,14 +233,16 @@ public class Bullet extends GameObject  {
 
     /** Tick-counter aware expiry — pass the realm's current tickCounter. */
     public boolean remove(long currentTick) {
-        // Explicit lifetime governs static walls whose range never decrements.
-        // Client bullets carry no createdTick (currentTick is passed as 0), so
-        // fall back to the server-stamped createdTime at 64 ticks/sec.
+        // Explicit lifetime caps static walls whose range never decrements, but
+        // range ALSO applies (whichever first) — for moving bullets like homing
+        // shots, range governs travel distance and must match the server + the
+        // webclient (both honor range + lifetime). Client bullets carry no
+        // createdTick (currentTick is 0), so fall back to createdTime at 64/s.
         if (this.lifetimeTicks > 0) {
-            if (this.createdTick != 0L) {
-                return (currentTick - this.createdTick) > this.lifetimeTicks;
-            }
-            return (Instant.now().toEpochMilli() - this.createdTime) > (this.lifetimeTicks * 1000L / 64L);
+            final boolean lifeUp = (this.createdTick != 0L)
+                    ? (currentTick - this.createdTick) > this.lifetimeTicks
+                    : (Instant.now().toEpochMilli() - this.createdTime) > (this.lifetimeTicks * 1000L / 64L);
+            if (lifeUp) return true;
         }
         if (this.range <= 0.0) return true;
         // createdTick == 0 indicates a legacy bullet not initialized via the
