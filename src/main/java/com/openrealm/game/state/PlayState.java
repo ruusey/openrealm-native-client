@@ -2785,12 +2785,12 @@ public class PlayState extends GameState {
         }
     }
 
-    /** Nearest enemy to a point (the cursor) within the ~2-tile homing lock range;
+    /** Nearest enemy to a point (the cursor) within the ~6-tile homing lock range;
      *  0 if none. Mirrors the server's player-shot target selection. */
     private long nearestEnemyToPoint(Realm realm, Vector2f point) {
         if (realm == null || realm.getEnemies() == null) return 0L;
         long best = 0L;
-        float bestSq = 64f * 64f;
+        float bestSq = 192f * 192f;
         for (final Enemy en : realm.getEnemies().values()) {
             if (en == null) continue;
             final float ecx = en.getPos().x + en.getSize() * 0.5f;
