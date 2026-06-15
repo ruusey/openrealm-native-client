@@ -9,6 +9,7 @@ import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -144,6 +145,7 @@ public class PlayState extends GameState {
     private final List<Entity> visibleEntities = new ArrayList<>(256);
     private final List<Bullet> visibleBullets = new ArrayList<>(128);
     private final List<Enemy> visibleEnemies = new ArrayList<>(128);
+    private final HashSet<Long> lockOnSeen = new HashSet<>();
 
     // Scratch Vector2f reused for collision-check center-offset queries in
     // movePlayer. Previously each call did p.getPos().clone(halfSize,
@@ -365,6 +367,17 @@ public class PlayState extends GameState {
                     ((Enemy) gameObject[i]).update(this.getRealmManager(), time);
                 } else if (gameObject[i] instanceof Bullet) {
                     final Bullet bul = (Bullet) gameObject[i];
+                    // HOMING: steer toward the target entity (matches the server) so
+                    // the visual tracks; the server stays authoritative for the hit.
+                    if (bul.hasFlag(ProjectileFlag.HOMING)) {
+                        GameObject tgt = clientRealm.getPlayer(bul.getTargetEntityId());
+                        if (tgt == null && player != null && player.getId() == bul.getTargetEntityId()) tgt = player;
+                        if (tgt == null) tgt = clientRealm.getEnemies().get(bul.getTargetEntityId());
+                        if (tgt != null) {
+                            bul.steerToward(tgt.getPos().x + tgt.getSize() * 0.5f, tgt.getPos().y + tgt.getSize() * 0.5f,
+                                    (float) Math.toRadians(bul.getFrequency() * bulletScale));
+                        }
+                    }
                     bul.update(bulletScale);
                     // ANCHORED walls follow their source entity as it moves.
                     if (bul.hasFlag(ProjectileFlag.ANCHORED)) {
@@ -2169,6 +2182,8 @@ public class PlayState extends GameState {
 
         // Pass 5: Visual ability effects (rings, arcs, particles)
         this.renderVisualEffects(shapes);
+        // Lock-on reticles over entities targeted by live HOMING projectiles.
+        this.renderLockOnReticles(shapes);
 
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
@@ -2710,6 +2725,66 @@ public class PlayState extends GameState {
             final float rotDeg = (float) Math.toDegrees(spinPhase + i * 0.9f);
             batch.draw(tex, bx - sprSize / 2f, by - sprSize / 2f,
                     sprSize / 2f, sprSize / 2f, sprSize, sprSize, 1f, 1f, rotDeg);
+        }
+    }
+
+    /** Rotating bracket reticle over every entity targeted by a live HOMING
+     *  projectile. Red = the local player is the target, amber = a lock on an
+     *  enemy. Mirrors the webclient lock-on hint. */
+    private void renderLockOnReticles(ShapeRenderer shapes) {
+        if (this.visibleBullets.isEmpty()) return;
+        final Realm realm = this.realmManager.getRealm();
+        if (realm == null) return;
+        final Player local = realm.getPlayer(this.playerId);
+        final float t = System.currentTimeMillis() * 0.001f;
+        final float spin = t * 2.2f;
+        final float pulse = Math.max(0.25f, 0.55f + 0.45f * (float) Math.sin(t * 5.0f));
+        final float wx = Vector2f.worldX, wy = Vector2f.worldY;
+        this.lockOnSeen.clear();
+        boolean began = false;
+        for (int i = 0; i < this.visibleBullets.size(); i++) {
+            final Bullet bul = this.visibleBullets.get(i);
+            if (bul == null || !bul.hasFlag(ProjectileFlag.HOMING)) continue;
+            final long tid = bul.getTargetEntityId();
+            if (tid == 0L || !this.lockOnSeen.add(tid)) continue;
+            GameObject tgt = realm.getPlayer(tid);
+            if (tgt == null) tgt = realm.getEnemies().get(tid);
+            if (tgt == null) continue;
+            final boolean isLocal = (local != null && tgt == local);
+            final float cx = tgt.getPos().x + tgt.getSize() * 0.5f - wx;
+            final float cy = tgt.getPos().y + tgt.getSize() * 0.5f - wy;
+            final float rad = tgt.getSize() * 0.7f;
+            if (!began) {
+                Gdx.gl.glEnable(GL20.GL_BLEND);
+                Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                began = true;
+            }
+            if (isLocal) shapes.setColor(1f, 0.23f, 0.23f, pulse);
+            else shapes.setColor(1f, 0.82f, 0.23f, pulse);
+            this.drawReticleBrackets(shapes, cx, cy, rad, spin);
+            shapes.circle(cx, cy, rad * 0.5f, 24);
+        }
+        if (began) {
+            shapes.end();
+            Gdx.gl.glDisable(GL20.GL_BLEND);
+        }
+    }
+
+    private void drawReticleBrackets(ShapeRenderer shapes, float cx, float cy, float rad, float spin) {
+        final float cos = (float) Math.cos(spin), sin = (float) Math.sin(spin);
+        final float arm = rad * 0.45f;
+        final int[][] corners = { {-1, -1}, {1, -1}, {1, 1}, {-1, 1} };
+        for (int c = 0; c < 4; c++) {
+            final float sx = corners[c][0], sy = corners[c][1];
+            final float lx = sx * rad, ly = sy * rad;
+            final float px = cx + lx * cos - ly * sin, py = cy + lx * sin + ly * cos;
+            final float ax = lx - sx * arm, ay = ly;
+            final float pax = cx + ax * cos - ay * sin, pay = cy + ax * sin + ay * cos;
+            final float bx = lx, by = ly - sy * arm;
+            final float pbx = cx + bx * cos - by * sin, pby = cy + bx * sin + by * cos;
+            shapes.line(pax, pay, px, py);
+            shapes.line(px, py, pbx, pby);
         }
     }
 

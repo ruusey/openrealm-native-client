@@ -77,6 +77,8 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 	private int lifetimeTicks;
 	@SerializableField(order = 22, type = SerializableShort.class)
 	private short length;
+	@SerializableField(order = 23, type = SerializableLong.class)
+	private long targetEntityId;
 
 	/**
 	 * Hand-rolled construction from a server-side Bullet — bypasses
@@ -117,6 +119,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		n.srcEntityId = b.getSrcEntityId();
 		n.lifetimeTicks = b.getLifetimeTicks();
 		n.length = b.getLength();
+		n.targetEntityId = b.getTargetEntityId();
 		return n;
 	}
 
@@ -141,6 +144,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		bullet.setSrcEntityId(this.srcEntityId);
 		bullet.setLifetimeTicks(this.lifetimeTicks);
 		bullet.setLength(this.length);
+		bullet.setTargetEntityId(this.targetEntityId);
 		// Web-parity sprite resolution: projectileId -> ProjectileGroup -> spriteKey.
 		// Without this, Bullet.render() short-circuits at its null-check and
 		// every projectile is invisible.

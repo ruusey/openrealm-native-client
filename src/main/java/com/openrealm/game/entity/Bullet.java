@@ -60,6 +60,8 @@ public class Bullet extends GameObject  {
     // a static (magnitude 0) wall whose range never decrements still despawns.
     private short length;
     private int lifetimeTicks;
+    // HOMING flag: id of the entity (player or enemy) this projectile steers toward.
+    private long targetEntityId;
     // ANCHORED follow: offset of this bullet's top-left from the source entity's
     // top-left, derived once at first sight so the wall tracks the moving enemy.
     private boolean anchorReady;
@@ -393,6 +395,20 @@ public class Bullet extends GameObject  {
         }
         this.pos.x = sourceTopLeftX + this.anchorOffsetX;
         this.pos.y = sourceTopLeftY + this.anchorOffsetY;
+    }
+
+    /** HOMING: rotate facing toward target center by at most maxTurnRad — matches the server. */
+    public void steerToward(float targetCenterX, float targetCenterY, float maxTurnRad) {
+        final float bcx = this.pos.x + this.getSize() * 0.5f;
+        final float bcy = this.pos.y + this.getSize() * 0.5f;
+        final float desired = (float) Math.atan2(targetCenterX - bcx, targetCenterY - bcy);
+        float diff = desired - this.angle;
+        while (diff > Math.PI) diff -= (float) (2 * Math.PI);
+        while (diff < -Math.PI) diff += (float) (2 * Math.PI);
+        if (diff > maxTurnRad) diff = maxTurnRad;
+        else if (diff < -maxTurnRad) diff = -maxTurnRad;
+        this.angle += diff;
+        cacheAngle();
     }
 
     /** Exponential speed multiplier over lifetime — must match the server. */

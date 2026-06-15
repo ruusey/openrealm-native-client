@@ -36,7 +36,9 @@ public enum ProjectileFlag {
     /** Speed eases magnitude -> 0 over lifetimeTicks (frequency = curve sharpness). */
     SPEED_DECAY((short) 32),
     /** Speed eases 0 -> magnitude over lifetimeTicks (frequency = curve sharpness). */
-    SPEED_RAMP((short) 33);
+    SPEED_RAMP((short) 33),
+    /** Homing: steers toward targetEntityId each tick, capped by frequency deg/tick. */
+    HOMING((short) 34);
 
     public static final Map<Short, ProjectileFlag> map = new HashMap<>();
     static {
