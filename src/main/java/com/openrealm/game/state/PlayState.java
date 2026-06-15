@@ -829,6 +829,8 @@ public class PlayState extends GameState {
                 weapon.getName(), projGroupId, archCount, gemMulti, totalBullets,
                 weapon.getEnchantments() == null ? 0 : weapon.getEnchantments().size());
 
+        long homingTargetId = 0L;
+        boolean homingResolved = false;
         for (final com.openrealm.game.model.Projectile proj : group.getProjectiles()) {
             float projAngleOffset = 0f;
             try { projAngleOffset = Float.parseFloat(proj.getAngle()); } catch (Exception ignored) {}
@@ -884,6 +886,12 @@ public class PlayState extends GameState {
                 }
                 if (sheet != null) b.setSpriteSheet(sheet);
                 b.setPredicted(true);
+                // Homing predicted seeker locks the same enemy the server will:
+                // nearest enemy to the cursor at fire time.
+                if (proj.getFlags() != null && proj.getFlags().contains(ProjectileFlag.HOMING.flagId)) {
+                    if (!homingResolved) { homingTargetId = nearestEnemyToPoint(realm, dest); homingResolved = true; }
+                    b.setTargetEntityId(homingTargetId);
+                }
                 realm.addBullet(b);
             }
         }
@@ -2769,6 +2777,23 @@ public class PlayState extends GameState {
             shapes.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
         }
+    }
+
+    /** Nearest enemy to a point (the cursor) within the 640px homing lock range;
+     *  0 if none. Mirrors the server's player-shot target selection. */
+    private long nearestEnemyToPoint(Realm realm, Vector2f point) {
+        if (realm == null || realm.getEnemies() == null) return 0L;
+        long best = 0L;
+        float bestSq = 640f * 640f;
+        for (final Enemy en : realm.getEnemies().values()) {
+            if (en == null) continue;
+            final float ecx = en.getPos().x + en.getSize() * 0.5f;
+            final float ecy = en.getPos().y + en.getSize() * 0.5f;
+            final float dx = ecx - point.x, dy = ecy - point.y;
+            final float d = dx * dx + dy * dy;
+            if (d < bestSq) { bestSq = d; best = en.getId(); }
+        }
+        return best;
     }
 
     private void drawReticleBrackets(ShapeRenderer shapes, float cx, float cy, float rad, float spin) {
