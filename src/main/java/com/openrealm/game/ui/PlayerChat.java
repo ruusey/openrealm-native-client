@@ -9,6 +9,7 @@ import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
+import com.openrealm.game.Settings;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.net.client.SocketClient;
 import com.openrealm.net.messaging.CommandType;
@@ -215,6 +216,19 @@ public class PlayerChat {
                             TextPacket devMsg = TextPacket.create("SYSTEM", "SYSTEM",
                                     "Dev overlay " + (on ? "ON" : "OFF") + " (FPS / ping / jitter / res)");
                             this.addChatMessage(devMsg);
+                        } else if (messageToSend.toLowerCase().startsWith("/walls")) {
+                            // /walls toggles, /walls simple|fancy sets explicitly.
+                            String arg = messageToSend.substring("/walls".length()).trim().toLowerCase();
+                            Settings settings = Settings.get();
+                            String next = arg.equals("simple") || arg.equals("fancy")
+                                    ? arg
+                                    : ("simple".equals(settings.getWallRenderMode()) ? "fancy" : "simple");
+                            settings.setWallRenderMode(next);
+                            settings.save();
+                            TextPacket wallsMsg = TextPacket.create("SYSTEM", "SYSTEM",
+                                    "Wall rendering: " + next.toUpperCase()
+                                            + (next.equals("simple") ? " (flat stroke — faster)" : " (shaded)"));
+                            this.addChatMessage(wallsMsg);
                         } else {
                             ServerCommandMessage serverCommand = ServerCommandMessage.parseFromInput(messageToSend);
                             CommandPacket packet = CommandPacket.create(this.state.getPlayer(), CommandType.SERVER_COMMAND,

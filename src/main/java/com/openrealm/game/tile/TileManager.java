@@ -13,6 +13,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 import com.openrealm.game.OpenRealmGame;
+import com.openrealm.game.Settings;
 import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
@@ -1019,6 +1020,10 @@ public class TileManager {
             // Adjacency lookup is by tile grid coords. Walls sharing a face
             // skip that face's bands so internal seams stay clean.
 
+            final boolean simpleWalls = "simple".equals(Settings.get().getWallRenderMode());
+            if (simpleWalls) {
+                renderWallsSimple(batch, shapes, wallTiles, mapW, mapH);
+            } else {
             batch.end();
             Gdx.gl.glEnable(GL20.GL_BLEND);
             Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -1131,6 +1136,7 @@ public class TileManager {
             shapes.end();
             Gdx.gl.glDisable(GL20.GL_BLEND);
             batch.begin();
+            }
         }
 
         // Pass 3: Render object tiles (collision decorations) with circular shadow
@@ -1211,6 +1217,41 @@ public class TileManager {
         if (row < 0 || col < 0 || col >= mapW || row >= mapH) return false;
         final Tile ct = (Tile) this.mapLayers.get(1).getBlocks()[(int) row][(int) col];
         return ct != null && !ct.isVoid() && ct.getData() != null && ct.getData().isWall();
+    }
+
+    /**
+     * Simple wall mode: draw the wall body sprites, then a single flat black
+     * stroke on each exposed face. Skips the fancy path's shadow side-bands,
+     * top-half extrusion, and edge highlights — far fewer ShapeRenderer rects
+     * per wall, which is the cost that tanks the frame rate in wall-dense
+     * dungeons. Mirrors the webclient's 'simple' wall mode.
+     */
+    private void renderWallsSimple(SpriteBatch batch, ShapeRenderer shapes,
+            List<Tile> wallTiles, int mapW, int mapH) {
+        for (Tile t : wallTiles) {
+            t.render(batch);
+        }
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0f, 0f, 0f, 1f);
+        for (Tile t : wallTiles) {
+            final int sz = t.getWidth();
+            if (sz <= 0) continue;
+            final float wx = t.getPos().getWorldVar().x;
+            final float wy = t.getPos().getWorldVar().y;
+            final long row = t.getRow();
+            final long col = t.getCol();
+            final float stroke = Math.max(1f, Math.round(sz * 0.12f));
+            if (!isWallTileAt(row - 1, col, mapW, mapH)) shapes.rect(wx, wy, sz, stroke);
+            if (!isWallTileAt(row + 1, col, mapW, mapH)) shapes.rect(wx, wy + sz - stroke, sz, stroke);
+            if (!isWallTileAt(row, col - 1, mapW, mapH)) shapes.rect(wx, wy, stroke, sz);
+            if (!isWallTileAt(row, col + 1, mapW, mapH)) shapes.rect(wx + sz - stroke, wy, stroke, sz);
+        }
+        shapes.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        batch.begin();
     }
 
     /**

@@ -49,6 +49,11 @@ public class Settings {
     private String renderQuality = "high";
     /** -1 = unlimited, otherwise a cap on rendered enemy bullets. */
     private int maxBulletsOnScreen = -1;
+    /** Wall post-processing: "simple" (flat black stroke on exposed faces —
+     *  default, faster + cleaner in wall-dense dungeons) or "fancy" (baked
+     *  shadow side-bands, top-half extrusion, and edge highlights). Read by
+     *  TileManager.render; toggled via the options menu or /walls. */
+    private String wallRenderMode = "simple";
 
     /** Version the user clicked "Skip this version" on in the update prompt.
      *  Null/empty means show the prompt for any newer release. */

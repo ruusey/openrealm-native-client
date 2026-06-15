@@ -168,6 +168,7 @@ public class OptionsWindow {
         font.draw(batch, "[" + (s.isShowRealmTransition() ? "x" : " ") + "]  Show realm transition screen",    x, y - lineH * 3);
         font.draw(batch, "Render quality: " + s.getRenderQuality(),                                            x, y - lineH * 4);
         font.draw(batch, "Max bullets on screen: " + (s.getMaxBulletsOnScreen() < 0 ? "Unlimited" : s.getMaxBulletsOnScreen()), x, y - lineH * 5);
+        font.draw(batch, "Wall detail: " + s.getWallRenderMode() + "  (simple = faster)",                       x, y - lineH * 6);
     }
 
     private void renderControlsTab(SpriteBatch batch, BitmapFont font, int x, int y, int lineH) {
@@ -218,6 +219,7 @@ public class OptionsWindow {
                 case 3: s.setShowRealmTransition(!s.isShowRealmTransition()); break;
                 case 4: s.setRenderQuality(cycle(s.getRenderQuality(), "low", "med", "high")); break;
                 case 5: s.setMaxBulletsOnScreen(cycleInt(s.getMaxBulletsOnScreen(), 50, 100, 200, -1)); break;
+                case 6: s.setWallRenderMode(cycle(s.getWallRenderMode(), "simple", "fancy")); break;
                 default: break;
             }
         } else if (this.activeTab == Tab.CONTROLS) {
