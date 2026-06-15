@@ -886,11 +886,17 @@ public class PlayState extends GameState {
                 }
                 if (sheet != null) b.setSpriteSheet(sheet);
                 b.setPredicted(true);
+                // Honor the authored lifetime so the predicted bullet expires when
+                // the server's does (player path used to ignore these).
+                b.setLifetimeTicks(proj.getLifetimeTicks());
+                b.setLength(proj.getLength());
                 // Homing predicted seeker locks the same enemy the server will:
                 // nearest enemy to the cursor at fire time.
                 if (proj.getFlags() != null && proj.getFlags().contains(ProjectileFlag.HOMING.flagId)) {
                     if (!homingResolved) { homingTargetId = nearestEnemyToPoint(realm, dest); homingResolved = true; }
                     b.setTargetEntityId(homingTargetId);
+                    // Never let a homing shot pursue forever — cap if unauthored.
+                    if (b.getLifetimeTicks() <= 0) b.setLifetimeTicks(384);
                 }
                 realm.addBullet(b);
             }
