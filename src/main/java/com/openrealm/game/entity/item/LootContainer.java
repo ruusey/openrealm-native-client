@@ -141,8 +141,11 @@ public class LootContainer {
      * BROWN, which made stat-potion drops indistinguishable from empty bags.
      */
     public LootTier determineTier() {
+        // BROWN is an explicit public-drop request (player-dropped items, HP/MP
+        // potion drops): keep it brown rather than re-deriving a higher colour
+        // from contents, so everything a player drops lands in a public brown bag.
         if (this.tier.equals(LootTier.CHEST) || this.tier.equals(LootTier.GRAVE)
-                || this.tier.equals(LootTier.BOOSTED))
+                || this.tier.equals(LootTier.BOOSTED) || this.tier.equals(LootTier.BROWN))
             return this.tier;
 
         boolean hasUntiered = false;
