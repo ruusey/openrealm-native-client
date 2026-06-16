@@ -434,15 +434,18 @@ public class Bullet extends GameObject  {
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
 
+        // group may be null when a sprite-override bullet's projectileId has no
+        // group; rotation/spin/trail then fall back to their neutral defaults.
         final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId());
-        final float angleOffset = Float.parseFloat(group.getAngleOffset());
+        final float angleOffset = (group != null && group.getAngleOffset() != null)
+                ? Float.parseFloat(group.getAngleOffset()) : 0f;
 
         // Convert angle to degrees for LibGDX (counter-clockwise positive).
         // Spinning projectiles (shurikens) ignore the flight-angle and rotate
         // by a continuous wall-clock-driven phase so they read as spinning
         // blades regardless of flight direction.
         float rotationDeg;
-        if (group.isSpinning()) {
+        if (group != null && group.isSpinning()) {
             // ~6 rad/s — matches webclient renderer (Date.now() * 0.006).
             final double phase = (System.currentTimeMillis() * 0.006) % (Math.PI * 2);
             rotationDeg = (float) Math.toDegrees(phase);
@@ -482,7 +485,7 @@ public class Bullet extends GameObject  {
         // of the sprite trailing back along the flight line. Drawn before the
         // body so the projectile stays on top. Only non-spinning straight
         // projectiles request a trail, so backward = -(sin,cos)*step is exact.
-        final String trailColor = group.getTrailColor();
+        final String trailColor = (group != null) ? group.getTrailColor() : null;
         if (trailColor != null) {
             final float[] rgb = parseTrailColor(trailColor);
             final float prev = batch.getPackedColor();
@@ -534,10 +537,13 @@ public class Bullet extends GameObject  {
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
 
+        // group may be null when a sprite-override bullet's projectileId has no
+        // group; rotation/spin/trail then fall back to their neutral defaults.
         final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId());
-        final float angleOffset = Float.parseFloat(group.getAngleOffset());
+        final float angleOffset = (group != null && group.getAngleOffset() != null)
+                ? Float.parseFloat(group.getAngleOffset()) : 0f;
         float rotationDeg;
-        if (group.isSpinning()) {
+        if (group != null && group.isSpinning()) {
             final double phase = (System.currentTimeMillis() * 0.006) % (Math.PI * 2);
             rotationDeg = (float) Math.toDegrees(phase);
         } else if (angleOffset > 0.0f) {

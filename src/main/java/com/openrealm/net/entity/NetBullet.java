@@ -79,6 +79,16 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 	private short length;
 	@SerializableField(order = 23, type = SerializableLong.class)
 	private long targetEntityId;
+	@SerializableField(order = 24, type = SerializableString.class)
+	private String overrideSpriteKey;
+	@SerializableField(order = 25, type = SerializableInt.class)
+	private int overrideSpriteRow;
+	@SerializableField(order = 26, type = SerializableInt.class)
+	private int overrideSpriteCol;
+	@SerializableField(order = 27, type = SerializableInt.class)
+	private int overrideSpriteSize;
+	@SerializableField(order = 28, type = SerializableInt.class)
+	private int overrideSpriteHeight;
 
 	/**
 	 * Hand-rolled construction from a server-side Bullet — bypasses
@@ -145,6 +155,25 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		bullet.setLifetimeTicks(this.lifetimeTicks);
 		bullet.setLength(this.length);
 		bullet.setTargetEntityId(this.targetEntityId);
+		// Per-ability sprite override: when set, build the sprite sheet from the
+		// override sprite instead of the projectile group's own. Motion/rotation
+		// still come from the projectile group in Bullet.render().
+		if (this.overrideSpriteKey != null && !this.overrideSpriteKey.isBlank()) {
+			final ProjectileGroup override = new ProjectileGroup();
+			override.setSpriteKey(this.overrideSpriteKey);
+			override.setRow(this.overrideSpriteRow);
+			override.setCol(this.overrideSpriteCol);
+			override.setSpriteSize(this.overrideSpriteSize);
+			override.setSpriteHeight(this.overrideSpriteHeight);
+			override.setAngleOffset("0");
+			final SpriteSheet sheet = GameSpriteManager.getSpriteSheet(override);
+			if (sheet != null) {
+				bullet.setSpriteSheet(sheet);
+				return bullet;
+			}
+			log.warn("[BULLET] override sprite failed for projectileId={} spriteKey={}",
+					this.projectileId, this.overrideSpriteKey);
+		}
 		// Web-parity sprite resolution: projectileId -> ProjectileGroup -> spriteKey.
 		// Without this, Bullet.render() short-circuits at its null-check and
 		// every projectile is invisible.
