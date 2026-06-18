@@ -87,6 +87,9 @@ public class TileManager {
     /** Reusable region for the wall top-half re-stamp; avoids a new
      *  TextureRegion per wall per frame in the wall pass. */
     private final TextureRegion wallTopHalfScratch = new TextureRegion();
+    /** Reusable buffer for tall (taller-than-wide) wall sprites, drawn in
+     *  their own south-to-occlude pass; cleared and refilled each frame. */
+    private final List<Tile> tallWallScratch = new ArrayList<>(64);
 
     /** Per-tile highlight color cache, indexed by tileId. Sampled once
      *  from the wall sprite's pixmap (lightened by 35%) so the N+W
@@ -1029,6 +1032,10 @@ public class TileManager {
             Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             for (Tile t : wallTiles) {
+                // Tall art walls carry their own front face in the sprite and
+                // are drawn in a dedicated pass below; the procedural extrusion
+                // bands are only for square (8x8) walls.
+                if (isTallWallTile(t)) continue;
                 int sz = t.getWidth();
                 if (sz <= 0) continue;
                 float wx = t.getPos().getWorldVar().x;
@@ -1084,10 +1091,12 @@ public class TileManager {
             batch.begin();
 
             for (Tile t : wallTiles) {
-                t.render(batch);
+                if (!isTallWallTile(t)) t.render(batch);
             }
+            renderTallWalls(batch, wallTiles);
 
             for (Tile t : wallTiles) {
+                if (isTallWallTile(t)) continue;
                 final long row = t.getRow();
                 final long col = t.getCol();
                 if (!isWallTileAt(row + 1, col, mapW, mapH)) continue;
@@ -1115,6 +1124,7 @@ public class TileManager {
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             for (Tile t : wallTiles) {
+                if (isTallWallTile(t)) continue;
                 int sz = t.getWidth();
                 if (sz <= 0) continue;
                 float wx = t.getPos().getWorldVar().x;
@@ -1229,14 +1239,16 @@ public class TileManager {
     private void renderWallsSimple(SpriteBatch batch, ShapeRenderer shapes,
             List<Tile> wallTiles, int mapW, int mapH) {
         for (Tile t : wallTiles) {
-            t.render(batch);
+            if (!isTallWallTile(t)) t.render(batch);
         }
+        renderTallWalls(batch, wallTiles);
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0f, 0f, 0f, 1f);
         for (Tile t : wallTiles) {
+            if (isTallWallTile(t)) continue;
             final int sz = t.getWidth();
             if (sz <= 0) continue;
             final float wx = t.getPos().getWorldVar().x;
@@ -1252,6 +1264,38 @@ public class TileManager {
         shapes.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
+    }
+
+    /** A wall is "tall" when its sprite is taller than it is wide (e.g. 8x16):
+     *  the art carries its own top surface (upper half) and front face (lower
+     *  half). These render at full sprite aspect spilling one cell south
+     *  instead of using the procedural extrusion bands of square walls. */
+    private static boolean isTallWallTile(Tile t) {
+        final TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
+        return region != null && region.getRegionHeight() > region.getRegionWidth();
+    }
+
+    /** Draw every tall wall in {@code wallTiles} at full sprite height, anchored
+     *  at the wall's own cell so the lower half spills south as the visible
+     *  front face. Drawn top-to-bottom so a wall directly below re-covers the
+     *  spill from the wall above, leaving only the run's bottom face exposed. */
+    private void renderTallWalls(SpriteBatch batch, List<Tile> wallTiles) {
+        this.tallWallScratch.clear();
+        for (Tile t : wallTiles) {
+            if (isTallWallTile(t)) this.tallWallScratch.add(t);
+        }
+        if (this.tallWallScratch.isEmpty()) return;
+        this.tallWallScratch.sort((a, b) -> Long.compare(a.getRow(), b.getRow()));
+        for (Tile t : this.tallWallScratch) {
+            final int sz = t.getWidth();
+            if (sz <= 0) continue;
+            final TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
+            if (region == null) continue;
+            final float wx = t.getPos().getWorldVar().x;
+            final float wy = t.getPos().getWorldVar().y;
+            final float fullH = sz * (float) region.getRegionHeight() / region.getRegionWidth();
+            batch.draw(region, wx, wy, sz, fullH);
+        }
     }
 
     /**
