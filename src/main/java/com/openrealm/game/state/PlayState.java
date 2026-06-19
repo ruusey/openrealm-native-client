@@ -2008,6 +2008,12 @@ public class PlayState extends GameState {
         }
         ShaderManager.clearEffect(batch);
 
+        // Tall-wall occlusion: redraw tall walls above the entity bodies so a
+        // player/enemy overlapping a wall's footprint is partially covered by
+        // it (2.5D depth). Runs before bullets + overhead HP bars so those
+        // still draw on top.
+        this.realmManager.getRealm().getTileManager().renderTallWallOcclusion(batch);
+
         // Pass 3: Bullet outlines first (all behind), then bodies on top.
         for (int i = 0; i < visibleBullets.size(); i++) {
             visibleBullets.get(i).renderOutline(batch);

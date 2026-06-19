@@ -1298,6 +1298,16 @@ public class TileManager {
         }
     }
 
+    /** Redraw the current frame's tall walls a second time. Intended to run
+     *  AFTER entity bodies so a player/enemy whose sprite overlaps a tall
+     *  wall's footprint is partially covered by it (2.5D depth): the wall's
+     *  top covers an entity standing north of it, its front face covers one
+     *  standing flush to the south. Reuses the visible wall set populated in
+     *  render(); the caller must have an active SpriteBatch. */
+    public void renderTallWallOcclusion(SpriteBatch batch) {
+        renderTallWalls(batch, this.wallTilesBuf);
+    }
+
     /**
      * Pre-baked feather seam-blend at base-tile type boundaries. For each
      * in-sight base tile with a differing cardinal neighbor, draws ONE
