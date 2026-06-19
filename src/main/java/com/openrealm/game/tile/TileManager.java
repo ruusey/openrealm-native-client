@@ -921,6 +921,12 @@ public class TileManager {
         for (int sx = sxMin - padTiles; sx < sxMin + screenTilesX + padTiles; sx++) {
             for (int sy = syMin - padTiles; sy < syMin + screenTilesY + padTiles; sy++) {
                 if (sx < 0 || sy < 0 || sx >= mapW || sy >= mapH) continue;
+                // Only render walls the player has actually discovered — same
+                // gate the base-tile pass uses. Walls past the sight circle but
+                // explored stay visible (discovered=true); never-seen walls no
+                // longer render bright on top of black undiscovered ground,
+                // which read as walls "floating" outside the explored area.
+                if (!this.discovered[sy][sx]) continue;
                 final Tile maybeWall = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
                 if (maybeWall == null || maybeWall.isVoid()) continue;
                 if (maybeWall.getData() == null || !maybeWall.getData().isWall()) continue;
