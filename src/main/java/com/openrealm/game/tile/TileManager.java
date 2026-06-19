@@ -1308,6 +1308,9 @@ public class TileManager {
                 // as visual mush and conflicts with the wall extrusion
                 // bands drawn in Pass 2.
                 if (isWallCell(colBlocks, y, x, mapW, mapH)) continue;
+                // noBlend tiles (e.g. carpets) keep a hard edge: this tile emits
+                // no feathers, and neighbours skip feathering toward it below.
+                if (here.getData() != null && here.getData().noBlend()) continue;
                 final int myType = here.getTileId();
                 final int tN = (y - 1 >= 0)   ? tileIdAt(baseBlocks, y - 1, x) : 0;
                 final int tS = (y + 1 < mapH) ? tileIdAt(baseBlocks, y + 1, x) : 0;
@@ -1317,12 +1320,12 @@ public class TileManager {
                 final boolean wS = isWallCell(colBlocks, y + 1, x, mapW, mapH);
                 final boolean wW = isWallCell(colBlocks, y, x - 1, mapW, mapH);
                 final boolean wE = isWallCell(colBlocks, y, x + 1, mapW, mapH);
-                // Blend only with a different, non-wall neighbor whose color
-                // is far enough to read as a distinct material.
-                final boolean dN = tN > 0 && tN != myType && !wN && GameSpriteManager.tilesShouldBlend(myType, tN);
-                final boolean dS = tS > 0 && tS != myType && !wS && GameSpriteManager.tilesShouldBlend(myType, tS);
-                final boolean dW = tW > 0 && tW != myType && !wW && GameSpriteManager.tilesShouldBlend(myType, tW);
-                final boolean dE = tE > 0 && tE != myType && !wE && GameSpriteManager.tilesShouldBlend(myType, tE);
+                // Blend only with a different, non-wall, blend-enabled neighbor
+                // whose color is far enough to read as a distinct material.
+                final boolean dN = tN > 0 && tN != myType && !wN && !baseNoBlend(baseBlocks, y - 1, x, mapW, mapH) && GameSpriteManager.tilesShouldBlend(myType, tN);
+                final boolean dS = tS > 0 && tS != myType && !wS && !baseNoBlend(baseBlocks, y + 1, x, mapW, mapH) && GameSpriteManager.tilesShouldBlend(myType, tS);
+                final boolean dW = tW > 0 && tW != myType && !wW && !baseNoBlend(baseBlocks, y, x - 1, mapW, mapH) && GameSpriteManager.tilesShouldBlend(myType, tW);
+                final boolean dE = tE > 0 && tE != myType && !wE && !baseNoBlend(baseBlocks, y, x + 1, mapW, mapH) && GameSpriteManager.tilesShouldBlend(myType, tE);
                 if (!(dN || dS || dW || dE)) continue;
                 final float wx = here.getPos().getWorldVar().x;
                 final float wy = here.getPos().getWorldVar().y;
@@ -1344,6 +1347,13 @@ public class TileManager {
                 }
             }
         }
+    }
+
+    /** True if the BASE-layer tile at (row, col) opts out of edge feathering. */
+    private static boolean baseNoBlend(Object[][] baseBlocks, int row, int col, int mapW, int mapH) {
+        if (row < 0 || col < 0 || row >= mapH || col >= mapW) return false;
+        final Tile t = (Tile) baseBlocks[row][col];
+        return t != null && t.getData() != null && t.getData().noBlend();
     }
 
     /** True if the collision-layer cell at (row, col) is a wall. */

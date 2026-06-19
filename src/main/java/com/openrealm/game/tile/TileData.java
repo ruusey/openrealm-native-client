@@ -12,9 +12,16 @@ public class TileData {
     private byte slows;
     private byte damaging;
     private byte isWall;
+    // Purely visual: suppresses terrain edge-feathering on this tile (e.g.
+    // carpets). Comes from tiles.json only — never sent over the wire.
+    private byte noBlend;
 
     public TileData(byte hasCollision, byte slows, byte damaging) {
-        this(hasCollision, slows, damaging, (byte) 0);
+        this(hasCollision, slows, damaging, (byte) 0, (byte) 0);
+    }
+
+    public TileData(byte hasCollision, byte slows, byte damaging, byte isWall) {
+        this(hasCollision, slows, damaging, isWall, (byte) 0);
     }
 
     public boolean hasCollision() {
@@ -31,6 +38,10 @@ public class TileData {
 
     public boolean isWall() {
         return this.isWall != 0;
+    }
+
+    public boolean noBlend() {
+        return this.noBlend != 0;
     }
 
     public static TileData withCollision() {

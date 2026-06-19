@@ -16,15 +16,17 @@ public class Tile {
 	private short row;
 	private short col;
 	private short tileSize = (short) GlobalConstants.BASE_TILE_SIZE;
-	// Pack collision/slows/damaging/isWall into a single byte to eliminate TileData object per tile.
-	// Bit 0 = collision, bit 1 = slows, bit 2 = damaging, bit 3 = isWall
+	// Pack collision/slows/damaging/isWall/noBlend into a single byte to eliminate
+	// the TileData object per tile. This byte is in-memory only (NetTile carries
+	// just tileId); flags are rebuilt from the tile definition on mergeMap.
+	// Bit 0 = collision, bit 1 = slows, bit 2 = damaging, bit 3 = isWall, bit 4 = noBlend
 	private byte flags;
 
-	// Shared TileData instances — 16 possible flag combinations (4 bits)
-	private static final TileData[] SHARED_DATA = new TileData[16];
+	// Shared TileData instances — 32 possible flag combinations (5 bits)
+	private static final TileData[] SHARED_DATA = new TileData[32];
 	static {
-		for (int i = 0; i < 16; i++) {
-			SHARED_DATA[i] = new TileData((byte)(i & 1), (byte)((i >> 1) & 1), (byte)((i >> 2) & 1), (byte)((i >> 3) & 1));
+		for (int i = 0; i < 32; i++) {
+			SHARED_DATA[i] = new TileData((byte)(i & 1), (byte)((i >> 1) & 1), (byte)((i >> 2) & 1), (byte)((i >> 3) & 1), (byte)((i >> 4) & 1));
 		}
 	}
 
@@ -49,11 +51,12 @@ public class Tile {
 		return (byte) ((data.hasCollision() ? 1 : 0)
 				| (data.slows() ? 2 : 0)
 				| (data.damaging() ? 4 : 0)
-				| (data.isWall() ? 8 : 0));
+				| (data.isWall() ? 8 : 0)
+				| (data.noBlend() ? 16 : 0));
 	}
 
 	public TileData getData() {
-		return SHARED_DATA[this.flags & 0xF];
+		return SHARED_DATA[this.flags & 0x1F];
 	}
 
 	public void setData(TileData data) {
