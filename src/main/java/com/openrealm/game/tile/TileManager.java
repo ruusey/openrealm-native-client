@@ -1305,7 +1305,28 @@ public class TileManager {
      *  standing flush to the south. Reuses the visible wall set populated in
      *  render(); the caller must have an active SpriteBatch. */
     public void renderTallWallOcclusion(SpriteBatch batch) {
-        renderTallWalls(batch, this.wallTilesBuf);
+        this.tallWallScratch.clear();
+        for (Tile t : this.wallTilesBuf) {
+            if (isTallWallTile(t)) this.tallWallScratch.add(t);
+        }
+        if (this.tallWallScratch.isEmpty()) return;
+        this.tallWallScratch.sort((a, b) -> Long.compare(a.getRow(), b.getRow()));
+        for (Tile t : this.tallWallScratch) {
+            final int sz = t.getWidth();
+            if (sz <= 0) continue;
+            final TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
+            if (region == null) continue;
+            final float wx = t.getPos().getWorldVar().x;
+            final float wy = t.getPos().getWorldVar().y;
+            // Only the TOP half (the wall's own cell). Covers an entity
+            // overlapping from the north; the front face is intentionally left
+            // out so an entity approaching from the south stays in FRONT of it.
+            final int srcHalfH = Math.max(1, region.getRegionHeight() / 2);
+            this.wallTopHalfScratch.setTexture(region.getTexture());
+            this.wallTopHalfScratch.setRegion(region.getRegionX(), region.getRegionY(),
+                    region.getRegionWidth(), srcHalfH);
+            batch.draw(this.wallTopHalfScratch, wx, wy, sz, sz);
+        }
     }
 
     /**
