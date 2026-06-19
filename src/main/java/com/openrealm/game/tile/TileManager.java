@@ -60,6 +60,13 @@ public class TileManager {
     private boolean[][] discovered = null;
     private int discoveredW = 0;
     private int discoveredH = 0;
+    /** Realm/map the current tile grid was last (re)built for. mergeMap wipes
+     *  the grid when an incoming LoadMap is for a different realm or map, so a
+     *  realm we re-enter (nexus -> arena -> nexus) starts empty instead of
+     *  leaking the prior visit's tiles — which, since terrain now renders with
+     *  no fog gate, would otherwise show as walls floating in unrendered void. */
+    private long loadedRealmId = 0L;
+    private int loadedMapId = -1;
     /** Brightness multiplier for previously-discovered tiles. The web
      *  client draws the whole explored map at FULL opacity — the sight
      *  circle is only used to gate entity / projectile spawning, not
@@ -800,9 +807,17 @@ public class TileManager {
     	// Acquire the map lock to prevent the render thread from displaying out of
     	// date tile information
     	this.acquireMapLock();
-        // Resize the map on dimension change
-        if(this.getMapHeight()!=packet.getMapHeight() || this.getMapWidth()!=packet.getMapWidth()) {
-           MapModel model = GameDataManager.MAPS.get((int)packet.getMapId());
+        // Wipe the grid when this LoadMap is for a DIFFERENT realm/map (or
+        // dimensions) than the one currently loaded. The realm/map check is
+        // what catches re-entering a realm we already visited — relying on the
+        // ClientGameLogic reset gate alone missed that path, leaving the prior
+        // visit's tiles in mapLayers to render as floating walls in the void.
+        final boolean gridChanged = packet.getRealmId() != this.loadedRealmId
+                || (int) packet.getMapId() != this.loadedMapId
+                || this.getMapHeight() != packet.getMapHeight()
+                || this.getMapWidth() != packet.getMapWidth();
+        MapModel model = gridChanged ? GameDataManager.MAPS.get((int) packet.getMapId()) : null;
+        if (gridChanged && model != null) {
            TileMap baseLayer = new TileMap((short) model.getMapId(), model.getTileSize(), model.getWidth(),
                    model.getHeight());
            TileMap collisionLayer = new TileMap((short) model.getMapId(), model.getTileSize(), model.getWidth(),
@@ -810,12 +825,12 @@ public class TileManager {
            this.mapLayers = new ArrayList<>();
            this.mapLayers.add(baseLayer);
            this.mapLayers.add(collisionLayer);
-           // Map dimensions changed (realm transition, dungeon load) —
-           // wipe the fog-of-war array so the new map starts fully
-           // unexplored. Without this, a smaller map would index into
-           // stale "discovered" rows from the previous one.
+           // Fresh map: wipe the fog-of-war array too so the new map starts
+           // fully unexplored and doesn't index stale "discovered" rows.
            this.discovered = null;
         }
+        this.loadedRealmId = packet.getRealmId();
+        this.loadedMapId = (int) packet.getMapId();
 
         for (NetTile tile : packet.getTiles()) {
             TileData data = GameDataManager.TILES.get((int) tile.getTileId()).getData();
@@ -1146,9 +1161,17 @@ public class TileManager {
         // shadow/highlight from Pass 2 already drew before the water repaint
         // and doesn't need to be redone) restores walls-above-water depth
         // ordering without disturbing the existing wall extrusion look.
+        //
+        // Tall walls MUST go through renderTallWalls here, not t.render: a tall
+        // wall's front face spills one cell south, and t.render only stamps the
+        // wall's own cell. Whenever that south cell is repainted by Pass 3-6
+        // (e.g. a slows/lava accent tile in waterTiles, like the Admin Arena
+        // floor), a plain re-stamp leaves the face buried — the intermittent
+        // missing-face bug. renderTallWalls restores the full face.
         for (Tile t : wallTiles) {
-            t.render(batch);
+            if (!isTallWallTile(t)) t.render(batch);
         }
+        renderTallWalls(batch, wallTiles);
 
         // Bottom silhouette outline for collision billboards — drawn LAST
         // (after the wall re-stamp) so nothing paints over it. Follows the
