@@ -854,37 +854,40 @@ public class TileManager {
         final int syMin = (int) Math.floor(scanMinY / ts);
         final int screenTilesX = (int) Math.ceil((scanMaxX - scanMinX) / ts) + 2;
         final int screenTilesY = (int) Math.ceil((scanMaxY - scanMinY) / ts) + 2;
-        final float radiusSqInner = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
-        // Tile buckets, declared before the fog pass so on-screen but out-of-sight
-        // collision objects route into the SAME object/decoration buffers as
-        // in-sight ones — that keeps their shadow + outline present until they
-        // scroll off-screen, instead of dropping to a bare stroke at the sight edge.
+        // Tile buckets for the deferred render passes (walls, water, objects,
+        // decorations). Populated by the single viewport scan below.
         final List<Tile> wallTiles       = this.wallTilesBuf;       wallTiles.clear();
         final List<Tile> objectTiles     = this.objectTilesBuf;     objectTiles.clear();
         final List<Tile> decorationTiles = this.decorationTilesBuf; decorationTiles.clear();
         final List<Tile> waterTiles      = this.waterTilesBuf;      waterTiles.clear();
         final List<Tile> overWaterTiles  = this.overWaterTilesBuf;  overWaterTiles.clear();
-        batch.setColor(FOG_BRIGHTNESS, FOG_BRIGHTNESS, FOG_BRIGHTNESS, 1f);
+
+        // Base terrain + collision-layer classification across the WHOLE screen
+        // viewport. Terrain is NOT fog-gated: every tile the client has streamed
+        // renders, exactly like the webclient (renderer.js PASS 1 draws all tiles
+        // with base>0). Fog-of-war is an ENTITY concept (enemies, projectiles,
+        // other players) — never the ground, its blend seams, or collision-tile
+        // strokes; gating those by the sight circle made adjacent on-screen tiles
+        // flicker their blend/stroke in and out as the circle swept past.
+        batch.setColor(1f, 1f, 1f, 1f);
         for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {
             for (int sy = syMin; sy < syMin + screenTilesY; sy++) {
                 if (sx < 0 || sy < 0 || sx >= mapW || sy >= mapH) continue;
-                if (!this.discovered[sy][sx]) continue;
-                float ddx = sx - posNormalized.x;
-                float ddy = sy - posNormalized.y;
-                if (ddx * ddx + ddy * ddy <= radiusSqInner) continue; // in-sight, drawn brightly below
-                Tile baseTile = (Tile) this.mapLayers.get(0).getBlocks()[sy][sx];
-                if (baseTile != null) baseTile.render(batch);
-                Tile colTile = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
-                if (colTile != null && !colTile.isVoid()
-                        && (colTile.getData() == null || !colTile.getData().isWall())) {
-                    // Route on-screen out-of-sight collision objects into the
-                    // normal buffers so Pass 3/4 give them the full shadow +
-                    // outline (not just a stroke). Walls are handled by the
-                    // full-screen wall scan below. Not rendered here — the
-                    // object passes draw the sprite.
-                    final boolean baseIsWater = baseTile != null && baseTile.getData() != null
-                            && baseTile.getData().slows() && !baseTile.getData().hasCollision();
-                    if (baseIsWater) {
+                final Tile baseTile = (Tile) this.mapLayers.get(0).getBlocks()[sy][sx];
+                if (baseTile == null || baseTile.getTileId() <= 0) continue;
+                this.discovered[sy][sx] = true;
+                baseTile.render(batch);
+                final boolean baseIsWater = baseTile.getData() != null
+                        && baseTile.getData().slows() && !baseTile.getData().hasCollision();
+                if (baseIsWater) waterTiles.add(baseTile);
+
+                final Tile colTile = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
+                if (colTile != null && !colTile.isVoid()) {
+                    final boolean isWall = colTile.getData() != null && colTile.getData().isWall();
+                    if (isWall) {
+                        // Walls are queued by the viewport+2 wall scan below,
+                        // which needs the padding for stable edge adjacency.
+                    } else if (baseIsWater) {
                         overWaterTiles.add(colTile);
                     } else if (colTile.getData() != null && colTile.getData().hasCollision()) {
                         objectTiles.add(colTile);
@@ -894,7 +897,6 @@ public class TileManager {
                 }
             }
         }
-        batch.setColor(1f, 1f, 1f, 1f);
 
         // (Tile buckets declared above, before the fog pass.) overWaterTiles holds
         // collision/decoration tiles whose BASE tile is water (river-edge stones);
@@ -921,12 +923,6 @@ public class TileManager {
         for (int sx = sxMin - padTiles; sx < sxMin + screenTilesX + padTiles; sx++) {
             for (int sy = syMin - padTiles; sy < syMin + screenTilesY + padTiles; sy++) {
                 if (sx < 0 || sy < 0 || sx >= mapW || sy >= mapH) continue;
-                // Only render walls the player has actually discovered — same
-                // gate the base-tile pass uses. Walls past the sight circle but
-                // explored stay visible (discovered=true); never-seen walls no
-                // longer render bright on top of black undiscovered ground,
-                // which read as walls "floating" outside the explored area.
-                if (!this.discovered[sy][sx]) continue;
                 final Tile maybeWall = (Tile) this.mapLayers.get(1).getBlocks()[sy][sx];
                 if (maybeWall == null || maybeWall.isVoid()) continue;
                 if (maybeWall.getData() == null || !maybeWall.getData().isWall()) continue;
@@ -934,70 +930,8 @@ public class TileManager {
             }
         }
 
-        // Pass 1: Draw all base tiles (circular viewport) and classify
-        // collision layer tiles INSIDE the 10-tile sight square. Walls
-        // are already in wallTiles from the screen-viewport scan above
-        // (we re-add them here too — duplicates are filtered by the
-        // wallSet HashSet during 3D render). Non-wall in-sight tiles
-        // route into objectTiles / decorationTiles / overWaterTiles.
-        final float radiusSq = VIEWPORT_TILE_MIN * VIEWPORT_TILE_MIN;
-        for (int x = (int) (posNormalized.x - VIEWPORT_TILE_MIN); x < (posNormalized.x + VIEWPORT_TILE_MIN); x++) {
-            for (int y = (int) (posNormalized.y - VIEWPORT_TILE_MIN); y < (int) (posNormalized.y + VIEWPORT_TILE_MIN); y++) {
-                if ((x >= this.getBaseLayer().getWidth()) || (y >= this.getBaseLayer().getHeight()) || (x < 0)
-                        || (y < 0)) {
-                    continue;
-                }
-                float dx = x - posNormalized.x;
-                float dy = y - posNormalized.y;
-                final boolean insideCircle = (dx * dx + dy * dy) <= radiusSq;
-                try {
-                    Tile normalTile = (Tile) this.mapLayers.get(0).getBlocks()[y][x];
-                    Tile collisionTile = (Tile) this.mapLayers.get(1).getBlocks()[y][x];
-                    final boolean isWallTile = collisionTile != null
-                            && !collisionTile.isVoid()
-                            && collisionTile.getData() != null
-                            && collisionTile.getData().isWall();
-                    // Skip strictly non-wall tiles outside the circle —
-                    // they're the fog-of-war hidden region. Walls keep
-                    // rendering so the level geometry stays continuous.
-                    if (!insideCircle && !isWallTile) continue;
-                    // Mark this tile as discovered for future fog-of-war passes.
-                    this.discovered[y][x] = true;
-
-                    if (normalTile != null && insideCircle) {
-                        normalTile.render(batch);
-                        boolean isWaterTile = normalTile.getData() != null && normalTile.getData().slows()
-                                && !normalTile.getData().hasCollision();
-                        if (isWaterTile) {
-                            waterTiles.add(normalTile);
-                        }
-                    }
-
-                    // Classify collision layer tiles
-                    if (collisionTile != null && !collisionTile.isVoid()) {
-                        boolean baseIsWater = normalTile != null && normalTile.getData() != null
-                                && normalTile.getData().slows() && !normalTile.getData().hasCollision();
-                        if (isWallTile) {
-                            // Walls already added to wallTiles by the
-                            // screen-viewport scan above — skip here so
-                            // we don't render the 3D shadow/highlight
-                            // twice for inside-circle walls.
-                        } else if (baseIsWater && insideCircle) {
-                            // Collision tile sitting on water (stones, etc.) —
-                            // route to the AFTER-WATER pass so Pass 5's water
-                            // redraw doesn't paint over them.
-                            overWaterTiles.add(collisionTile);
-                        } else if (insideCircle && collisionTile.getData() != null && collisionTile.getData().hasCollision()) {
-                            objectTiles.add(collisionTile);
-                        } else if (insideCircle) {
-                            decorationTiles.add(collisionTile);
-                        }
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
+        // (Base tiles + collision classification were handled by the single
+        // viewport scan above — no separate sight-circle pass.)
 
         // Pass 1.5: Base-tile edge texture blending. For each in-sight base
         // tile, sample the 4 cardinal neighbors' tile types; if a neighbor
@@ -1352,7 +1286,6 @@ public class TileManager {
             int screenTilesX, int screenTilesY, int ts, int mapW, int mapH) {
         final Map<Integer, TextureRegion[]> feathers = GameSpriteManager.TILE_FEATHERS;
         if (feathers == null) return;
-        if (this.discovered == null) return;
         // The feather TextureRegions were baked at SOURCE resolution
         // (e.g. 8px tile -> 3px depth). When drawn at the rendered tile
         // size (ts = 32px), we scale to ts × featherPx for proportional
@@ -1360,19 +1293,15 @@ public class TileManager {
         final int featherPx = Math.max(2, Math.round(ts * 0.15f));
         final Object[][] baseBlocks = this.mapLayers.get(0).getBlocks();
         final Object[][] colBlocks  = this.mapLayers.get(1).getBlocks();
-        // Feather every DISCOVERED tile across the whole screen viewport — NOT
-        // just the 10-tile sight circle. The old radius gate feathered a tile
-        // inside the circle but left its on-screen neighbour just outside it
-        // unfeathered, so the seam differed between adjacent visible tiles and
-        // swept with the player. `discovered` latches on first sight and only
-        // clears on map change, so a feather persists once applied and simply
-        // scrolls off when the tile leaves the viewport.
+        // Feather every base tile across the whole screen viewport, gated only
+        // on the tile DATA existing — same rule as the base-tile draw above and
+        // the webclient. No sight-circle gate, so blend seams never differ
+        // between adjacent on-screen tiles or sweep with the player.
         for (int x = sxMin; x < sxMin + screenTilesX; x++) {
             for (int y = syMin; y < syMin + screenTilesY; y++) {
                 if (x < 0 || y < 0 || x >= mapW || y >= mapH) continue;
-                if (!this.discovered[y][x]) continue;
                 final Tile here = (Tile) baseBlocks[y][x];
-                if (here == null) continue;
+                if (here == null || here.getTileId() <= 0) continue;
                 // SKIP rule: no blending if THIS tile is a wall, and no
                 // blending across an edge whose neighbor is a wall. Walls
                 // are architectural — softening them with feathers reads
