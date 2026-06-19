@@ -435,8 +435,10 @@ public class Bullet extends GameObject  {
         if (frame == null) return;
 
         // group may be null when a sprite-override bullet's projectileId has no
-        // group; rotation/spin/trail then fall back to their neutral defaults.
-        final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId());
+        // group (or when projectile data failed to load); rotation/spin/trail
+        // then fall back to their neutral defaults.
+        final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS != null
+                ? GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId()) : null;
         final float angleOffset = (group != null && group.getAngleOffset() != null)
                 ? Float.parseFloat(group.getAngleOffset()) : 0f;
 
@@ -538,8 +540,10 @@ public class Bullet extends GameObject  {
         if (frame == null) return;
 
         // group may be null when a sprite-override bullet's projectileId has no
-        // group; rotation/spin/trail then fall back to their neutral defaults.
-        final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId());
+        // group (or when projectile data failed to load); rotation/spin/trail
+        // then fall back to their neutral defaults.
+        final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS != null
+                ? GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId()) : null;
         final float angleOffset = (group != null && group.getAngleOffset() != null)
                 ? Float.parseFloat(group.getAngleOffset()) : 0f;
         float rotationDeg;

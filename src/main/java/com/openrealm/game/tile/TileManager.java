@@ -1009,7 +1009,7 @@ public class TileManager {
         // into this tile — real visual blending, not a darkening vignette.
         // Stays inside the active SpriteBatch (no ShapeRenderer state
         // swap) by emitting batch.draw() calls per strip.
-        drawTileSeams(batch, posNormalized, radiusSq, ts, mapW, mapH);
+        drawTileSeams(batch, sxMin, syMin, screenTilesX, screenTilesY, ts, mapW, mapH);
 
         if (!wallTiles.isEmpty()) {
             // Wall adjacency is read straight from the collision layer rather
@@ -1348,27 +1348,29 @@ public class TileManager {
      * smooth per-pixel alpha falloff. Net: same or fewer draws AND
      * smoother visual.
      */
-    private void drawTileSeams(SpriteBatch batch, Vector2f posNormalized,
-            float radiusSq, int ts, int mapW, int mapH) {
+    private void drawTileSeams(SpriteBatch batch, int sxMin, int syMin,
+            int screenTilesX, int screenTilesY, int ts, int mapW, int mapH) {
         final Map<Integer, TextureRegion[]> feathers = GameSpriteManager.TILE_FEATHERS;
         if (feathers == null) return;
+        if (this.discovered == null) return;
         // The feather TextureRegions were baked at SOURCE resolution
         // (e.g. 8px tile -> 3px depth). When drawn at the rendered tile
         // size (ts = 32px), we scale to ts × featherPx for proportional
         // depth on screen.
         final int featherPx = Math.max(2, Math.round(ts * 0.15f));
-        final int xMin = (int) (posNormalized.x - VIEWPORT_TILE_MIN);
-        final int xMax = (int) (posNormalized.x + VIEWPORT_TILE_MIN);
-        final int yMin = (int) (posNormalized.y - VIEWPORT_TILE_MIN);
-        final int yMax = (int) (posNormalized.y + VIEWPORT_TILE_MIN);
         final Object[][] baseBlocks = this.mapLayers.get(0).getBlocks();
         final Object[][] colBlocks  = this.mapLayers.get(1).getBlocks();
-        for (int x = xMin; x < xMax; x++) {
-            for (int y = yMin; y < yMax; y++) {
+        // Feather every DISCOVERED tile across the whole screen viewport — NOT
+        // just the 10-tile sight circle. The old radius gate feathered a tile
+        // inside the circle but left its on-screen neighbour just outside it
+        // unfeathered, so the seam differed between adjacent visible tiles and
+        // swept with the player. `discovered` latches on first sight and only
+        // clears on map change, so a feather persists once applied and simply
+        // scrolls off when the tile leaves the viewport.
+        for (int x = sxMin; x < sxMin + screenTilesX; x++) {
+            for (int y = syMin; y < syMin + screenTilesY; y++) {
                 if (x < 0 || y < 0 || x >= mapW || y >= mapH) continue;
-                final float dx = x - posNormalized.x;
-                final float dy = y - posNormalized.y;
-                if (dx * dx + dy * dy > radiusSq) continue;
+                if (!this.discovered[y][x]) continue;
                 final Tile here = (Tile) baseBlocks[y][x];
                 if (here == null) continue;
                 // SKIP rule: no blending if THIS tile is a wall, and no

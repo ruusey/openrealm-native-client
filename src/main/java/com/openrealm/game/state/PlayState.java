@@ -583,14 +583,16 @@ public class PlayState extends GameState {
         scratch.x = p.getPos().x + halfSize;
         scratch.y = p.getPos().y + halfSize;
         final TileManager tm = this.getRealmManager().getRealm().getTileManager();
-        final float dx = p.getDx();
-        final float dy = p.getDy();
+        // Webclient parity (game.js simulateTick): apply the slow-tile divisor
+        // to the delta FIRST, then run every collision query and commit against
+        // that same reduced delta. Checking the full delta but committing a
+        // divided one made the client refuse moves the server allowed, which
+        // desynced prediction from reconciliation and bounced the player off
+        // walls bordering water/lava.
+        final float slow = tm.collidesSlowTile(p) ? 3.0f : 1.0f;
+        final float dx = p.getDx() / slow;
+        final float dy = p.getDy() / slow;
 
-        // Resolve axis-blocked state UPFRONT (no pos mutation yet) so the
-        // diagonal corner-cut prevention below can also see the
-        // both-axes-free case. Webclient parity: game.js _checkCollision
-        // path runs all three queries (x-only, y-only, diagonal) before
-        // committing any motion.
         boolean xBlocked = tm.collisionTile(p, dx, 0)
                 || tm.collidesXLimit(p, dx)
                 || tm.isVoidTile(scratch, dx, 0);
@@ -598,12 +600,9 @@ public class PlayState extends GameState {
                 || tm.collidesYLimit(p, dy)
                 || tm.isVoidTile(scratch, 0, dy);
 
-        // Diagonal corner-cutting prevention (mirrors webclient game.js
-        // simulateTick lines 522-528). When neither axis is blocked but
-        // the diagonal IS blocked, the player would otherwise clip through
-        // a wall corner. Block the axis with the smaller |delta| so the
-        // player slides along the larger axis instead — same heuristic
-        // the server uses.
+        // Diagonal corner-cutting prevention: when neither axis is blocked but
+        // the diagonal IS, block the smaller-|delta| axis so the player slides
+        // along the larger one instead of clipping the corner.
         if (!xBlocked && !yBlocked && dx != 0f && dy != 0f) {
             if (tm.collisionTile(p, dx, dy) || tm.isVoidTile(scratch, dx, dy)) {
                 if (Math.abs(dx) >= Math.abs(dy)) yBlocked = true;
@@ -613,10 +612,7 @@ public class PlayState extends GameState {
 
         if (!xBlocked) {
             p.xCol = false;
-            if (dx != 0f) {
-                if (tm.collidesSlowTile(p)) p.getPos().x += dx / 3.0f;
-                else                         p.getPos().x += dx;
-            }
+            if (dx != 0f) p.getPos().x += dx;
         } else {
             p.xCol = true;
         }
@@ -626,10 +622,7 @@ public class PlayState extends GameState {
         scratch.y = p.getPos().y + halfSize;
         if (!yBlocked) {
             p.yCol = false;
-            if (dy != 0f) {
-                if (tm.collidesSlowTile(p)) p.getPos().y += dy / 3.0f;
-                else                         p.getPos().y += dy;
-            }
+            if (dy != 0f) p.getPos().y += dy;
         } else {
             p.yCol = true;
         }
@@ -1025,13 +1018,19 @@ public class PlayState extends GameState {
                 if (player.hasEffect(StatusEffectType.SLOWED)) tilesPerSec *= 0.5f;
                 final float pxPerTick = tilesPerSec * 32.0f / TICK_RATE;
 
-                // Save preTick BEFORE we drain — this is the lerp's "from".
-                final float preTickX = player.getPos().x;
-                final float preTickY = player.getPos().y;
-
                 int ticks = 0;
                 while (this.moveAccumulator >= TICK_DT) {
                     this.moveAccumulator -= TICK_DT;
+                    // Anchor the render lerp at the position ENTERING this tick.
+                    // After the drain it holds the start of the FINAL tick, so
+                    // render() interpolates across only the most-recent tick —
+                    // not across every tick drained this frame (which snapped
+                    // backward on 2-tick frames) and not by extrapolating past
+                    // the sim (which overshot on direction changes, the jagged
+                    // feel vs the webclient).
+                    this.interpFromX = player.getPos().x;
+                    this.interpFromY = player.getPos().y;
+                    this.hasInterpAnchor = true;
                     // Allocate a fresh input seq for this tick. Mirrors the
                     // webclient's per-tick seq increment (main.js#handleInput
                     // game._inputSeq++). Each tick gets a unique seq so the
@@ -1090,26 +1089,6 @@ public class PlayState extends GameState {
                     ticks++;
                 }
 
-                if (ticks > 0) {
-                    this.interpFromX = preTickX;
-                    this.interpFromY = preTickY;
-                    this.hasInterpAnchor = true;
-                }
-
-                // EXPERIMENT A: capture the per-tick step so render() can
-                // EXTRAPOLATE forward from the latest tick rather than
-                // INTERPOLATE backward from the previous tick. Lerp from
-                // the OLD position always renders 1 tick behind the
-                // simulation (frac stays small at 60fps + 64Hz tick =>
-                // renderX ~= preTickX); extrapolating from the NEW
-                // position renders where the physics is heading this
-                // frame, so the sprite is always at-or-ahead of the
-                // sim, never behind. Direction-change overshoot is at
-                // most 1 tick worth (~3-5 px) and gets corrected on
-                // the next tick.
-                this.lastTickStepX = vx * pxPerTick;
-                this.lastTickStepY = vy * pxPerTick;
-
                 // Set facing flags for animation/aim regardless of ticks.
                 if (player.getIsUp())    lastDirectionTempMap.put(Cardinality.NORTH, true); else lastDirectionTempMap.put(Cardinality.NORTH, false);
                 if (player.getIsDown())  lastDirectionTempMap.put(Cardinality.SOUTH, true); else lastDirectionTempMap.put(Cardinality.SOUTH, false);
@@ -1131,23 +1110,21 @@ public class PlayState extends GameState {
                     this.lastDirectionMap = lastDirectionTempMap;
                 }
 
-                // Render position via EXTRAPOLATION (Experiment A). The
-                // accumulator's leftover fraction projects forward by
-                // up to one tick worth of the most-recent velocity:
+                // Render position via INTERPOLATION between the start and end
+                // of the most-recent tick (web parity, main.js _renderX). The
+                // accumulator's leftover fraction walks renderX from the tick's
+                // start toward its end:
                 //
-                //   renderX = pos.x + (acc / TICK_DT) * lastTickStep
+                //   renderX = interpFrom + (pos - interpFrom) * (acc / TICK_DT)
                 //
-                // pos is the LATEST simulated state; we extrapolate
-                // toward where the next tick will land. As the next
-                // tick fires, pos advances and accumulator resets,
-                // so renderX walks continuously without snap-back
-                // (the old interp formula could snap backward on
-                // multi-tick frames because it lerped from preTick
-                // through 2 ticks of advance, briefly putting render
-                // behind the visible position).
+                // interpFrom is the position entering the final tick (or the
+                // snapped pos after a reconcile). Interpolating between two
+                // adjacent tick states is smooth at any frame/tick beat — no
+                // overshoot on direction changes, no backward snap on 2-tick
+                // frames.
                 final float interpFrac = Math.max(0f, Math.min(1f, this.moveAccumulator / TICK_DT));
-                float renderX = player.getPos().x + this.lastTickStepX * interpFrac;
-                float renderY = player.getPos().y + this.lastTickStepY * interpFrac;
+                float renderX = this.interpFromX + (player.getPos().x - this.interpFromX) * interpFrac;
+                float renderY = this.interpFromY + (player.getPos().y - this.interpFromY) * interpFrac;
 
                 // Decay any reconciliation smoothing offset toward zero each
                 // frame, then apply it to the rendered position. The logical
@@ -1722,12 +1699,6 @@ public class PlayState extends GameState {
      * though simulation is fixed at 64 Hz.
      */
     private float interpFromX, interpFromY;
-    /** Per-tick step (px) the player JUST moved on the latest sim tick.
-     *  Used by the render-extrapolation formula: renderX = pos.x +
-     *  (acc / TICK_DT) * lastTickStepX. Captured inside the tick loop
-     *  so direction changes between frames don't smear the prediction
-     *  with a stale velocity. */
-    private float lastTickStepX = 0f, lastTickStepY = 0f;
     /**
      * Smoothed camera position. Mirrors the web client's
      * {@code game.cameraX/cameraY} (game.js ~line 1580). The camera

@@ -576,6 +576,23 @@ public class GameDataManager {
 		return (float) (coef * Math.PI / div);
 	}
 
+	/**
+	 * Resolve an angle FIELD value to radians, accepting either a plain number
+	 * ("0.5") or a unit-circle placeholder ("{{PI/2}}", "{{3*PI/4}}").
+	 */
+	public static float parseAngleValue(final String s) {
+		if (s == null || s.isEmpty()) return 0f;
+		final Matcher m = INJECT_VAR.matcher(s.trim());
+		final String inner = m.find() ? m.group(1) : s.trim();
+		final float pi = evalPiExpression(inner);
+		if (!Float.isNaN(pi)) return pi;
+		try {
+			return Float.parseFloat(inner);
+		} catch (final NumberFormatException e) {
+			return 0f;
+		}
+	}
+
 	public static void loadSpriteModel(GameItem item) {
 		if (item.getItemId() > -1) {
 			final GameItem fetched = GameDataManager.GAME_ITEMS.get(item.getItemId());

@@ -814,10 +814,24 @@ public class Player extends Entity {
 		// (web parity: renderer.js wadingClip = 0.30, masked sprite).
 		TextureRegion bodyRegion = drawFrame;
 		float bodyH = drawH;
+		float bodyDrawY = drawY;
 		if (this.wading) {
-			final int keepRows = Math.max(1, Math.round(rh * (1f - WADING_CLIP_FRACTION)));
-			bodyRegion = new TextureRegion(drawFrame, 0, 0, rw, keepRows);
-			bodyH = drawH * (1f - WADING_CLIP_FRACTION);
+			final float keep = 1f - WADING_CLIP_FRACTION;
+			final int keepRows = Math.max(1, Math.round(rh * keep));
+			// drawFrame is Y-flipped by SpriteSheet, so the cell's display top is
+			// its low-V pixel edge. Slice keepRows from that edge in unflipped
+			// pixel space (a sub-region built off the flipped region's coords
+			// would slice the wrong band and lose the flip — that was the garble),
+			// then restore the flip. Anchoring the kept top at the sprite's
+			// original top sinks the clipped bottom below the waterline.
+			final int texH = drawFrame.getTexture().getHeight();
+			final int cellTopY = Math.min(Math.round(drawFrame.getV() * texH),
+					Math.round(drawFrame.getV2() * texH));
+			bodyRegion = new TextureRegion(drawFrame.getTexture(),
+					drawFrame.getRegionX(), cellTopY, rw, keepRows);
+			bodyRegion.flip(false, true);
+			bodyH = drawH * keep;
+			bodyDrawY = drawY + (drawH - bodyH);
 		}
 
 		// Outline: dark offset copies behind the body, matching the webclient's
@@ -825,15 +839,15 @@ public class Player extends Entity {
 		// the waterline edge stays a clean cut rather than an outlined rim.
 		final float prevColor = batch.getPackedColor();
 		batch.setColor(0f, 0f, 0f, BODY_OUTLINE_ALPHA);
-		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, drawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, drawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX, drawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX, bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
 		if (!this.wading) {
-			batch.draw(bodyRegion, drawX, drawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+			batch.draw(bodyRegion, drawX, bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
 		}
 		batch.setPackedColor(prevColor);
 
-		batch.draw(bodyRegion, drawX, drawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX, bodyDrawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
 	}
 
 	/** Fraction of the sprite hidden at the bottom while wading (web parity). */
