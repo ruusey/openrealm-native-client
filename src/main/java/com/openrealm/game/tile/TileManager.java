@@ -1386,10 +1386,12 @@ public class TileManager {
                 final boolean wS = isWallCell(colBlocks, y + 1, x, mapW, mapH);
                 final boolean wW = isWallCell(colBlocks, y, x - 1, mapW, mapH);
                 final boolean wE = isWallCell(colBlocks, y, x + 1, mapW, mapH);
-                final boolean dN = tN > 0 && tN != myType && !wN;
-                final boolean dS = tS > 0 && tS != myType && !wS;
-                final boolean dW = tW > 0 && tW != myType && !wW;
-                final boolean dE = tE > 0 && tE != myType && !wE;
+                // Blend only with a different, non-wall neighbor whose color
+                // is far enough to read as a distinct material.
+                final boolean dN = tN > 0 && tN != myType && !wN && GameSpriteManager.tilesShouldBlend(myType, tN);
+                final boolean dS = tS > 0 && tS != myType && !wS && GameSpriteManager.tilesShouldBlend(myType, tS);
+                final boolean dW = tW > 0 && tW != myType && !wW && GameSpriteManager.tilesShouldBlend(myType, tW);
+                final boolean dE = tE > 0 && tE != myType && !wE && GameSpriteManager.tilesShouldBlend(myType, tE);
                 if (!(dN || dS || dW || dE)) continue;
                 final float wx = here.getPos().getWorldVar().x;
                 final float wy = here.getPos().getWorldVar().y;

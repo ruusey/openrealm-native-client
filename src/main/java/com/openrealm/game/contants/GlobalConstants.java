@@ -28,6 +28,14 @@ public class GlobalConstants {
 
     public static final int BASE_SPRITE_SIZE = 8;
 
+    // Tile seam-feather suppression. Two different base tiles whose average
+    // opaque colors are within this Euclidean RGB distance are treated as the
+    // same material and not feathered into each other (keeps irregular same-
+    // material patterns like mixed wood planks intact). Non-final so it can be
+    // retuned live; GameSpriteManager.tilesShouldBlend re-reads it each call
+    // and clears its decision cache when the value changes.
+    public static float TILE_BLEND_MIN_COLOR_DIST = 36f;
+
     public static final int PLAYER_CAP = 40;
 
     public static final int TILE_SIZE_NORM = 64;

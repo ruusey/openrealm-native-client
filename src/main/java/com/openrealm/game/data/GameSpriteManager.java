@@ -77,6 +77,15 @@ public class GameSpriteManager {
     /** Backing Texture for all feather variants. Owned here so we can
      *  dispose it on app shutdown. Created in bakeTileFeathers. */
     public static Texture TILE_FEATHER_ATLAS;
+    /** Per-tile average opaque color {r,g,b} in 0..255, computed in
+     *  bakeTileFeathers. Feeds {@link #tilesShouldBlend(int,int)} so seams
+     *  between same-material tiles (near-identical color) aren't feathered. */
+    public static Map<Integer, float[]> TILE_COLOR_SIG;
+    /** Memoized pairwise blend decisions keyed by the two tile ids; cleared
+     *  on re-bake and whenever the global threshold changes. */
+    private static final Map<Long, Boolean> BLEND_COMPAT_CACHE = new HashMap<>();
+    /** Threshold the cache was last built against; a change invalidates it. */
+    private static float lastBlendThreshold = Float.NaN;
     /** Source Pixmaps held in CPU memory parallel to the GPU textures
      *  in {@link #TEXTURE_CACHE}. SpriteRecolorCache reads from these
      *  to do per-pixel dye / enchantment work without having to re-
@@ -178,6 +187,8 @@ public class GameSpriteManager {
         atlas.fill();
 
         TILE_FEATHERS = new HashMap<>();
+        TILE_COLOR_SIG = new HashMap<>();
+        BLEND_COMPAT_CACHE.clear();
         // Per-tile atlas coords for the 4 variants, kept as raw ints so
         // we can build TextureRegions AFTER the atlas Texture exists.
         // TextureRegion.setRegion(int,int,int,int) calls texture.getWidth()
@@ -195,6 +206,22 @@ public class GameSpriteManager {
             final int depthH = Math.max(2, Math.round(sh * FEATHER_FRAC));
             final int rowH = Math.max(sh, depthH);
             final int[][] coords = new int[4][4]; // [dir][x, y, w, h]
+
+            // Average opaque color over the whole tile — the seam gate's
+            // signature. Transparent pixels skipped so decorations don't skew
+            // toward black. RGBA8888: R=>>>24, G=>>>16, B=>>>8, A=&0xff.
+            long sr = 0, sg = 0, sb = 0, sn = 0;
+            for (int py = 0; py < sh; py++) {
+                for (int px = 0; px < sw; px++) {
+                    final int rgba = srcPm.getPixel(srcX + px, srcY + py);
+                    if ((rgba & 0xff) < 8) continue;
+                    sr += (rgba >>> 24) & 0xff;
+                    sg += (rgba >>> 16) & 0xff;
+                    sb += (rgba >>> 8) & 0xff;
+                    sn++;
+                }
+            }
+            if (sn > 0) TILE_COLOR_SIG.put(tileId, new float[] { sr / (float) sn, sg / (float) sn, sb / (float) sn });
 
             // Lay out: [N at x=0, S at x=sw, W at x=2sw, E at x=2sw+depthW]
             final int[] varAtlasX = { 0, sw, sw * 2, sw * 2 + depthW };
@@ -287,6 +314,35 @@ public class GameSpriteManager {
 
         log.info("[SPRITES] Baked tile feathers — {} tiles × 4 = {} variants in {}x{} atlas",
                 tileIds.size(), tileIds.size() * 4, atlasW, atlasH);
+    }
+
+    /** True if a seam between two base tile types should be feathered. Tiles
+     *  whose average colors are within TILE_BLEND_MIN_COLOR_DIST read as the
+     *  same material and are left un-blended so irregular same-material
+     *  patterns (e.g. mixed wood planks) survive. Missing signature -> blend.
+     *  Memoized per unordered pair. */
+    public static boolean tilesShouldBlend(int a, int b) {
+        if (a == b) return false;
+        final float thresh = GlobalConstants.TILE_BLEND_MIN_COLOR_DIST;
+        if (thresh != lastBlendThreshold) {
+            BLEND_COMPAT_CACHE.clear();
+            lastBlendThreshold = thresh;
+        }
+        final long key = a < b ? ((long) a << 32) | (b & 0xffffffffL)
+                               : ((long) b << 32) | (a & 0xffffffffL);
+        final Boolean hit = BLEND_COMPAT_CACHE.get(key);
+        if (hit != null) return hit;
+        boolean blend = true;
+        if (TILE_COLOR_SIG != null) {
+            final float[] sa = TILE_COLOR_SIG.get(a);
+            final float[] sb = TILE_COLOR_SIG.get(b);
+            if (sa != null && sb != null) {
+                final float dr = sa[0] - sb[0], dg = sa[1] - sb[1], db = sa[2] - sb[2];
+                blend = Math.sqrt(dr * dr + dg * dg + db * db) >= thresh;
+            }
+        }
+        BLEND_COMPAT_CACHE.put(key, blend);
+        return blend;
     }
 
     private static int nextPow2(int v) {
