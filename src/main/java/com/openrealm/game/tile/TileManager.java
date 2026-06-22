@@ -1261,12 +1261,15 @@ public class TileManager {
         }
     }
 
-    /** Redraw the current frame's tall walls a second time. Intended to run
-     *  AFTER entity bodies so a player/enemy whose sprite overlaps a tall
-     *  wall's footprint is partially covered by it (2.5D depth): the wall's
-     *  top covers an entity standing north of it, its front face covers one
-     *  standing flush to the south. Reuses the visible wall set populated in
-     *  render(); the caller must have an active SpriteBatch. */
+    /** Redraw the current frame's tall walls a second time, AFTER entity bodies,
+     *  so a tall wall is the last sprite stamped over its footprint (before
+     *  bullets/HUD). This is what keeps 8x16 walls rendering consistently: the
+     *  earlier Pass-7 face draw can be covered by an entity body whose quad
+     *  overlaps the face cell, and a cap-only re-stamp here would leave that
+     *  face buried (the intermittent missing-face bug). Redrawing the FULL wall
+     *  (cap + south-spilling face) restores it unconditionally and matches the
+     *  RotMG "walls draw over adjacent entities" look. Sorted top-to-bottom so
+     *  a wall below re-covers the spill from the wall above. */
     public void renderTallWallOcclusion(SpriteBatch batch) {
         this.tallWallScratch.clear();
         for (Tile t : this.wallTilesBuf) {
@@ -1281,14 +1284,8 @@ public class TileManager {
             if (region == null) continue;
             final float wx = t.getPos().getWorldVar().x;
             final float wy = t.getPos().getWorldVar().y;
-            // Only the TOP half (the wall's own cell). Covers an entity
-            // overlapping from the north; the front face is intentionally left
-            // out so an entity approaching from the south stays in FRONT of it.
-            final int srcHalfH = Math.max(1, region.getRegionHeight() / 2);
-            this.wallTopHalfScratch.setTexture(region.getTexture());
-            this.wallTopHalfScratch.setRegion(region.getRegionX(), region.getRegionY(),
-                    region.getRegionWidth(), srcHalfH);
-            batch.draw(this.wallTopHalfScratch, wx, wy, sz, sz);
+            final float fullH = sz * (float) region.getRegionHeight() / region.getRegionWidth();
+            batch.draw(region, wx, wy, sz, fullH);
         }
     }
 
