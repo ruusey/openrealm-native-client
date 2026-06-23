@@ -97,6 +97,8 @@ public class TileManager {
     /** Reusable buffer for tall (taller-than-wide) wall sprites, drawn in
      *  their own south-to-occlude pass; cleared and refilled each frame. */
     private final List<Tile> tallWallScratch = new ArrayList<>(64);
+    /** Cache of per-wall TOP-FACE-only TextureRegions for the occlusion pass. */
+    private final Map<Integer, TextureRegion> tallWallTopCache = new HashMap<>();
 
     /** Per-tile highlight color cache, indexed by tileId. Sampled once
      *  from the wall sprite's pixmap (lightened by 35%) so the N+W
@@ -1261,15 +1263,13 @@ public class TileManager {
         }
     }
 
-    /** Redraw the current frame's tall walls a second time, AFTER entity bodies,
-     *  so a tall wall is the last sprite stamped over its footprint (before
-     *  bullets/HUD). This is what keeps 8x16 walls rendering consistently: the
-     *  earlier Pass-7 face draw can be covered by an entity body whose quad
-     *  overlaps the face cell, and a cap-only re-stamp here would leave that
-     *  face buried (the intermittent missing-face bug). Redrawing the FULL wall
-     *  (cap + south-spilling face) restores it unconditionally and matches the
-     *  RotMG "walls draw over adjacent entities" look. Sorted top-to-bottom so
-     *  a wall below re-covers the spill from the wall above. */
+    /** Redraw ONLY each tall wall's TOP FACE a second time, AFTER entity bodies,
+     *  so an entity behind the wall (overlapping the top face) is covered by it
+     *  while an entity standing in FRONT of the wall renders over the south-
+     *  spilling front face. The full wall (cap + front face) is drawn in the
+     *  renderTallWalls body pass beneath the entities; restamping only the cap
+     *  here gives correct 2.5D depth instead of walls-always-over-entities.
+     *  Sorted top-to-bottom (mirrors webclient renderer.js occlusion copy). */
     public void renderTallWallOcclusion(SpriteBatch batch) {
         this.tallWallScratch.clear();
         for (Tile t : this.wallTilesBuf) {
@@ -1284,8 +1284,24 @@ public class TileManager {
             if (region == null) continue;
             final float wx = t.getPos().getWorldVar().x;
             final float wy = t.getPos().getWorldVar().y;
-            final float fullH = sz * (float) region.getRegionHeight() / region.getRegionWidth();
-            batch.draw(region, wx, wy, sz, fullH);
+            // Occlude entities with ONLY the wall's TOP FACE (the upper sprite-
+            // size square), not the south-spilling front face. An entity behind
+            // the wall (overlapping the top face) is covered; one standing in
+            // FRONT of the wall (over the front face) renders on top, because the
+            // front face lives only in the renderTallWalls body pass drawn
+            // beneath the entities.
+            final int wallId = (int) t.getTileId();
+            TextureRegion topRegion = this.tallWallTopCache.get(wallId);
+            if (topRegion == null) {
+                final TileModel model = GameDataManager.TILES.get(wallId);
+                if (model == null) continue;
+                final int ssw = model.getSpriteSize();
+                topRegion = new TextureRegion(region.getTexture(),
+                        model.getCol() * ssw, model.getRow() * model.getEffectiveSpriteHeight(), ssw, ssw);
+                topRegion.flip(false, true);
+                this.tallWallTopCache.put(wallId, topRegion);
+            }
+            batch.draw(topRegion, wx, wy, sz, sz);
         }
     }
 
