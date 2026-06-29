@@ -10,6 +10,7 @@ import com.openrealm.game.contants.ProjectileFlag;
 import com.openrealm.game.contants.StatusEffectType;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.math.Vector2f;
+import com.openrealm.game.model.Projectile;
 import com.openrealm.game.model.ProjectileGroup;
 
 import lombok.Data;
@@ -442,6 +443,25 @@ public class Bullet extends GameObject  {
         final float angleOffset = (group != null && group.getAngleOffset() != null)
                 ? Float.parseFloat(group.getAngleOffset()) : 0f;
 
+        // Optional continuous sprite spin (data-driven, purely visual). If any
+        // projectile in this group opts into rotation, spin the sprite — and every
+        // tile of a wall — at rotateRate rad/tick (or, when 0, a rate derived from
+        // the bullet's speed) in rotateDir. Additive on the base orientation.
+        // LibGDX rotation is CCW-positive degrees, so CW = negative.
+        float rotateSpinDeg = 0f;
+        if (group != null && group.getProjectiles() != null) {
+            for (final Projectile rp : group.getProjectiles()) {
+                if (rp != null && rp.isRotate()) {
+                    final float rate = rp.getRotateRate() > 0f ? rp.getRotateRate()
+                            : Math.max(0.02f, Math.abs(this.magnitude) * 0.03f);
+                    final float dir = "CCW".equalsIgnoreCase(rp.getRotateDir()) ? 1f : -1f;
+                    final double spinRad = (System.currentTimeMillis() * 0.001) * rate * 64.0;
+                    rotateSpinDeg = dir * (float) Math.toDegrees(spinRad);
+                    break;
+                }
+            }
+        }
+
         // Convert angle to degrees for LibGDX (counter-clockwise positive).
         // Spinning projectiles (shurikens) ignore the flight-angle and rotate
         // by a continuous wall-clock-driven phase so they read as spinning
@@ -456,6 +476,7 @@ public class Bullet extends GameObject  {
         } else {
             rotationDeg = (float) Math.toDegrees(-this.getAngle() + this.tfAngle);
         }
+        rotationDeg += rotateSpinDeg;
 
         float wx = this.pos.getWorldVar().x;
         float wy = this.pos.getWorldVar().y;
@@ -474,7 +495,7 @@ public class Bullet extends GameObject  {
             // Point tiles ALONG the wall axis (perpendicular to facing) so they
             // read as one straight line end-to-end — no tfAngle (that aligns to
             // travel, i.e. across the wall). angleOffset stays as a fine-tune.
-            final float lineRotDeg = (float) Math.toDegrees(-a + angleOffset);
+            final float lineRotDeg = (float) Math.toDegrees(-a + angleOffset) + rotateSpinDeg;
             for (int i = 0; i <= tiles; i++) {
                 final float off = -half + ((float) i / tiles) * this.length;
                 batch.draw(frame, wx + perpX * off, wy + perpY * off, halfSize, halfSize,

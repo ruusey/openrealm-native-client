@@ -49,6 +49,17 @@ public class Projectile {
      */
     private List<ProjectileEffect> effects;
 
+    /**
+     * Optional sprite spin (purely visual). When {@code rotate} is true the
+     * sprite continuously rotates as it travels — for a LINE_SEGMENT wall, every
+     * tile that makes up the wall spins. {@code rotateDir} is "CW" or "CCW";
+     * {@code rotateRate} is radians/tick, and when 0 the rate is derived from the
+     * projectile's speed (magnitude). Defaults to no rotation (additive opt-in).
+     */
+    private boolean rotate;
+    private float rotateRate;
+    private String rotateDir;
+
     public boolean hasFlag(short flag) {
         return (this.flags != null) && this.flags.contains(flag);
     }
