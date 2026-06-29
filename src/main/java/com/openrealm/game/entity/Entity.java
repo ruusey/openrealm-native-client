@@ -252,8 +252,10 @@ public abstract class Entity extends GameObject {
      * ~30%). A frame swaps every WALK_PX_PER_FRAME px. MUST match the webclient's
      * WALK_PX_PER_FRAME (game.js updateInterpolation) so both clients look the
      * same. (dx/dy are px/tick at 64Hz → px/sec = ×64.)
+     * Tuned up from 24 → 28 (~15% slower gait) so high-spd classes don't look
+     * like they're sprinting in fast-forward.
      */
-    private static final float WALK_PX_PER_FRAME = 24f;
+    private static final float WALK_PX_PER_FRAME = 28f;
     /** Webclient main.js ~2160: 80ms per attack frame. */
     private static final float ATTACK_FRAME_SECONDS = 0.08f;
     private float animDistance = 0f;
