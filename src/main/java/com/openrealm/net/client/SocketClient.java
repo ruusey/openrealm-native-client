@@ -210,6 +210,10 @@ public class SocketClient implements Runnable {
         WorkerThread.submitAndForkRun(run);
     }
 
+    public boolean isDisconnected() {
+        return this.shutdown;
+    }
+
     public void close() {
         this.shutdown = true;
         try {

@@ -228,6 +228,10 @@ public class RealmManagerClient implements Runnable {
         WorkerThread.submitAndForkRun(sendHeartbeat);
     }
 
+    public boolean isDisconnected() {
+        return this.shutdown || (this.client != null && this.client.isDisconnected());
+    }
+
     public void shutdownClient() {
         this.shutdown = true;
         if (this.workerThread != null) {

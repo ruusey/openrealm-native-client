@@ -589,6 +589,22 @@ public class TileManager {
         return currentTile.isVoid();
     }
 
+    // A null tile is one the server never streamed (black void border). While
+    // connected this is walkable, but on disconnect PlayState uses this to
+    // confine the player to the already-loaded area instead of letting them
+    // wander off the non-rendered edge of the map.
+    public boolean isUnloadedTile(Vector2f pos, float dx, float dy) {
+        final TileMap baseLayer = this.getBaseLayer();
+        final int tileX = (int) ((float) pos.x + dx) / baseLayer.getTileSize();
+        final int tileY = (int) ((float) pos.y + dy) / baseLayer.getTileSize();
+        if (tileX < 0 || tileY < 0
+                || tileY >= baseLayer.getBlocks().length
+                || tileX >= baseLayer.getBlocks()[0].length) {
+            return true;
+        }
+        return baseLayer.getBlocks()[tileY][tileX] == null;
+    }
+
     public boolean collidesXLimit(Entity e, float ax) {
         final Vector2f futurePos = e.getPos().clone(ax, 0);
         return (futurePos.x <= 0) || ((futurePos.x + e.getSize()) >= (this.getBaseLayer().getWidth()

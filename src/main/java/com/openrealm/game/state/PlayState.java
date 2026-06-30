@@ -593,18 +593,26 @@ public class PlayState extends GameState {
         final float dx = p.getDx() / slow;
         final float dy = p.getDy() / slow;
 
+        // On disconnect the server stops streaming tiles, so confine the player
+        // to the already-loaded area by treating never-streamed (null) tiles as
+        // solid. While connected this stays off so normal streaming is unchanged.
+        final boolean disconnected = this.realmManager.isDisconnected();
+
         boolean xBlocked = tm.collisionTile(p, dx, 0)
                 || tm.collidesXLimit(p, dx)
-                || tm.isVoidTile(scratch, dx, 0);
+                || tm.isVoidTile(scratch, dx, 0)
+                || (disconnected && tm.isUnloadedTile(scratch, dx, 0));
         boolean yBlocked = tm.collisionTile(p, 0, dy)
                 || tm.collidesYLimit(p, dy)
-                || tm.isVoidTile(scratch, 0, dy);
+                || tm.isVoidTile(scratch, 0, dy)
+                || (disconnected && tm.isUnloadedTile(scratch, 0, dy));
 
         // Diagonal corner-cutting prevention: when neither axis is blocked but
         // the diagonal IS, block the smaller-|delta| axis so the player slides
         // along the larger one instead of clipping the corner.
         if (!xBlocked && !yBlocked && dx != 0f && dy != 0f) {
-            if (tm.collisionTile(p, dx, dy) || tm.isVoidTile(scratch, dx, dy)) {
+            if (tm.collisionTile(p, dx, dy) || tm.isVoidTile(scratch, dx, dy)
+                    || (disconnected && tm.isUnloadedTile(scratch, dx, dy))) {
                 if (Math.abs(dx) >= Math.abs(dy)) yBlocked = true;
                 else xBlocked = true;
             }
