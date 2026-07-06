@@ -25,6 +25,11 @@ public abstract class Entity extends GameObject {
     protected String lastAnimSet = "idle_side";
     protected String lastMovementDirection = "side"; // "side", "front", or "back" - used for hysteresis
     private static final float DIRECTION_SWITCH_THRESHOLD = 0.15f;
+    // Sprite stroke: 4 cardinal-offset dark copies behind the body (matches the
+    // webclient outline + the bullet/loot stroke). Offset in world units.
+    private static final float STROKE_OFFSET = 1f;
+    private static final float STROKE_ALPHA = 0.85f;
+    private static final float[][] STROKE_OFFSETS = { { 1f, 0f }, { -1f, 0f }, { 0f, 1f }, { 0f, -1f } };
 
     public boolean xCol = false;
     public boolean yCol = false;
@@ -493,6 +498,43 @@ public abstract class Entity extends GameObject {
     public TextureRegion getCurrentFrame() {
         if (this.getSpriteSheet() == null) return null;
         return this.getSpriteSheet().getCurrentFrame();
+    }
+
+    /**
+     * Dark silhouette stroke: 4 cardinal-offset copies of the body drawn behind
+     * it, matching the webclient's per-entity outline and the bullet/loot
+     * stroke style. Sets its own dark tint (save/restore), so the caller must
+     * run this with the default (non-effect) shader active. Geometry mirrors
+     * {@link #renderBody} exactly so the stroke tracks wide/tall attack frames.
+     */
+    public void renderStroke(SpriteBatch batch) {
+        if (this.getSpriteSheet() == null) return;
+        final TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
+        if (frame == null) return;
+        final float wx = this.pos.getWorldVar().x;
+        final float wy = this.pos.getWorldVar().y;
+        final int refW = this.getSpriteSheet().getSpriteImageWidth();
+        final int refH = this.getSpriteSheet().getSpriteImageHeight();
+        final int rw = frame.getRegionWidth();
+        final int rh = frame.getRegionHeight();
+        final float drawW, drawH, drawX, drawY;
+        if (refW <= 0 || refH <= 0 || rw <= 0 || rh <= 0) {
+            drawW = this.size; drawH = this.size; drawX = wx; drawY = wy;
+        } else {
+            final float unitX = (float) this.size / refW;
+            final float unitY = (float) this.size / refH;
+            drawW = rw * unitX; drawH = rh * unitY;
+            drawX = this.left ? (wx + this.size - drawW) : wx;
+            drawY = wy + this.size - drawH;
+        }
+        final float scaleX = this.left ? -1f : 1f;
+        final float prevColor = batch.getPackedColor();
+        batch.setColor(0f, 0f, 0f, STROKE_ALPHA);
+        for (float[] off : STROKE_OFFSETS) {
+            batch.draw(frame, drawX + off[0] * STROKE_OFFSET, drawY + off[1] * STROKE_OFFSET,
+                    drawW * 0.5f, drawH * 0.5f, drawW, drawH, scaleX, 1f, 0f);
+        }
+        batch.setPackedColor(prevColor);
     }
 
     /**

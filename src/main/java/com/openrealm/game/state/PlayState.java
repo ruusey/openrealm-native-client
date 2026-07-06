@@ -1994,6 +1994,16 @@ public class PlayState extends GameState {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
+        // Pass 2a: entity sprite strokes (dark silhouette behind every body),
+        // drawn with the default shader so the dark tint applies. Gated by the
+        // global sprite-stroke toggle. Matches the webclient's per-entity outline.
+        if (gfx.isSpriteStroke()) {
+            ShaderManager.clearEffect(batch);
+            for (int i = 0; i < visibleEntities.size(); i++) {
+                visibleEntities.get(i).renderStroke(batch);
+            }
+        }
+
         // Pass 2: All entity bodies grouped by effect (minimize shader switches)
         Sprite.EffectEnum currentEffect = null;
         for (int i = 0; i < visibleEntities.size(); i++) {
