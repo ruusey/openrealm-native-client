@@ -4,6 +4,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.openrealm.game.Settings;
 import com.openrealm.game.contants.LootTier;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.graphics.Sprite;
@@ -243,13 +244,16 @@ public class LootContainer {
             final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
             // Dark silhouette outline (matches the in-world sprite stroke):
             // four offset tinted copies behind the bag, then the bag on top.
-            final float prevColor = batch.getPackedColor();
-            batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-            batch.draw(region, bx + OUTLINE_OFFSET, by, draw, draw);
-            batch.draw(region, bx - OUTLINE_OFFSET, by, draw, draw);
-            batch.draw(region, bx, by + OUTLINE_OFFSET, draw, draw);
-            batch.draw(region, bx, by - OUTLINE_OFFSET, draw, draw);
-            batch.setPackedColor(prevColor);
+            // Skipped when the global sprite-stroke toggle is off.
+            if (Settings.get().isSpriteStroke()) {
+                final float prevColor = batch.getPackedColor();
+                batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
+                batch.draw(region, bx + OUTLINE_OFFSET, by, draw, draw);
+                batch.draw(region, bx - OUTLINE_OFFSET, by, draw, draw);
+                batch.draw(region, bx, by + OUTLINE_OFFSET, draw, draw);
+                batch.draw(region, bx, by - OUTLINE_OFFSET, draw, draw);
+                batch.setPackedColor(prevColor);
+            }
             // Soulbound bags get a red tint so the player visually distinguishes
             // their own loot from other players' soulbound drops (which they
             // also see but cannot pick up). Public bags render at neutral tint.

@@ -7,6 +7,8 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.InputProcessor;
 
+import com.openrealm.game.Settings;
+
 import lombok.Data;
 
 @Data
@@ -106,6 +108,13 @@ public class KeyHandler implements InputProcessor {
         // No listener registration needed - we poll Gdx.input
     }
 
+    /** Resolve a rebindable action to its LibGDX key code, falling back to the
+     *  default when unset. Read live so remaps take effect without a restart. */
+    private static int kb(String action, int fallback) {
+        int code = Settings.get().getKeybind(action);
+        return code >= 0 ? code : fallback;
+    }
+
     public void releaseAll() {
         for (int i = 0; i < KeyHandler.keys.size(); i++) {
             KeyHandler.keys.get(i).down = false;
@@ -135,11 +144,11 @@ public class KeyHandler implements InputProcessor {
         this.leftHoldTime = -1f;
         this.rightHoldTime = -1f;
 
-        this.up.toggle(Gdx.input.isKeyPressed(Input.Keys.W));
-        this.down.toggle(Gdx.input.isKeyPressed(Input.Keys.S));
-        this.left.toggle(Gdx.input.isKeyPressed(Input.Keys.A));
-        this.right.toggle(Gdx.input.isKeyPressed(Input.Keys.D));
-        this.attack.toggle(Gdx.input.isKeyPressed(Input.Keys.SPACE));
+        this.up.toggle(Gdx.input.isKeyPressed(kb("moveUp", Input.Keys.W)));
+        this.down.toggle(Gdx.input.isKeyPressed(kb("moveDown", Input.Keys.S)));
+        this.left.toggle(Gdx.input.isKeyPressed(kb("moveLeft", Input.Keys.A)));
+        this.right.toggle(Gdx.input.isKeyPressed(kb("moveRight", Input.Keys.D)));
+        this.attack.toggle(Gdx.input.isKeyPressed(kb("usePortal", Input.Keys.SPACE)));
         // The legacy `menu` key field still binds to E for compatibility,
         // but it has no consumers anywhere — the actual menu opens on
         // M / Escape. Camera rotation uses Q (left) / E (right) like the
@@ -161,9 +170,9 @@ public class KeyHandler implements InputProcessor {
         this.eight.toggle(Gdx.input.isKeyPressed(Input.Keys.NUM_8));
         this.zero.toggle(Gdx.input.isKeyPressed(Input.Keys.NUM_0));
 
-        this.q.toggle(Gdx.input.isKeyPressed(Input.Keys.Q));
-        this.e.toggle(Gdx.input.isKeyPressed(Input.Keys.E));
-        this.c.toggle(Gdx.input.isKeyPressed(Input.Keys.C));
+        this.q.toggle(Gdx.input.isKeyPressed(kb("rotateLeft", Input.Keys.Q)));
+        this.e.toggle(Gdx.input.isKeyPressed(kb("rotateRight", Input.Keys.E)));
+        this.c.toggle(Gdx.input.isKeyPressed(kb("resetCamera", Input.Keys.C)));
         this.t.toggle(Gdx.input.isKeyPressed(Input.Keys.T));
         this.m.toggle(Gdx.input.isKeyPressed(Input.Keys.M));
         this.plus.toggle(Gdx.input.isKeyPressed(Input.Keys.PLUS) || Gdx.input.isKeyPressed(Input.Keys.EQUALS));

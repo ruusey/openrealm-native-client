@@ -40,15 +40,18 @@ public class Settings {
         return INSTANCE;
     }
 
-    /** Graphics settings. Field names mirror the web client where possible. */
+    /** Graphics settings. Field names mirror the web client where possible.
+     *  Every flag below is read live by PlayState's render pass. */
     private boolean hideOtherPlayerBullets = false;
-    private boolean showDamageNumbers = true;
+    private boolean renderOtherPlayers = true;
     private boolean showPlayerNames = true;
+    private boolean showStatusBubbles = true;
+    private boolean showChatBubbles = true;
+    private boolean showDamageNumbers = true;
+    private boolean playAbilityAnimations = true;
+    private boolean spriteStroke = true;
+    private boolean lootBagPreview = false;
     private boolean showRealmTransition = true;
-    /** "low", "med", "high" — currently advisory only. */
-    private String renderQuality = "high";
-    /** -1 = unlimited, otherwise a cap on rendered enemy bullets. */
-    private int maxBulletsOnScreen = -1;
     /** Wall post-processing: "simple" (flat black stroke on exposed faces —
      *  default, faster + cleaner in wall-dense dungeons) or "fancy" (baked
      *  shadow side-bands, top-half extrusion, and edge highlights). Read by
@@ -84,6 +87,8 @@ public class Settings {
         m.put("rotateRight", Input.Keys.E);
         m.put("resetCamera", Input.Keys.C);
         m.put("lootPickup", Input.Keys.F);
+        m.put("goNexus", Input.Keys.R);
+        m.put("usePortal", Input.Keys.SPACE);
         m.put("chat", Input.Keys.ENTER);
         m.put("menu", Input.Keys.ESCAPE);
         return m;

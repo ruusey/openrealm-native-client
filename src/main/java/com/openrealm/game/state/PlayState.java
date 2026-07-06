@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import com.openrealm.account.dto.PlayerAccountDto;
 import com.openrealm.game.OpenRealmGame;
+import com.openrealm.game.Settings;
 import com.badlogic.gdx.graphics.Color;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.contants.GlobalConstants;
@@ -1233,7 +1234,7 @@ public class PlayState extends GameState {
             // hotkey. Suppressed while the chat input is capturing keys
             // so the user can type 'r' in messages without TPing out.
             if (!key.captureMode
-                    && Gdx.input.isKeyJustPressed(Input.Keys.R)
+                    && Gdx.input.isKeyJustPressed(Settings.get().getKeybind("goNexus"))
                     && canUsePortal
                     && this.realmManager.getRealm().getMapId() != 29) {
                 try {
@@ -1269,7 +1270,7 @@ public class PlayState extends GameState {
             // scan a 5x5 window around the player, pick the closest tile whose
             // TileModel has a non-empty interactionType, send InteractTilePacket.
             // Server replies with OpenForgePacket / OpenFameStorePacket.
-            if (!key.captureMode && Gdx.input.isKeyJustPressed(Input.Keys.F)) {
+            if (!key.captureMode && Gdx.input.isKeyJustPressed(Settings.get().getKeybind("lootPickup"))) {
                 try {
                     final TileMap baseLayer = this.realmManager.getRealm().getTileManager().getBaseLayer();
                     final TileMap collisionLayer = this.realmManager.getRealm().getTileManager().getCollisionLayer();
@@ -1864,15 +1865,27 @@ public class PlayState extends GameState {
         final boolean isBlind = localBlindPlayer != null
                 && localBlindPlayer.hasEffect(com.openrealm.game.contants.StatusEffectType.BLIND);
         final float BLIND_RADIUS = 32f * 3f;
-        final float BLIND_RADIUS_SQ = BLIND_RADIUS * BLIND_RADIUS;
-        final float blindPx = isBlind ? localBlindPlayer.getPos().x : 0f;
-        final float blindPy = isBlind ? localBlindPlayer.getPos().y : 0f;
+        // Player CENTER + body-based reach (mirrors the webclient): an entity is
+        // culled only when its whole body sits outside the tunnel. Corner math
+        // left large enemies invisible even when the player stood on them.
+        final float blindHalf = isBlind ? localBlindPlayer.getSize() / 2f : 0f;
+        final float blindPx = isBlind ? localBlindPlayer.getPos().x + blindHalf : 0f;
+        final float blindPy = isBlind ? localBlindPlayer.getPos().y + blindHalf : 0f;
         final long localBlindId = isBlind ? localBlindPlayer.getId() : 0L;
 
+        // Graphics toggles, read live from Settings each frame.
+        final Settings gfx = Settings.get();
+        final boolean renderOtherPlayers = gfx.isRenderOtherPlayers();
+        final boolean hideOtherBullets = gfx.isHideOtherPlayerBullets();
+        final long localPlayerId = this.realmManager.getCurrentPlayerId();
+
         for (Player p : this.realmManager.getRealm().getPlayers().values()) {
+            if (!renderOtherPlayers && p.getId() != localPlayerId) continue;
             if (isBlind && p.getId() != localBlindId) {
-                final float dx = p.getPos().x - blindPx, dy = p.getPos().y - blindPy;
-                if (dx * dx + dy * dy > BLIND_RADIUS_SQ) continue;
+                final float half = p.getSize() / 2f;
+                final float dx = (p.getPos().x + half) - blindPx, dy = (p.getPos().y + half) - blindPy;
+                final float reach = BLIND_RADIUS + half;
+                if (dx * dx + dy * dy > reach * reach) continue;
             }
             visibleEntities.add(p);
             p.updateAnimation();
@@ -1894,8 +1907,10 @@ public class PlayState extends GameState {
             if (gameObject[i] instanceof Enemy) {
                 Enemy e = (Enemy) gameObject[i];
                 if (isBlind) {
-                    final float dx = e.getPos().x - blindPx, dy = e.getPos().y - blindPy;
-                    if (dx * dx + dy * dy > BLIND_RADIUS_SQ) continue;
+                    final float half = e.getSize() / 2f;
+                    final float dx = (e.getPos().x + half) - blindPx, dy = (e.getPos().y + half) - blindPy;
+                    final float reach = BLIND_RADIUS + half;
+                    if (dx * dx + dy * dy > reach * reach) continue;
                 }
                 visibleEntities.add(e);
                 visibleEnemies.add(e);
@@ -1906,11 +1921,16 @@ public class PlayState extends GameState {
                 // entry stays in the realm so the server's eventual
                 // UnloadPacket cleanly removes it.
                 if (b.isConsumedClient()) continue;
+                // Hide OTHER players' projectiles (own + enemy shots still show).
+                if (hideOtherBullets && b.getSrcEntityId() != localPlayerId
+                        && this.realmManager.getRealm().getPlayers().containsKey(b.getSrcEntityId())) continue;
                 // BLIND cull — bullets outside the tunnel radius vanish.
                 // Local player's OWN bullets are exempt so they can still aim.
                 if (isBlind && b.getSrcEntityId() != localBlindId) {
-                    final float dx = b.getPos().x - blindPx, dy = b.getPos().y - blindPy;
-                    if (dx * dx + dy * dy > BLIND_RADIUS_SQ) continue;
+                    final float half = b.getSize() / 2f;
+                    final float dx = (b.getPos().x + half) - blindPx, dy = (b.getPos().y + half) - blindPy;
+                    final float reach = BLIND_RADIUS + half;
+                    if (dx * dx + dy * dy > reach * reach) continue;
                 }
                 visibleBullets.add(b);
             }
@@ -1994,8 +2014,11 @@ public class PlayState extends GameState {
         this.realmManager.getRealm().getTileManager().renderTallWallOcclusion(batch);
 
         // Pass 3: Bullet outlines first (all behind), then bodies on top.
-        for (int i = 0; i < visibleBullets.size(); i++) {
-            visibleBullets.get(i).renderOutline(batch);
+        // Outlines are skipped when the global sprite-stroke toggle is off.
+        if (gfx.isSpriteStroke()) {
+            for (int i = 0; i < visibleBullets.size(); i++) {
+                visibleBullets.get(i).renderOutline(batch);
+            }
         }
         for (int i = 0; i < visibleBullets.size(); i++) {
             visibleBullets.get(i).render(batch);
@@ -2096,7 +2119,9 @@ public class PlayState extends GameState {
         // doesn't have to recompute them.
         final java.util.List<float[]> _statusChipLayout = new java.util.ArrayList<>();
         final java.util.List<String>  _statusChipLabels = new java.util.ArrayList<>();
-        for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
+        for (Player rp : gfx.isShowStatusBubbles()
+                ? this.realmManager.getRealm().getPlayers().values()
+                : java.util.Collections.<Player>emptyList()) {
             final Short[] effs = rp.getEffectIds();
             if (effs == null) continue;
             final int sSize = rp.getSize() > 0 ? rp.getSize() : 32;
@@ -2148,7 +2173,7 @@ public class PlayState extends GameState {
         // Uses the same shapes-then-batch split as the status chips so the
         // ShapeRenderer is never interleaved with the SpriteBatch. Geometry
         // mirrors the bubble text formula in the nameplate loop exactly.
-        {
+        if (gfx.isShowChatBubbles()) {
             final long now = System.currentTimeMillis();
             final float ws = OpenRealmGame.WORLD_SCALE;
             final float padX = 8f / ws;
@@ -2210,8 +2235,11 @@ public class PlayState extends GameState {
             // own begin/end pairs).
         }
 
-        // Pass 5: Visual ability effects (rings, arcs, particles)
-        this.renderVisualEffects(shapes);
+        // Pass 5: Visual ability effects (rings, arcs, particles). Gated by the
+        // non-projectile ability-animation toggle.
+        if (gfx.isPlayAbilityAnimations()) {
+            this.renderVisualEffects(shapes);
+        }
         // Lock-on reticles over entities targeted by live HOMING projectiles.
         this.renderLockOnReticles(shapes);
 
@@ -2221,7 +2249,9 @@ public class PlayState extends GameState {
         // need REAL shuriken sprites (not shape primitives) to match the
         // item icons. Drawn inside the open batch so they Z-sort with
         // entities + nameplate text below.
-        this.renderShurikenEffects(batch);
+        if (gfx.isPlayAbilityAnimations()) {
+            this.renderShurikenEffects(batch);
+        }
 
         // Player nameplates — rendered with the world-camera batch so the
         // text anchors to the entity. Font is dropped to 0.5x so the
@@ -2254,11 +2284,13 @@ public class PlayState extends GameState {
             // y = top of HP bar minus 2px gap. HP bar sits at wy - 10, so
             // the name's bottom baseline is at wy - 12. Add the layout
             // height since GlyphLayout uses a top-anchor in flipped ortho.
-            font.draw(batch, this.nameLayoutScratch,
-                    wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
-                    wy - 12 - this.nameLayoutScratch.height);
+            if (gfx.isShowPlayerNames()) {
+                font.draw(batch, this.nameLayoutScratch,
+                        wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
+                        wy - 12 - this.nameLayoutScratch.height);
+            }
             // Chat bubble floats just above the nameplate, fading out at end of life.
-            final ChatBubble bubble = this.chatBubbles.get(nm);
+            final ChatBubble bubble = gfx.isShowChatBubbles() ? this.chatBubbles.get(nm) : null;
             if (bubble != null && !bubble.isExpired(bubbleNowMs)) {
                 this.chatBubbleLayoutScratch.setText(font, bubble.getMessage());
                 // Dark text for contrast on the white bubble background (drawn
@@ -2312,6 +2344,12 @@ public class PlayState extends GameState {
             lc.render(batch);
         }
 
+        // Read-only loot bag preview — small item grid under each bag. Never
+        // interacts with pickup; strictly a display aid, off by default.
+        if (gfx.isLootBagPreview()) {
+            this.renderLootBagPreviews(batch, shapes);
+        }
+
         if (this.pui == null)
             return;
 
@@ -2322,8 +2360,10 @@ public class PlayState extends GameState {
         // (300, 200) instead of at the actual sprite location. Flush the
         // batch first so any prior world-space draws complete before the
         // next pass starts.
-        for (EffectText text : this.getDamageText()) {
-            text.render(batch, font);
+        if (gfx.isShowDamageNumbers()) {
+            for (EffectText text : this.getDamageText()) {
+                text.render(batch, font);
+            }
         }
 
         if (game.getUiCamera() != null) {
@@ -2333,6 +2373,9 @@ public class PlayState extends GameState {
             batch.setTransformMatrix(this.worldTransformIdt);
             shapes.setTransformMatrix(this.worldTransformIdt);
         }
+        // Blind vignette darkens the periphery down to the choked render range.
+        // Drawn before the HUD so the panel/minimap stay fully lit.
+        if (isBlind) this.renderBlindVignette(batch, shapes);
         this.pui.render(batch, shapes, font);
 
         this.renderCloseLoot(batch);
@@ -2683,6 +2726,115 @@ public class PlayState extends GameState {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Read-only loot-bag preview: a small item grid under each ground loot
+     * container (world-camera space). Dark backgrounds first (ShapeRenderer),
+     * then item icons (SpriteBatch). Purely visual — no pickup interaction.
+     * Mirrors the webclient renderer.js renderLootPreviews.
+     */
+    private void renderLootBagPreviews(SpriteBatch batch, ShapeRenderer shapes) {
+        final float WS = OpenRealmGame.WORLD_SCALE;
+        final float CELL = 13f / WS, ICON = 10f / WS, PAD = 2f / WS;
+        final int COLS = 5, MAXN = COLS * 2;
+
+        // Backgrounds.
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (LootContainer lc : this.realmManager.getRealm().getLoot().values()) {
+            if (lc.getPos() == null || lc.getItems() == null) continue;
+            final int n = Math.min(countLootItems(lc), MAXN);
+            if (n == 0) continue;
+            final int cols = Math.min(n, COLS);
+            final int rows = (n + COLS - 1) / COLS;
+            final float gridW = cols * CELL, gridH = rows * CELL;
+            final float bx = lc.getPos().getWorldVar().x, by = lc.getPos().getWorldVar().y;
+            final float gx = bx + 8f - gridW / 2f, gy = by + 20f;
+            shapes.setColor(0.04f, 0.04f, 0.05f, 0.72f);
+            shapes.rect(gx - PAD, gy - PAD, gridW + 2 * PAD, gridH + 2 * PAD);
+        }
+        shapes.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        batch.begin();
+
+        // Item icons.
+        for (LootContainer lc : this.realmManager.getRealm().getLoot().values()) {
+            if (lc.getPos() == null || lc.getItems() == null) continue;
+            final int n = Math.min(countLootItems(lc), MAXN);
+            if (n == 0) continue;
+            final int cols = Math.min(n, COLS);
+            final float gridW = cols * CELL;
+            final float bx = lc.getPos().getWorldVar().x, by = lc.getPos().getWorldVar().y;
+            final float gx = bx + 8f - gridW / 2f, gy = by + 20f;
+            int drawn = 0;
+            for (GameItem it : lc.getItems()) {
+                if (it == null || it.getItemId() < 0) continue;
+                if (drawn >= MAXN) break;
+                final TextureRegion region = (GameSpriteManager.ITEM_SPRITES != null)
+                        ? GameSpriteManager.ITEM_SPRITES.get(it.getItemId()) : null;
+                final int col = drawn % COLS, row = drawn / COLS;
+                if (region != null) {
+                    final float ix = gx + col * CELL + (CELL - ICON) / 2f;
+                    final float iy = gy + row * CELL + (CELL - ICON) / 2f;
+                    batch.draw(region, ix, iy, ICON, ICON);
+                }
+                drawn++;
+            }
+        }
+    }
+
+    private static int countLootItems(LootContainer lc) {
+        int n = 0;
+        for (GameItem it : lc.getItems()) {
+            if (it != null && it.getItemId() >= 0) n++;
+        }
+        return n;
+    }
+
+    /**
+     * Screen-space blind vignette: a clear circular tunnel of radius
+     * BLIND_RADIUS × WORLD_SCALE around the (centered) player, fading to dark
+     * toward the edges. Reflects the choked bullet/enemy render range. Drawn
+     * with the UI camera active so it maps 1:1 to screen pixels.
+     */
+    private void renderBlindVignette(SpriteBatch batch, ShapeRenderer shapes) {
+        final float w = OpenRealmGame.width, h = OpenRealmGame.height;
+        final float cx = w / 2f, cy = h / 2f; // player is centered in the world viewport
+        final float innerR = 32f * 3f * OpenRealmGame.WORLD_SCALE; // choked render range
+        final float fadeR = innerR + 180f;
+        final float cornerR = (float) Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) + 4f;
+        final Color clear = new Color(0f, 0f, 0f, 0f);
+        final Color dark = new Color(0f, 0f, 0f, 0.94f);
+
+        batch.end();
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int SEG = 64;
+        for (int i = 0; i < SEG; i++) {
+            final double a0 = i * 2.0 * Math.PI / SEG;
+            final double a1 = (i + 1) * 2.0 * Math.PI / SEG;
+            final float c0 = (float) Math.cos(a0), s0 = (float) Math.sin(a0);
+            final float c1 = (float) Math.cos(a1), s1 = (float) Math.sin(a1);
+            final float ix0 = cx + innerR * c0, iy0 = cy + innerR * s0;
+            final float ix1 = cx + innerR * c1, iy1 = cy + innerR * s1;
+            final float fx0 = cx + fadeR * c0, fy0 = cy + fadeR * s0;
+            final float fx1 = cx + fadeR * c1, fy1 = cy + fadeR * s1;
+            final float gx0 = cx + cornerR * c0, gy0 = cy + cornerR * s0;
+            final float gx1 = cx + cornerR * c1, gy1 = cy + cornerR * s1;
+            // Gradient band: clear at the tunnel edge -> dark at fadeR.
+            shapes.triangle(ix0, iy0, fx0, fy0, fx1, fy1, clear, dark, dark);
+            shapes.triangle(ix0, iy0, fx1, fy1, ix1, iy1, clear, dark, clear);
+            // Solid band out to the corner so screen edges are fully dark.
+            shapes.triangle(fx0, fy0, gx0, gy0, gx1, gy1, dark, dark, dark);
+            shapes.triangle(fx0, fy0, gx1, gy1, fx1, fy1, dark, dark, dark);
+        }
+        shapes.end();
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        batch.begin();
     }
 
     /**

@@ -38,9 +38,8 @@ public class OptionsWindow {
     /** Action list shown in the Controls tab. Order matches display order. */
     private static final String[] BINDABLE_ACTIONS = {
         "moveUp", "moveDown", "moveLeft", "moveRight",
-        "hpPotion", "mpPotion", "lootPickup",
         "rotateLeft", "rotateRight", "resetCamera",
-        "autofire", "inventory", "chat", "menu"
+        "lootPickup", "usePortal", "goNexus", "chat"
     };
 
     public boolean isVisible() {
@@ -159,16 +158,90 @@ public class OptionsWindow {
         }
     }
 
+    /** Graphics checkbox rows, in display order. Each renders as a checkbox and
+     *  toggles on click (see the row switch in handleClick). Wall detail is the
+     *  one cycle row and sits last. */
+    private static final String[] GRAPHICS_ROWS = {
+        "renderOtherPlayers", "showPlayerNames", "showStatusBubbles", "showChatBubbles",
+        "showDamageNumbers", "playAbilityAnimations", "spriteStroke", "lootBagPreview",
+        "hideOtherPlayerBullets", "showRealmTransition"
+    };
+
+    private static String graphicsLabel(String key) {
+        switch (key) {
+            case "renderOtherPlayers":     return "Render other players";
+            case "showPlayerNames":        return "Show player names";
+            case "showStatusBubbles":      return "Show status effect icons";
+            case "showChatBubbles":        return "Show chat/text bubbles";
+            case "showDamageNumbers":      return "Show damage numbers";
+            case "playAbilityAnimations":  return "Play ability animations";
+            case "spriteStroke":           return "Sprite outlines";
+            case "lootBagPreview":         return "Loot bag preview";
+            case "hideOtherPlayerBullets": return "Hide other players' projectiles";
+            case "showRealmTransition":    return "Show realm transition screen";
+            default:                       return key;
+        }
+    }
+
+    private static boolean graphicsValue(Settings s, String key) {
+        switch (key) {
+            case "renderOtherPlayers":     return s.isRenderOtherPlayers();
+            case "showPlayerNames":        return s.isShowPlayerNames();
+            case "showStatusBubbles":      return s.isShowStatusBubbles();
+            case "showChatBubbles":        return s.isShowChatBubbles();
+            case "showDamageNumbers":      return s.isShowDamageNumbers();
+            case "playAbilityAnimations":  return s.isPlayAbilityAnimations();
+            case "spriteStroke":           return s.isSpriteStroke();
+            case "lootBagPreview":         return s.isLootBagPreview();
+            case "hideOtherPlayerBullets": return s.isHideOtherPlayerBullets();
+            case "showRealmTransition":    return s.isShowRealmTransition();
+            default:                       return false;
+        }
+    }
+
+    private static void toggleGraphics(Settings s, String key) {
+        switch (key) {
+            case "renderOtherPlayers":     s.setRenderOtherPlayers(!s.isRenderOtherPlayers()); break;
+            case "showPlayerNames":        s.setShowPlayerNames(!s.isShowPlayerNames()); break;
+            case "showStatusBubbles":      s.setShowStatusBubbles(!s.isShowStatusBubbles()); break;
+            case "showChatBubbles":        s.setShowChatBubbles(!s.isShowChatBubbles()); break;
+            case "showDamageNumbers":      s.setShowDamageNumbers(!s.isShowDamageNumbers()); break;
+            case "playAbilityAnimations":  s.setPlayAbilityAnimations(!s.isPlayAbilityAnimations()); break;
+            case "spriteStroke":           s.setSpriteStroke(!s.isSpriteStroke()); break;
+            case "lootBagPreview":         s.setLootBagPreview(!s.isLootBagPreview()); break;
+            case "hideOtherPlayerBullets": s.setHideOtherPlayerBullets(!s.isHideOtherPlayerBullets()); break;
+            case "showRealmTransition":    s.setShowRealmTransition(!s.isShowRealmTransition()); break;
+            default: break;
+        }
+    }
+
+    /** Friendly labels for the controls tab. */
+    private static String controlLabel(String action) {
+        switch (action) {
+            case "moveUp":      return "Move Up";
+            case "moveDown":    return "Move Down";
+            case "moveLeft":    return "Move Left";
+            case "moveRight":   return "Move Right";
+            case "rotateLeft":  return "Rotate Camera Left";
+            case "rotateRight": return "Rotate Camera Right";
+            case "resetCamera": return "Reset Camera";
+            case "lootPickup":  return "Pick Up / Interact";
+            case "usePortal":   return "Use Nearest Portal";
+            case "goNexus":     return "Return to Nexus";
+            case "chat":        return "Open Chat";
+            default:            return action;
+        }
+    }
+
     private void renderGraphicsTab(SpriteBatch batch, BitmapFont font, int x, int y, int lineH) {
         Settings s = Settings.get();
         font.setColor(Color.WHITE);
-        font.draw(batch, "[" + (s.isHideOtherPlayerBullets() ? "x" : " ") + "]  Hide other players' projectiles", x, y);
-        font.draw(batch, "[" + (s.isShowDamageNumbers() ? "x" : " ") + "]  Show damage numbers",                x, y - lineH);
-        font.draw(batch, "[" + (s.isShowPlayerNames() ? "x" : " ") + "]  Show player names",                   x, y - lineH * 2);
-        font.draw(batch, "[" + (s.isShowRealmTransition() ? "x" : " ") + "]  Show realm transition screen",    x, y - lineH * 3);
-        font.draw(batch, "Render quality: " + s.getRenderQuality(),                                            x, y - lineH * 4);
-        font.draw(batch, "Max bullets on screen: " + (s.getMaxBulletsOnScreen() < 0 ? "Unlimited" : s.getMaxBulletsOnScreen()), x, y - lineH * 5);
-        font.draw(batch, "Wall detail: " + s.getWallRenderMode() + "  (simple = faster)",                       x, y - lineH * 6);
+        for (int i = 0; i < GRAPHICS_ROWS.length; i++) {
+            String key = GRAPHICS_ROWS[i];
+            font.draw(batch, "[" + (graphicsValue(s, key) ? "x" : " ") + "]  " + graphicsLabel(key), x, y - lineH * i);
+        }
+        font.draw(batch, "Wall detail: " + s.getWallRenderMode() + "  (simple = faster)",
+                x, y - lineH * GRAPHICS_ROWS.length);
     }
 
     private void renderControlsTab(SpriteBatch batch, BitmapFont font, int x, int y, int lineH) {
@@ -178,11 +251,10 @@ public class OptionsWindow {
         for (int i = 0; i < BINDABLE_ACTIONS.length; i++) {
             String action = BINDABLE_ACTIONS[i];
             int code = s.getKeybind(action);
-            String label = action;
             String key = (this.pendingBindAction != null && this.pendingBindAction.equals(action))
                     ? "<press a key>"
                     : Input.Keys.toString(code);
-            font.draw(batch, label + ":  " + key, x, y - lineH * (i + 1));
+            font.draw(batch, controlLabel(action) + ":  " + key, x, y - lineH * (i + 1));
         }
     }
 
@@ -212,15 +284,10 @@ public class OptionsWindow {
         Settings s = Settings.get();
         if (this.activeTab == Tab.GRAPHICS) {
             int row = (bodyY - this.mouseY) / lineH;
-            switch (row) {
-                case 0: s.setHideOtherPlayerBullets(!s.isHideOtherPlayerBullets()); break;
-                case 1: s.setShowDamageNumbers(!s.isShowDamageNumbers()); break;
-                case 2: s.setShowPlayerNames(!s.isShowPlayerNames()); break;
-                case 3: s.setShowRealmTransition(!s.isShowRealmTransition()); break;
-                case 4: s.setRenderQuality(cycle(s.getRenderQuality(), "low", "med", "high")); break;
-                case 5: s.setMaxBulletsOnScreen(cycleInt(s.getMaxBulletsOnScreen(), 50, 100, 200, -1)); break;
-                case 6: s.setWallRenderMode(cycle(s.getWallRenderMode(), "simple", "fancy")); break;
-                default: break;
+            if (row >= 0 && row < GRAPHICS_ROWS.length) {
+                toggleGraphics(s, GRAPHICS_ROWS[row]);
+            } else if (row == GRAPHICS_ROWS.length) {
+                s.setWallRenderMode(cycle(s.getWallRenderMode(), "simple", "fancy"));
             }
         } else if (this.activeTab == Tab.CONTROLS) {
             int row = ((bodyY - this.mouseY) / lineH) - 1; // first row is the hint text
@@ -239,13 +306,6 @@ public class OptionsWindow {
     private static String cycle(String current, String... options) {
         for (int i = 0; i < options.length; i++) {
             if (options[i].equals(current)) return options[(i + 1) % options.length];
-        }
-        return options[0];
-    }
-
-    private static int cycleInt(int current, int... options) {
-        for (int i = 0; i < options.length; i++) {
-            if (options[i] == current) return options[(i + 1) % options.length];
         }
         return options[0];
     }
