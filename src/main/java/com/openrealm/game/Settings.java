@@ -50,8 +50,14 @@ public class Settings {
     private boolean showDamageNumbers = true;
     private boolean playAbilityAnimations = true;
     private boolean spriteStroke = true;
-    private boolean lootBagPreview = false;
+    private boolean lootBagPreview = true;
     private boolean showRealmTransition = true;
+
+    /** Bumped when a default flips ON for existing users. A stored file older
+     *  than this re-applies the changed default (see {@link #load()}). Defaults
+     *  to 0 so a settings.json written before the field existed migrates. */
+    private int settingsVersion = 0;
+    private static final int CURRENT_SETTINGS_VERSION = 2;
     /** Wall post-processing: "simple" (flat black stroke on exposed faces —
      *  default, faster + cleaner in wall-dense dungeons) or "fancy" (baked
      *  shadow side-bands, top-half extrusion, and edge highlights). Read by
@@ -125,6 +131,11 @@ public class Settings {
             // Merge any default keybinds the user's file is missing.
             for (Map.Entry<String, Integer> def : defaultKeybinds().entrySet()) {
                 loaded.keybinds.putIfAbsent(def.getKey(), def.getValue());
+            }
+            // Re-apply defaults that flipped ON since the stored file was written.
+            if (loaded.settingsVersion < CURRENT_SETTINGS_VERSION) {
+                loaded.lootBagPreview = true;
+                loaded.settingsVersion = CURRENT_SETTINGS_VERSION;
             }
             return loaded;
         } catch (IOException e) {
