@@ -835,6 +835,9 @@ public class PlayState extends GameState {
                 (weapon == null || weapon.getArchetypeId() <= 0 || com.openrealm.game.data.GameDataManager.WEAPON_ARCHETYPES == null)
                         ? null
                         : com.openrealm.game.data.GameDataManager.WEAPON_ARCHETYPES.get(weapon.getArchetypeId());
+        // Melee swings are invisible server-side AoEs — no travelling projectile to
+        // predict. The swing animation is triggered at the firing site regardless.
+        if (_archShot != null && _archShot.isMelee()) return;
         final int archCount  = (_archShot != null && _archShot.getProjectileCount() > 0)
                 ? _archShot.getProjectileCount() : 1;
         final int gemMulti   = (weapon != null && weapon.getGemstoneType() == 3 /* MultishotGem */) ? 1 : 0;

@@ -38,7 +38,10 @@ public enum ProjectileFlag {
     /** Speed eases 0 -> magnitude over lifetimeTicks (frequency = curve sharpness). */
     SPEED_RAMP((short) 33),
     /** Homing: steers toward targetEntityId each tick, capped by frequency deg/tick. */
-    HOMING((short) 34);
+    HOMING((short) 34),
+    /** Melee swing: invisible instant cleaving AoE at the cursor. The client skips
+     *  its sprite but still plays the wielder's swing animation off the bullet. */
+    MELEE_SWING((short) 40);
 
     public static final Map<Short, ProjectileFlag> map = new HashMap<>();
     static {

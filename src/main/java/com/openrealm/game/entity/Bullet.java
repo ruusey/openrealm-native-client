@@ -431,6 +431,9 @@ public class Bullet extends GameObject  {
 
     @Override
     public void render(SpriteBatch batch) {
+        // Melee swings are invisible AoEs — the wielder's swing animation stands in
+        // for them; skip the projectile sprite entirely (outline included).
+        if (this.hasFlag(ProjectileFlag.MELEE_SWING)) return;
         if (this.getSpriteSheet() == null) return;
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
@@ -555,6 +558,8 @@ public class Bullet extends GameObject  {
      *  sprite on top afterwards. */
     public void renderOutline(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
+        // Invisible melee swing — no sprite, no outline.
+        if (this.hasFlag(ProjectileFlag.MELEE_SWING)) return;
         // Walls draw their own tiled sprites in render() with no outline.
         if (this.hasFlag(ProjectileFlag.LINE_SEGMENT)) return;
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();

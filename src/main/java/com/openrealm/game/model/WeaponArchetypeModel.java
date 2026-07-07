@@ -38,4 +38,8 @@ public class WeaponArchetypeModel {
     private int projectileCount = 1;
     @Builder.Default
     private float spreadRad = 0.10f;
+    /** Melee archetype: the basic attack is an invisible instant AoE swing at
+     *  the cursor, so the client skips predicted-bullet spawning for it. */
+    @Builder.Default
+    private boolean melee = false;
 }
