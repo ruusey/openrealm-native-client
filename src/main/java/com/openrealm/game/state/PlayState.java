@@ -3047,6 +3047,20 @@ public class PlayState extends GameState {
         // Stay fully visible for 70% of duration, then fade
         final float alpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
+        // Melee swing — quick steel ring at the swing point (webclient case 62 parity).
+        if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
+            final float ringR = maxRadius * Math.min(0.5f + t * 0.7f, 1.2f);
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            Gdx.gl.glLineWidth(2f);
+            shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
+            drawCircleOutline(shapes, cx, cy, ringR, 32);
+            shapes.setColor(0.75f, 0.78f, 0.82f, alpha * 0.6f);
+            drawCircleOutline(shapes, cx, cy, ringR * 0.7f, 32);
+            shapes.end();
+            Gdx.gl.glLineWidth(1f);
+            return;
+        }
+
         // SOUL_VORTEX (45) is a persistent vortex with bespoke art — render
         // it specially so it doesn't get drawn as a generic ring on top of
         // its actual visual. Falls through to the dedicated branch below.
