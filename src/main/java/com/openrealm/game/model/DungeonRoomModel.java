@@ -28,7 +28,7 @@ public class DungeonRoomModel {
     private List<Integer> minionEnemyIds;
     private int minMinions;
     private int maxMinions;
-    private int bossEnemyId = -1;
+    private List<DungeonStaticSpawn> staticSpawns;
     private String role = "NORMAL";
 
     @JsonIgnore
