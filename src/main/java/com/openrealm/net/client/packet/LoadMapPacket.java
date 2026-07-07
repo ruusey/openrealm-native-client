@@ -29,23 +29,27 @@ public class LoadMapPacket extends Packet {
     private long realmId;
 	@SerializableField(order = 1, type = SerializableShort.class)
     private short mapId;
+	// -1 for static/terrain maps; the dungeon id when the realm is an assembled
+	// dungeon, so the client resolves its grid dimensions from DUNGEONS instead.
 	@SerializableField(order = 2, type = SerializableShort.class)
-    private short mapWidth;
+    private short dungeonId;
 	@SerializableField(order = 3, type = SerializableShort.class)
+    private short mapWidth;
+	@SerializableField(order = 4, type = SerializableShort.class)
     private short mapHeight;
-	@SerializableField(order = 4, type = NetTile.class, isCollection=true)
+	@SerializableField(order = 5, type = NetTile.class, isCollection=true)
     private NetTile[] tiles;
 
     public LoadMapPacket() {
 
     }
 
-    public static LoadMapPacket from(long realmId, short mapId, short mapWidth, short mapHeight, List<NetTile> tiles) throws Exception {
-    	return from(realmId, mapId, mapWidth, mapHeight, tiles.toArray(new NetTile[0]));
+    public static LoadMapPacket from(long realmId, short mapId, short dungeonId, short mapWidth, short mapHeight, List<NetTile> tiles) throws Exception {
+    	return from(realmId, mapId, dungeonId, mapWidth, mapHeight, tiles.toArray(new NetTile[0]));
     }
 
-    public static LoadMapPacket from(long realmId, short mapId, short mapWidth, short mapHeight,  NetTile[] tiles) throws Exception {
-    	return new LoadMapPacket(realmId, mapId, mapWidth, mapHeight, tiles);
+    public static LoadMapPacket from(long realmId, short mapId, short dungeonId, short mapWidth, short mapHeight,  NetTile[] tiles) throws Exception {
+    	return new LoadMapPacket(realmId, mapId, dungeonId, mapWidth, mapHeight, tiles);
     }
 
     /**
@@ -83,7 +87,7 @@ public class LoadMapPacket extends Packet {
         }
         if (diff.isEmpty())
             return null;
-        return LoadMapPacket.from(other.getRealmId(), other.getMapId(),
+        return LoadMapPacket.from(other.getRealmId(), other.getMapId(), other.getDungeonId(),
                 other.getMapWidth(), other.getMapHeight(), diff);
     }
 

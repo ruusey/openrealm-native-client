@@ -152,6 +152,9 @@ public class CreateEffectPacket extends Packet {
 	public static final short EFFECT_DRUID_MOONLIGHT = 60;
 	/** Druid Wild Surge (ultimate) — spiraling vine arms, bursting leaves, verdant core. */
 	public static final short EFFECT_DRUID_WILD_SURGE = 61;
+	/** Melee basic-attack swing — small ring at the swing point (renders via the
+	 *  generic AoE-ring fallback in renderAoeEffect). */
+	public static final short EFFECT_MELEE_SWING = 62;
 
 	public static CreateEffectPacket aoeEffect(short type, float x, float y, float radius, short duration) {
 		return aoeEffect(type, x, y, radius, duration, (byte) 0);

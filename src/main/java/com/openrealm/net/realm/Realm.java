@@ -68,6 +68,9 @@ public class Realm {
     public static final transient SecureRandom RANDOM = new SecureRandom();
     private long realmId;
     private int mapId;
+    // Mirrors the server: > -1 when this realm is an assembled dungeon. The client
+    // learns the active dungeonId from the LoadMapPacket, not from here.
+    private int dungeonId = -1;
     // Client-only: set true when loadMap() rebuilds the tile grid on a
     // client-initiated transition, consumed by the next LoadMap handler so the
     // minimap/tiles reset even when the new realm reuses the prior realm/map id

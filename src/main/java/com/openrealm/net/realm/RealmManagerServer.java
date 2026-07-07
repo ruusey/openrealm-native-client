@@ -620,7 +620,8 @@ public class RealmManagerServer implements Runnable {
 						if (doLoadMap) {
 							final NetTile[] netTilesForPlayer = realm.getTileManager().getLoadMapTiles(player.getValue());
 							final LoadMapPacket newLoadMapPacket = LoadMapPacket.from(realm.getRealmId(),
-									(short) realm.getMapId(), realm.getTileManager().getMapWidth(),
+									(short) realm.getMapId(), (short) realm.getDungeonId(),
+									realm.getTileManager().getMapWidth(),
 									realm.getTileManager().getMapHeight(), netTilesForPlayer);
 							if (this.playerLoadMapState.get(player.getKey()) == null) {
 								this.playerLoadMapState.put(player.getKey(), newLoadMapPacket);

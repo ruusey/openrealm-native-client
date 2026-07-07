@@ -91,7 +91,8 @@ public class ServerGameLogic {
 		try {
 			final NetTile[] tiles = realm.getTileManager().getLoadMapTiles(player);
 			final LoadMapPacket loadMap = LoadMapPacket.from(realm.getRealmId(),
-					(short) realm.getMapId(), realm.getTileManager().getMapWidth(),
+					(short) realm.getMapId(), (short) realm.getDungeonId(),
+					realm.getTileManager().getMapWidth(),
 					realm.getTileManager().getMapHeight(), tiles);
 			mgr.getPlayerLoadMapState().put(player.getId(), loadMap);
 			mgr.enqueueServerPacket(player, loadMap);

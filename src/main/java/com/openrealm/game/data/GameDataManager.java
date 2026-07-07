@@ -31,6 +31,8 @@ import com.openrealm.game.model.Projectile;
 import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.game.model.WeaponArchetypeModel;
 import com.openrealm.game.model.RealmEventModel;
+import com.openrealm.game.model.DungeonModel;
+import com.openrealm.game.model.DungeonRoomModel;
 import com.openrealm.game.model.SetPieceModel;
 import com.openrealm.game.model.TerrainGenerationParameters;
 import com.openrealm.game.model.TileModel;
@@ -66,6 +68,8 @@ public class GameDataManager {
 	public static Map<String, DungeonGraphNode>               DUNGEON_GRAPH = null;
 	public static Map<String, AnimationModel>                 ANIMATIONS = null;
 	public static Map<Integer, SetPieceModel>                 SETPIECES = null;
+	public static Map<Integer, DungeonRoomModel>              DUNGEON_ROOMS = null;
+	public static Map<Integer, DungeonModel>                  DUNGEONS = null;
 	public static Map<Integer, RealmEventModel>               REALM_EVENTS = null;
 	// Phase 2A — mirrors server-side ability/passive registries.
 	public static Map<Integer, Ability>                       ABILITIES = null;
@@ -352,6 +356,42 @@ public class GameDataManager {
 			GameDataManager.SETPIECES.put(piece.getSetPieceId(), piece);
 		}
 		GameDataManager.log.info("Loading SetPieces... DONE ({} entries)", GameDataManager.SETPIECES.size());
+	}
+
+	private static void loadDungeonRooms(final boolean remote) throws Exception {
+		GameDataManager.log.info("Loading Dungeon Rooms...");
+		GameDataManager.DUNGEON_ROOMS = new HashMap<>();
+		String text = null;
+		if (remote) {
+			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/dungeon-rooms.json", null);
+		} else {
+			InputStream inputStream = GameDataManager.class.getClassLoader()
+					.getResourceAsStream("data/dungeon-rooms.json");
+			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+		}
+		DungeonRoomModel[] rooms = GameDataManager.JSON_MAPPER.readValue(text, DungeonRoomModel[].class);
+		for (DungeonRoomModel room : rooms) {
+			GameDataManager.DUNGEON_ROOMS.put(room.getRoomId(), room);
+		}
+		GameDataManager.log.info("Loading Dungeon Rooms... DONE ({} entries)", GameDataManager.DUNGEON_ROOMS.size());
+	}
+
+	private static void loadDungeons(final boolean remote) throws Exception {
+		GameDataManager.log.info("Loading Dungeons...");
+		GameDataManager.DUNGEONS = new HashMap<>();
+		String text = null;
+		if (remote) {
+			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/dungeons.json", null);
+		} else {
+			InputStream inputStream = GameDataManager.class.getClassLoader()
+					.getResourceAsStream("data/dungeons.json");
+			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+		}
+		DungeonModel[] dungeons = GameDataManager.JSON_MAPPER.readValue(text, DungeonModel[].class);
+		for (DungeonModel dungeon : dungeons) {
+			GameDataManager.DUNGEONS.put(dungeon.getDungeonId(), dungeon);
+		}
+		GameDataManager.log.info("Loading Dungeons... DONE ({} entries)", GameDataManager.DUNGEONS.size());
 	}
 
 	private static void loadRealmEvents(final boolean remote) throws Exception {
@@ -643,6 +683,8 @@ public class GameDataManager {
 			() -> { try { GameDataManager.loadLootContainers(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load loot containers: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadAnimations(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load animations: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadSetPieces(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load set pieces: {}", e.getMessage()); } },
+			() -> { try { GameDataManager.loadDungeonRooms(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load dungeon rooms: {}", e.getMessage()); } },
+			() -> { try { GameDataManager.loadDungeons(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load dungeons: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadRealmEvents(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load realm events: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadAbilities(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load abilities: {}", e.getMessage()); } },
 			() -> { try { GameDataManager.loadPassives(loadRemote); } catch (Exception e) { GameDataManager.log.error("Failed to load passives: {}", e.getMessage()); } },

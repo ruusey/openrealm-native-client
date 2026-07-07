@@ -319,7 +319,7 @@ public class ClientGameLogic {
 			// dungeon doesn't inherit the prior realm's tiles bleeding through
 			// on the minimap.
 			if (mapGridReset) {
-				cli.getRealm().getTileManager().resetTiles((int) loadPacket.getMapId());
+				cli.getRealm().getTileManager().resetTiles((int) loadPacket.getMapId(), (int) loadPacket.getDungeonId());
 			}
 			cli.getRealm().getTileManager().mergeMap(loadPacket);
 

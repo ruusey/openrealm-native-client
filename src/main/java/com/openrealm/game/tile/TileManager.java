@@ -24,6 +24,7 @@ import com.openrealm.game.entity.Player;
 import com.openrealm.game.math.Rectangle;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.DungeonGenerationParams;
+import com.openrealm.game.model.DungeonModel;
 import com.openrealm.game.model.MapModel;
 import com.openrealm.game.model.OverworldZone;
 import com.openrealm.game.model.TerrainGenerationParameters;
@@ -803,15 +804,13 @@ public class TileManager {
     // Called on a realm transition (incl. same-dimension nested dungeons), where
     // mergeMap's dimension-change reset wouldn't fire and the previous realm's tiles
     // would bleed through — most visibly on the minimap, which snapshots these layers.
-    public void resetTiles(int mapId) {
-        final MapModel model = GameDataManager.MAPS.get(mapId);
-        if (model == null) return;
+    public void resetTiles(int mapId, int dungeonId) {
+        final int[] dims = resolveGridDims(mapId, dungeonId, -1, -1);
+        if (dims == null) return;
         this.acquireMapLock();
         try {
-            final TileMap baseLayer = new TileMap((short) model.getMapId(), model.getTileSize(),
-                    model.getWidth(), model.getHeight());
-            final TileMap collisionLayer = new TileMap((short) model.getMapId(), model.getTileSize(),
-                    model.getWidth(), model.getHeight());
+            final TileMap baseLayer = new TileMap((short) mapId, dims[0], dims[1], dims[2]);
+            final TileMap collisionLayer = new TileMap((short) mapId, dims[0], dims[1], dims[2]);
             this.mapLayers = new ArrayList<>();
             this.mapLayers.add(baseLayer);
             this.mapLayers.add(collisionLayer);
@@ -819,6 +818,31 @@ public class TileManager {
         } finally {
             this.releaseMapLock();
         }
+    }
+
+    /**
+     * Resolves [tileSize, width, height] for a realm's grid. Dungeons carry a
+     * dungeonId (dimensions from DUNGEONS); otherwise a mapId (from MAPS). The
+     * packet width/height are used as an authoritative fallback so the client
+     * still renders a realm it lacks a local definition for; returns null only
+     * when nothing (not even a packet size) is known.
+     */
+    private int[] resolveGridDims(int mapId, int dungeonId, int fallbackWidth, int fallbackHeight) {
+        if (dungeonId > -1 && GameDataManager.DUNGEONS != null && GameDataManager.DUNGEONS.get(dungeonId) != null) {
+            final DungeonModel dungeon = GameDataManager.DUNGEONS.get(dungeonId);
+            final int tileSize = dungeon.getTileSize() > 0 ? dungeon.getTileSize() : GlobalConstants.BASE_TILE_SIZE;
+            final int width = dungeon.getMapWidth() > 0 ? dungeon.getMapWidth() : fallbackWidth;
+            final int height = dungeon.getMapHeight() > 0 ? dungeon.getMapHeight() : fallbackHeight;
+            if (width > 0 && height > 0) return new int[] { tileSize, width, height };
+        }
+        final MapModel model = GameDataManager.MAPS.get(mapId);
+        if (model != null) {
+            return new int[] { model.getTileSize(), model.getWidth(), model.getHeight() };
+        }
+        if (fallbackWidth > 0 && fallbackHeight > 0) {
+            return new int[] { GlobalConstants.BASE_TILE_SIZE, fallbackWidth, fallbackHeight };
+        }
+        return null;
     }
 
     public void mergeMap(LoadMapPacket packet) {
@@ -834,12 +858,13 @@ public class TileManager {
                 || (int) packet.getMapId() != this.loadedMapId
                 || this.getMapHeight() != packet.getMapHeight()
                 || this.getMapWidth() != packet.getMapWidth();
-        MapModel model = gridChanged ? GameDataManager.MAPS.get((int) packet.getMapId()) : null;
-        if (gridChanged && model != null) {
-           TileMap baseLayer = new TileMap((short) model.getMapId(), model.getTileSize(), model.getWidth(),
-                   model.getHeight());
-           TileMap collisionLayer = new TileMap((short) model.getMapId(), model.getTileSize(), model.getWidth(),
-                   model.getHeight());
+        final int[] dims = gridChanged
+                ? resolveGridDims((int) packet.getMapId(), (int) packet.getDungeonId(),
+                        packet.getMapWidth(), packet.getMapHeight())
+                : null;
+        if (dims != null) {
+           TileMap baseLayer = new TileMap((short) packet.getMapId(), dims[0], dims[1], dims[2]);
+           TileMap collisionLayer = new TileMap((short) packet.getMapId(), dims[0], dims[1], dims[2]);
            this.mapLayers = new ArrayList<>();
            this.mapLayers.add(baseLayer);
            this.mapLayers.add(collisionLayer);
