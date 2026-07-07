@@ -2331,7 +2331,7 @@ public class PlayState extends GameState {
                         portal.getTargetPurificationProgress() * 100L / portal.getTargetPurificationGoal()));
                 info.append("\nPurified ").append(pct).append('%');
             }
-            info.append('\n').append(portal.getTargetPlayerCount()).append(" in realm");
+            if (portal.getTargetPlayerCount() >= 0) info.append('\n').append(portal.getTargetPlayerCount()).append(" in realm");
             this.nameLayoutScratch.setText(font, info.toString());
             font.setColor(0.62f, 0.90f, 0.75f, 1f);
             final float bx = portal.getPos().getWorldVar().x;
