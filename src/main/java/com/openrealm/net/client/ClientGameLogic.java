@@ -931,23 +931,10 @@ public class ClientGameLogic {
 		try {
 			final Realm realm = cli.getRealm();
 			for (final Long p : unloadPacket.getPlayers()) {
-				if (p == cli.getCurrentPlayerId()) {
-					continue;
-				}
-				final Player existing = realm.getPlayers().get(p);
-				if (existing == null) {
-					ClientGameLogic.log.error("[CLIENT] Player {} does not exist", p);
-					continue;
-				}
-				// WHY: route through removePlayer so spatialGrid /
-				// shortIdAllocator entries are released too. Bypassing it
-				// (which the previous code did) leaked one grid + one
-				// allocator entry per despawn.
-				final short shortId = realm.getShortIdAllocator().toShort(p);
-				realm.removePlayer(existing);
-				if (shortId != 0) {
-					cli.getShortIdToLongId().remove(shortId);
-				}
+				// A null here is normal: PlayState already de-renders peers the
+				// instant they leave render range, so the server's UnloadPacket
+				// often arrives for a peer we dropped locally already.
+				cli.derenderRemotePlayer(p);
 			}
 			for (final Long lc : unloadPacket.getContainers()) {
 				final LootContainer removed = cli.getRealm().getLoot().remove(lc);

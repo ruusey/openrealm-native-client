@@ -267,6 +267,28 @@ public class RealmManagerClient implements Runnable {
         return bestPlayer;
     }
 
+    /**
+     * Remove a remote peer client-side — used both when it leaves render range
+     * and on the server's UnloadPacket. Routes through removePlayer so the
+     * spatialGrid + shortIdAllocator entries are released, then drops the
+     * short-id reverse mapping. No-op for the local player or an unknown id.
+     */
+    public boolean derenderRemotePlayer(final long playerId) {
+        if (playerId == this.currentPlayerId) {
+            return false;
+        }
+        final Player existing = this.realm.getPlayers().get(playerId);
+        if (existing == null) {
+            return false;
+        }
+        final short shortId = this.realm.getShortIdAllocator().toShort(playerId);
+        this.realm.removePlayer(existing);
+        if (shortId != 0) {
+            this.shortIdToLongId.remove(shortId);
+        }
+        return true;
+    }
+
     public LootContainer getClosestLootContainer(final Vector2f pos, final float limit) {
         float best = Float.MAX_VALUE;
         LootContainer bestLoot = null;

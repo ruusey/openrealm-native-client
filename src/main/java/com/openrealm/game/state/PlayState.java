@@ -121,6 +121,12 @@ public class PlayState extends GameState {
     private long lastPortalTick = 0;
     private static final long QUICK_USE_COOLDOWN_MS = 250;
     private static final long PORTAL_COOLDOWN_MS = 1000;
+    // De-render a remote peer once it passes this range from the local player —
+    // the server's player load radius (viewport 10 + 5 tiles). Past it the
+    // server stops sending its updates, so keeping it would freeze/extrapolate a
+    // ghost that then teleports when a lagged update lands.
+    private static final float REMOTE_DERENDER_PX = 15 * 32;
+    private static final float REMOTE_DERENDER_PX_SQ = REMOTE_DERENDER_PX * REMOTE_DERENDER_PX;
     public long playerId = -1l;
     /** Local player's privilege role (sysadmin/admin/mod/editor/demo), captured
      *  at login. STATIC so it survives a PlayState re-created on a realm
@@ -361,6 +367,7 @@ public class PlayState extends GameState {
             // visibly fly through walls until the server's UnloadPacket
             // round-trip lands.
             List<Long> bulletsToCull = null;
+            List<Long> playersToDerender = null;
             final com.openrealm.game.tile.TileManager tm =
                     this.realmManager.getRealm().getTileManager();
             for (int i = 0; i < gameObject.length; i++) {
@@ -419,19 +426,27 @@ public class PlayState extends GameState {
                     }
                 } else if (gameObject[i] instanceof Player && gameObject[i].getId() != player.getId()) {
                     final Player playerOther = (Player) gameObject[i];
+                    final float localHalf = (player.getSize() > 0 ? player.getSize() : 32) * 0.5f;
+                    final float refX = player.getPos().x + localHalf;
+                    final float refY = player.getPos().y + localHalf;
+                    // De-render a peer the instant it leaves render range rather
+                    // than freezing/extrapolating a ghost that teleports when a
+                    // lagged update lands. Center-to-center to match the server.
+                    final float otherHalf = (playerOther.getSize() > 0 ? playerOther.getSize() : 32) * 0.5f;
+                    final float ddx = (playerOther.getPos().x + otherHalf) - refX;
+                    final float ddy = (playerOther.getPos().y + otherHalf) - refY;
+                    if (ddx * ddx + ddy * ddy > REMOTE_DERENDER_PX_SQ) {
+                        if (playersToDerender == null) playersToDerender = new ArrayList<>(4);
+                        playersToDerender.add(playerOther.getId());
+                        continue;
+                    }
                     playerOther.update(time);
                     // Mirror webclient's per-frame extrapolation for remote
                     // entities: lerp pos toward targetX/Y at the velocity
                     // the server reported. Without this we'd just sit at
                     // the LoadPacket spawn pos forever (movePlayer would
                     // burn CPU on dx/dy without smoothing toward the
-                    // authoritative target). refX/refY is the local
-                    // player center for the viewport gate so a
-                    // far-away remote freezes instead of drifting off-map
-                    // in the few seconds after we leave them behind.
-                    final float localHalf = (player.getSize() > 0 ? player.getSize() : 32) * 0.5f;
-                    final float refX = player.getPos().x + localHalf;
-                    final float refY = player.getPos().y + localHalf;
+                    // authoritative target).
                     playerOther.extrapolate(refX, refY, true);
                 }
             }
@@ -440,6 +455,12 @@ public class PlayState extends GameState {
                 final Map<Long, Bullet> bulletMap = clientRealm.getBullets();
                 for (final Long bid : bulletsToCull) {
                     bulletMap.remove(bid);
+                }
+            }
+
+            if (playersToDerender != null) {
+                for (final Long pid : playersToDerender) {
+                    this.realmManager.derenderRemotePlayer(pid);
                 }
             }
 
