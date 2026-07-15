@@ -2947,14 +2947,14 @@ public class PlayState extends GameState {
             final int idx = Math.min(frames.length - 1, (int) (progress * frames.length));
             final TextureRegion region = frames[idx];
             if (region == null) continue;
-            final float sx = vfx.getPosX() - wx;
-            final float sy = vfx.getPosY() - wy;
-            final float ang = (float) Math.atan2(vfx.getTargetPosY() - vfx.getPosY(),
-                    vfx.getTargetPosX() - vfx.getPosX());
+            final float ox = vfx.getTargetPosX() - wx;   // swing origin (player)
+            final float oy = vfx.getTargetPosY() - wy;
+            final float ang = (float) Math.atan2(vfx.getPosY() - vfx.getTargetPosY(),
+                    vfx.getPosX() - vfx.getTargetPosX());   // origin -> center
             final float sprSize = Math.max(vfx.getRadius() * 2.4f, 28f);
             final float off = sprSize * 0.42f;
-            final float dcx = sx + (float) Math.cos(ang) * off;
-            final float dcy = sy + (float) Math.sin(ang) * off;
+            final float dcx = ox + (float) Math.cos(ang) * off;
+            final float dcy = oy + (float) Math.sin(ang) * off;
             final float swingAlpha = progress < 0.8f ? 1f : Math.max(0f, (1f - progress) * 5f);
             batch.setColor(1f, 1f, 1f, swingAlpha);
             batch.draw(region, dcx - sprSize / 2f, dcy - sprSize / 2f,
@@ -3134,17 +3134,17 @@ public class PlayState extends GameState {
         final float alpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
         // Melee swing is drawn as a directional slash sprite in renderMeleeSwings()
-        // (batch pass). Only fall back to a ring here — at the swing center — if
-        // that sheet isn't loaded.
+        // (batch pass). Only fall back to a ring here — at the swing center (cx,cy
+        // = posX/posY) — if that sheet isn't loaded.
         if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
             if (meleeSwingFrames() != null) return;
-            final float tcx = vfx.getTargetPosX() - wx;
-            final float tcy = vfx.getTargetPosY() - wy;
             final float ringR = maxRadius * Math.min(0.5f + t * 0.7f, 1.2f);
             shapes.begin(ShapeRenderer.ShapeType.Line);
             Gdx.gl.glLineWidth(2f);
             shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
-            drawCircleOutline(shapes, tcx, tcy, ringR, 32);
+            drawCircleOutline(shapes, cx, cy, ringR, 32);
+            shapes.setColor(0.75f, 0.78f, 0.82f, alpha * 0.6f);
+            drawCircleOutline(shapes, cx, cy, ringR * 0.7f, 32);
             shapes.end();
             Gdx.gl.glLineWidth(1f);
             return;
