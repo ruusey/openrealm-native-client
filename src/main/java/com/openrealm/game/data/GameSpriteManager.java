@@ -49,7 +49,7 @@ public class GameSpriteManager {
             "chars8x8rBeach.png", "chars8x8rHero2.png", "cursedLibraryChars16x16.png",
             "d1Chars16x16r.png", "d3Chars8x8r.png", "cursedLibraryChars8x8.png", "cursedLibraryObjects8x8.png",
             "d2LofiObj.png", "d3LofiObj.png", "lofiProjs.png", "chars16x16dEncounters.png",
-            "archbishopObjects16x16.png", "autumnNexusObjects16x16.png",
+            "archbishopObjects16x16.png",
             "chars16x16dEncounters2.png", "crystalCaveChars16x16.png",
             "crystalCaveObjects8x8.png", "fungalCavernObjects8x8.png",
             "epicHiveChars8x8.png", "lairOfDraconisChars8x8.png", "lairOfDraconisObjects8x8.png",
@@ -57,10 +57,10 @@ public class GameSpriteManager {
             "summerNexusObjects8x8.png",
             "oryxHordeChars16x16.png", "oryxHordeChars8x8.png",
             "secludedThicketChars16x16.png",
-            "lofiWorld.png", "lofiBosses16x16.png", "lofiBosses16x20.png",
+            "lofiBosses16x16.png",
             "lofiCharacter10x10.png", "lofiProjectiles.png",
             "battleOryxObjects8x8.png",
-            "openrealm-items.png", "openrealm-classes.png", "openrealm-bosses.png" };
+            "openrealm-items.png", "openrealm-classes.png" };
 
     public static Map<String, Texture> TEXTURE_CACHE;
     public static Map<Integer, TextureRegion> TILE_SPRITES;
