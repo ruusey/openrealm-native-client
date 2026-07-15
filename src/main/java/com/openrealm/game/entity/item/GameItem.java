@@ -61,6 +61,10 @@ public class GameItem extends SpriteModel {
     private byte itemClass = 0;
     @Builder.Default
     private byte archetypeId = 0;
+    // Template field. Optional animation-set override for weapons with a
+    // "visual" attack (e.g. a melee swing arc) instead of a plain projectile.
+    // null/absent => the generic directional swing for melee weapons.
+    private String attackAnimation;
     @Builder.Default
     private byte gemstoneType = 0;
     @Builder.Default

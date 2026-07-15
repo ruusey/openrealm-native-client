@@ -5,6 +5,7 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import java.time.Instant;
@@ -45,6 +46,9 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.model.PortalModel;
 import com.openrealm.game.model.ProjectileGroup;
+import com.openrealm.game.model.AnimationModel;
+import com.openrealm.game.model.AnimationSetModel;
+import com.openrealm.game.model.AnimationFrameModel;
 import com.openrealm.game.ui.ActiveVisualEffect;
 import com.openrealm.game.ui.ChatBubble;
 import com.openrealm.game.ui.EffectText;
@@ -97,6 +101,8 @@ public class PlayState extends GameState {
             new com.openrealm.net.entity.NetPlayerPosition[0];
     private Queue<EffectText> damageText;
     private Queue<ActiveVisualEffect> activeEffects;
+    // Lazily-built frames for the generic melee swing (animations "effect:62").
+    private TextureRegion[] meleeSwingFrames;
     // Phase 4 — party state mirror of webclient game.partyId / partyMembers.
     // Latest snapshot from PartyUpdatePacket. partyId == 0 means "not in
     // a party"; the UI hides the panel in that case.
@@ -2285,6 +2291,7 @@ public class PlayState extends GameState {
         // entities + nameplate text below.
         if (gfx.isPlayAbilityAnimations()) {
             this.renderShurikenEffects(batch);
+            this.renderMeleeSwings(batch);
         }
 
         // Player nameplates — rendered with the world-camera batch so the
@@ -2899,6 +2906,64 @@ public class PlayState extends GameState {
         if (newestBlender != null) drawBladeBlender(batch, newestBlender, now, wx, wy);
     }
 
+    /** Lazily builds the generic melee-swing frames from animations "effect:62".
+     *  Returns null until the sheet + data are loaded (caller falls back to a ring). */
+    private TextureRegion[] meleeSwingFrames() {
+        if (this.meleeSwingFrames != null) return this.meleeSwingFrames;
+        final AnimationModel anim = GameDataManager.getAnimation("effect",
+                CreateEffectPacket.EFFECT_MELEE_SWING);
+        if (anim == null || anim.getAnimations() == null) return null;
+        final AnimationSetModel set = anim.getAnimations().get("swing");
+        if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) return null;
+        if (GameSpriteManager.TEXTURE_CACHE == null) return null;
+        final Texture tex = GameSpriteManager.TEXTURE_CACHE.get(anim.getSpriteKey());
+        if (tex == null) return null;
+        final int cell = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 16;
+        final List<AnimationFrameModel> frames = set.getFrames();
+        final TextureRegion[] regions = new TextureRegion[frames.size()];
+        for (int i = 0; i < frames.size(); i++) {
+            final AnimationFrameModel f = frames.get(i);
+            final TextureRegion reg = new TextureRegion(tex,
+                    f.getCol() * cell, f.getRow() * cell, cell, cell);
+            reg.flip(false, true);
+            regions[i] = reg;
+        }
+        this.meleeSwingFrames = regions;
+        return regions;
+    }
+
+    /** Generic directional melee slash — draws the swing arc emanating from the
+     *  player (posX/posY) toward the swing center (targetPos), rotated to the aim.
+     *  Frame is picked by effect progress; alpha holds then fades the tail. */
+    private void renderMeleeSwings(SpriteBatch batch) {
+        if (this.activeEffects == null || this.activeEffects.isEmpty()) return;
+        final TextureRegion[] frames = meleeSwingFrames();
+        if (frames == null) return;
+        final float wx = Vector2f.worldX;
+        final float wy = Vector2f.worldY;
+        for (ActiveVisualEffect vfx : this.activeEffects) {
+            if (vfx.getEffectType() != CreateEffectPacket.EFFECT_MELEE_SWING) continue;
+            final float progress = vfx.getProgress();
+            final int idx = Math.min(frames.length - 1, (int) (progress * frames.length));
+            final TextureRegion region = frames[idx];
+            if (region == null) continue;
+            final float sx = vfx.getPosX() - wx;
+            final float sy = vfx.getPosY() - wy;
+            final float ang = (float) Math.atan2(vfx.getTargetPosY() - vfx.getPosY(),
+                    vfx.getTargetPosX() - vfx.getPosX());
+            final float sprSize = Math.max(vfx.getRadius() * 2.4f, 28f);
+            final float off = sprSize * 0.42f;
+            final float dcx = sx + (float) Math.cos(ang) * off;
+            final float dcy = sy + (float) Math.sin(ang) * off;
+            final float swingAlpha = progress < 0.8f ? 1f : Math.max(0f, (1f - progress) * 5f);
+            batch.setColor(1f, 1f, 1f, swingAlpha);
+            batch.draw(region, dcx - sprSize / 2f, dcy - sprSize / 2f,
+                    sprSize / 2f, sprSize / 2f, sprSize, sprSize, 1f, 1f,
+                    (float) Math.toDegrees(ang));
+        }
+        batch.setColor(1f, 1f, 1f, 1f);
+    }
+
     private void drawBladeOrbit(SpriteBatch batch, ActiveVisualEffect vfx,
                                  long now, float worldX, float worldY) {
         final TextureRegion tex = getShurikenRegion(vfx.getTier());
@@ -3068,15 +3133,18 @@ public class PlayState extends GameState {
         // Stay fully visible for 70% of duration, then fade
         final float alpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
-        // Melee swing — quick steel ring at the swing point (webclient case 62 parity).
+        // Melee swing is drawn as a directional slash sprite in renderMeleeSwings()
+        // (batch pass). Only fall back to a ring here — at the swing center — if
+        // that sheet isn't loaded.
         if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
+            if (meleeSwingFrames() != null) return;
+            final float tcx = vfx.getTargetPosX() - wx;
+            final float tcy = vfx.getTargetPosY() - wy;
             final float ringR = maxRadius * Math.min(0.5f + t * 0.7f, 1.2f);
             shapes.begin(ShapeRenderer.ShapeType.Line);
             Gdx.gl.glLineWidth(2f);
             shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
-            drawCircleOutline(shapes, cx, cy, ringR, 32);
-            shapes.setColor(0.75f, 0.78f, 0.82f, alpha * 0.6f);
-            drawCircleOutline(shapes, cx, cy, ringR * 0.7f, 32);
+            drawCircleOutline(shapes, tcx, tcy, ringR, 32);
             shapes.end();
             Gdx.gl.glLineWidth(1f);
             return;
