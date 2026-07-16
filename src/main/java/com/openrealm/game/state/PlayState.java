@@ -2130,9 +2130,10 @@ public class PlayState extends GameState {
             final int barW = s;
             final int barH = 3;
             final int barGap = 1;
-            // Bars sit BELOW the sprite (players complained about them above).
-            // Y is screen-down here, so wy + s is the sprite's bottom edge.
-            final float hpY = wy + s + 4;
+            // Below the sprite, top->bottom: NAME, then HP bar, then MP bar. Y is
+            // screen-down, so wy + s is the sprite's bottom edge; leave room above
+            // the bars for the name (drawn in the nameplate pass at wy + s + 2).
+            final float hpY = wy + s + 16;
             final float mpY = hpY + barH + barGap;
             float hpPct = 0f;
             float mpPct = 0f;
@@ -2327,12 +2328,12 @@ public class PlayState extends GameState {
             final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
             this.nameLayoutScratch.setText(font, nm);
             font.setColor(roleColorFor(rp.getChatRole()));
-            // Name sits BELOW the HP/MP bars (which are below the sprite).
-            // Bars occupy wy+s+4 .. wy+s+11; drop the name a few px under that.
+            // Name sits just BELOW the sprite and ABOVE the HP/MP bars (top-anchored
+            // in flipped ortho, so it extends downward into the reserved gap).
             if (gfx.isShowPlayerNames()) {
                 font.draw(batch, this.nameLayoutScratch,
                         wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
-                        wy + s + 14);
+                        wy + s + 2);
             }
             // Chat bubble floats just above the nameplate, fading out at end of life.
             final ChatBubble bubble = gfx.isShowChatBubbles() ? this.chatBubbles.get(nm) : null;
