@@ -57,6 +57,11 @@ public class GlobalConstants {
      */
     public static final float HIT_RADIUS_FACTOR = 0.4f;
 
+    /** Half-angle (radians) of the melee-swing damage cone. Mirror of the
+     *  server GlobalConstants.MELEE_CONE_HALF_ANGLE — keep in sync so the drawn
+     *  cone matches the server hitbox. */
+    public static final float MELEE_CONE_HALF_ANGLE = 0.6f;
+
     // --- Difficulty-based enemy damage scaling ---
     // Applied inside processPlayerHit before player defense is subtracted.
     // Curve: flat 1.0 until the threshold, then +PER_LEVEL per difficulty level

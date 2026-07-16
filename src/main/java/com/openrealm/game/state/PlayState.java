@@ -5,7 +5,6 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
-import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import java.time.Instant;
@@ -46,9 +45,7 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.model.PortalModel;
 import com.openrealm.game.model.ProjectileGroup;
-import com.openrealm.game.model.AnimationModel;
-import com.openrealm.game.model.AnimationSetModel;
-import com.openrealm.game.model.AnimationFrameModel;
+import com.openrealm.game.model.WeaponArchetypeModel;
 import com.openrealm.game.ui.ActiveVisualEffect;
 import com.openrealm.game.ui.ChatBubble;
 import com.openrealm.game.ui.EffectText;
@@ -101,8 +98,6 @@ public class PlayState extends GameState {
             new com.openrealm.net.entity.NetPlayerPosition[0];
     private Queue<EffectText> damageText;
     private Queue<ActiveVisualEffect> activeEffects;
-    // Lazily-built frames for the generic melee swing (animations "effect:62").
-    private TextureRegion[] meleeSwingFrames;
     // Phase 4 — party state mirror of webclient game.partyId / partyMembers.
     // Latest snapshot from PartyUpdatePacket. partyId == 0 means "not in
     // a party"; the UI hides the panel in that case.
@@ -2282,6 +2277,8 @@ public class PlayState extends GameState {
         }
         // Lock-on reticles over entities targeted by live HOMING projectiles.
         this.renderLockOnReticles(shapes);
+        // Melee aim reticle at the cursor (always on for melee weapons).
+        this.renderMeleeAimReticle(shapes);
 
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
@@ -2291,7 +2288,6 @@ public class PlayState extends GameState {
         // entities + nameplate text below.
         if (gfx.isPlayAbilityAnimations()) {
             this.renderShurikenEffects(batch);
-            this.renderMeleeSwings(batch);
         }
 
         // Player nameplates — rendered with the world-camera batch so the
@@ -2906,64 +2902,6 @@ public class PlayState extends GameState {
         if (newestBlender != null) drawBladeBlender(batch, newestBlender, now, wx, wy);
     }
 
-    /** Lazily builds the generic melee-swing frames from animations "effect:62".
-     *  Returns null until the sheet + data are loaded (caller falls back to a ring). */
-    private TextureRegion[] meleeSwingFrames() {
-        if (this.meleeSwingFrames != null) return this.meleeSwingFrames;
-        final AnimationModel anim = GameDataManager.getAnimation("effect",
-                CreateEffectPacket.EFFECT_MELEE_SWING);
-        if (anim == null || anim.getAnimations() == null) return null;
-        final AnimationSetModel set = anim.getAnimations().get("swing");
-        if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) return null;
-        if (GameSpriteManager.TEXTURE_CACHE == null) return null;
-        final Texture tex = GameSpriteManager.TEXTURE_CACHE.get(anim.getSpriteKey());
-        if (tex == null) return null;
-        final int cell = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 16;
-        final List<AnimationFrameModel> frames = set.getFrames();
-        final TextureRegion[] regions = new TextureRegion[frames.size()];
-        for (int i = 0; i < frames.size(); i++) {
-            final AnimationFrameModel f = frames.get(i);
-            final TextureRegion reg = new TextureRegion(tex,
-                    f.getCol() * cell, f.getRow() * cell, cell, cell);
-            reg.flip(false, true);
-            regions[i] = reg;
-        }
-        this.meleeSwingFrames = regions;
-        return regions;
-    }
-
-    /** Generic directional melee slash — draws the swing arc emanating from the
-     *  player (posX/posY) toward the swing center (targetPos), rotated to the aim.
-     *  Frame is picked by effect progress; alpha holds then fades the tail. */
-    private void renderMeleeSwings(SpriteBatch batch) {
-        if (this.activeEffects == null || this.activeEffects.isEmpty()) return;
-        final TextureRegion[] frames = meleeSwingFrames();
-        if (frames == null) return;
-        final float wx = Vector2f.worldX;
-        final float wy = Vector2f.worldY;
-        for (ActiveVisualEffect vfx : this.activeEffects) {
-            if (vfx.getEffectType() != CreateEffectPacket.EFFECT_MELEE_SWING) continue;
-            final float progress = vfx.getProgress();
-            final int idx = Math.min(frames.length - 1, (int) (progress * frames.length));
-            final TextureRegion region = frames[idx];
-            if (region == null) continue;
-            final float ox = vfx.getTargetPosX() - wx;   // swing origin (player)
-            final float oy = vfx.getTargetPosY() - wy;
-            final float ang = (float) Math.atan2(vfx.getPosY() - vfx.getTargetPosY(),
-                    vfx.getPosX() - vfx.getTargetPosX());   // origin -> center
-            final float sprSize = Math.max(vfx.getRadius() * 2.4f, 28f);
-            final float off = sprSize * 0.42f;
-            final float dcx = ox + (float) Math.cos(ang) * off;
-            final float dcy = oy + (float) Math.sin(ang) * off;
-            final float swingAlpha = progress < 0.8f ? 1f : Math.max(0f, (1f - progress) * 5f);
-            batch.setColor(1f, 1f, 1f, swingAlpha);
-            batch.draw(region, dcx - sprSize / 2f, dcy - sprSize / 2f,
-                    sprSize / 2f, sprSize / 2f, sprSize, sprSize, 1f, 1f,
-                    (float) Math.toDegrees(ang));
-        }
-        batch.setColor(1f, 1f, 1f, 1f);
-    }
-
     private void drawBladeOrbit(SpriteBatch batch, ActiveVisualEffect vfx,
                                  long now, float worldX, float worldY) {
         final TextureRegion tex = getShurikenRegion(vfx.getTier());
@@ -3069,6 +3007,35 @@ public class PlayState extends GameState {
         }
     }
 
+    /** Grey concentric aim circles at the cursor while the local player holds a
+     *  melee weapon, so they can see where the swing cone will point. Mirrors the
+     *  webclient meleeReticle. */
+    private void renderMeleeAimReticle(ShapeRenderer shapes) {
+        final Player player = this.getPlayer();
+        if (player == null || player.getInventory() == null) return;
+        final GameItem weapon = player.getInventory()[0];
+        final WeaponArchetypeModel arch = (weapon == null || weapon.getArchetypeId() <= 0
+                || GameDataManager.WEAPON_ARCHETYPES == null)
+                ? null : GameDataManager.WEAPON_ARCHETYPES.get(weapon.getArchetypeId());
+        if (arch == null || !arch.isMelee()) return;
+        final float rx = player.getAimX() - Vector2f.worldX;
+        final float ry = player.getAimY() - Vector2f.worldY;
+        final float rr = 9f;
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.565f, 0.596f, 0.627f, 0.75f);
+        drawCircleOutline(shapes, rx, ry, rr, 24);
+        shapes.setColor(0.75f, 0.78f, 0.82f, 0.55f);
+        drawCircleOutline(shapes, rx, ry, rr * 0.55f, 20);
+        shapes.setColor(0.88f, 0.91f, 0.94f, 0.6f);
+        shapes.line(rx - rr - 3, ry, rx - rr + 3, ry);
+        shapes.line(rx + rr - 3, ry, rx + rr + 3, ry);
+        shapes.line(rx, ry - rr - 3, rx, ry - rr + 3);
+        shapes.line(rx, ry + rr - 3, rx, ry + rr + 3);
+        shapes.end();
+        Gdx.gl.glLineWidth(1f);
+    }
+
     private void renderVisualEffects(ShapeRenderer shapes) {
         if (this.activeEffects.isEmpty()) return;
 
@@ -3133,18 +3100,44 @@ public class PlayState extends GameState {
         // Stay fully visible for 70% of duration, then fade
         final float alpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
-        // Melee swing is drawn as a directional slash sprite in renderMeleeSwings()
-        // (batch pass). Only fall back to a ring here — at the swing center (cx,cy
-        // = posX/posY) — if that sheet isn't loaded.
+        // Melee swing — cone of AoE from the player (target) toward the cursor,
+        // reaching max range (cx,cy = posX/posY = the far tip). Drawn as a filled
+        // sector + edge outline + a sweeping blade edge, matching the server
+        // coneHit hitbox (GlobalConstants.MELEE_CONE_HALF_ANGLE).
         if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
-            if (meleeSwingFrames() != null) return;
-            final float ringR = maxRadius * Math.min(0.5f + t * 0.7f, 1.2f);
+            final float apexX = vfx.getTargetPosX() - wx;
+            final float apexY = vfx.getTargetPosY() - wy;
+            final float ddx = cx - apexX, ddy = cy - apexY;
+            final float len = Math.max(1f, (float) Math.hypot(ddx, ddy));
+            final float axis = (float) Math.atan2(ddy, ddx);
+            final float half = GlobalConstants.MELEE_CONE_HALF_ANGLE;
+            final float swingAlpha = t < 0.85f ? 1f : Math.max(0f, (1f - t) * 6.67f);
+            final int seg = 14;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.87f, 0.91f, 0.94f, swingAlpha * 0.20f);
+            float pax = apexX + (float) Math.cos(axis - half) * len;
+            float pay = apexY + (float) Math.sin(axis - half) * len;
+            for (int s = 1; s <= seg; s++) {
+                final float a = axis - half + (s / (float) seg) * (2f * half);
+                final float nx = apexX + (float) Math.cos(a) * len;
+                final float ny = apexY + (float) Math.sin(a) * len;
+                shapes.triangle(apexX, apexY, pax, pay, nx, ny);
+                pax = nx; pay = ny;
+            }
+            shapes.end();
             shapes.begin(ShapeRenderer.ShapeType.Line);
             Gdx.gl.glLineWidth(2f);
-            shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
-            drawCircleOutline(shapes, cx, cy, ringR, 32);
-            shapes.setColor(0.75f, 0.78f, 0.82f, alpha * 0.6f);
-            drawCircleOutline(shapes, cx, cy, ringR * 0.7f, 32);
+            shapes.setColor(1f, 1f, 1f, swingAlpha * 0.45f);
+            shapes.line(apexX + (float) Math.cos(axis - half) * len,
+                    apexY + (float) Math.sin(axis - half) * len, apexX, apexY);
+            shapes.line(apexX, apexY, apexX + (float) Math.cos(axis + half) * len,
+                    apexY + (float) Math.sin(axis + half) * len);
+            final float sweep = axis - half + Math.min(1f, t / 0.55f) * (2f * half);
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(1f, 1f, 1f, swingAlpha * 0.9f);
+            shapes.line(apexX + (float) Math.cos(sweep) * len * 0.15f,
+                    apexY + (float) Math.sin(sweep) * len * 0.15f,
+                    apexX + (float) Math.cos(sweep) * len, apexY + (float) Math.sin(sweep) * len);
             shapes.end();
             Gdx.gl.glLineWidth(1f);
             return;
