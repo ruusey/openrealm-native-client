@@ -3475,7 +3475,7 @@ public class PlayerUI {
                 final int bindingIdx = i - 1;
                 final Ability ab = localPlayer.getActiveAbility(bindingIdx);
                 if (ab != null) {
-                    this.drawAbilityHudIcon(batch, ab, cx, cy, cw, ch);
+                    this.drawAbilityHudIcon(batch, font, ab, bindingIdx + 1, cx, cy, cw, ch);
                 }
             }
         }
@@ -3952,17 +3952,22 @@ public class PlayerUI {
      * {@code col} fields on {@link Ability} — same convention as every other
      * data type (items/enemies/tiles).
      */
-    private void drawAbilityHudIcon(SpriteBatch batch, Ability ab,
-                                     float x, float y, float w, float h) {
-        if (ab == null || ab.getSpriteKey() == null || ab.getSpriteKey().isEmpty()) return;
-        final int spriteSize = ab.getSpriteSize() > 0 ? ab.getSpriteSize() : 8;
-        final Sprite spr = GameSpriteManager.loadSprite(ab.getCol(), ab.getRow(),
-                ab.getSpriteKey(), spriteSize);
-        if (spr == null || spr.getRegion() == null) return;
-        final float iconSize = spriteSize * UiAtlas.getIconScale() * UiAtlas.getDisplayScale();
-        batch.draw(spr.getRegion(),
-                x + (w - iconSize) / 2f, y + (h - iconSize) / 2f,
-                iconSize, iconSize);
+    private void drawAbilityHudIcon(SpriteBatch batch, BitmapFont font, Ability ab,
+                                     int number, float x, float y, float w, float h) {
+        if (ab == null) return;
+        // Placeholder: the ability's per-class number (1..N), scaled to fill the
+        // cell, until custom ability icons exist.
+        final String str = number > 0 ? String.valueOf(number) : "?";
+        final float origScale = font.getData().scaleX;
+        font.getData().setScale(1f);
+        final GlyphLayout probe = new GlyphLayout(font, str);
+        final float scale = probe.height > 0 ? (h * 0.72f / probe.height) : 1f;
+        font.getData().setScale(scale);
+        font.setColor(Color.valueOf("e8d8b8"));
+        final GlyphLayout gl = new GlyphLayout(font, str);
+        font.draw(batch, gl, x + (w - gl.width) * 0.5f, y + (h - gl.height) * 0.5f);
+        font.getData().setScale(origScale);
+        font.setColor(Color.WHITE);
     }
 
     /** Cached pixel rects for the 4 hotbar slots, set during the sprite pass
