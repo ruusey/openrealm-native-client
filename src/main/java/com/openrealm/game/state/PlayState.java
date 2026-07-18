@@ -134,6 +134,12 @@ public class PlayState extends GameState {
     // ghost that then teleports when a lagged update lands.
     private static final float REMOTE_DERENDER_PX = 15 * 32;
     private static final float REMOTE_DERENDER_PX_SQ = REMOTE_DERENDER_PX * REMOTE_DERENDER_PX;
+
+    // Enemy name labels: when a realm holds more than this many enemies (a horde),
+    // only enemies within NAME_HORDE_RADIUS of the local player get a name so we
+    // don't pay hundreds of text draws. Mirrors webclient renderer.js.
+    private static final int NAME_HORDE_THRESHOLD = 50;
+    private static final float NAME_HORDE_RADIUS_SQ = (32f * 5f) * (32f * 5f);
     public long playerId = -1l;
     /** Local player's privilege role (sysadmin/admin/mod/editor/demo), captured
      *  at login. STATIC so it survives a PlayState re-created on a realm
@@ -204,18 +210,18 @@ public class PlayState extends GameState {
      *  ack). */
     private static final class PendingInput {
         final int seq;
-        final float vx, vy, pxPerTick;
-        /** Snapshot of PARALYZED at send time. Captured per-input so replay
-         *  uses the exact effect state the server processed each input with —
-         *  without this, a paralyze landing between send and ack would make
-         *  the reconciler zero ALL queued inputs (movePlayer reads current
-         *  state), diverging from the server which advanced the inputs that
-         *  were sent BEFORE paralyze landed. SPEEDY / SLOWED are already
-         *  captured implicitly via pxPerTick (computed at send time). */
-        final boolean paralyzed;
-        PendingInput(int seq, float vx, float vy, float pxPerTick, boolean paralyzed) {
-            this.seq = seq; this.vx = vx; this.vy = vy; this.pxPerTick = pxPerTick;
-            this.paralyzed = paralyzed;
+        final float vx, vy, basePxPerTick;
+        /** SLOWED / PARALYZED at send time. Replay ORs each with the player's
+         *  CURRENT effect state (webclient game.js simulateTick parity): an input
+         *  sent while slowed/paralyzed — OR replayed while slowed/paralyzed now —
+         *  moves at half speed / stays frozen. basePxPerTick EXCLUDES the SLOWED
+         *  0.5 factor so it's applied fresh from the OR'd state and never double-
+         *  counted; SPEEDY stays baked into base (webclient reads it from the
+         *  snapshot only, so send-time capture is correct). */
+        final boolean slowed, paralyzed;
+        PendingInput(int seq, float vx, float vy, float basePxPerTick, boolean slowed, boolean paralyzed) {
+            this.seq = seq; this.vx = vx; this.vy = vy; this.basePxPerTick = basePxPerTick;
+            this.slowed = slowed; this.paralyzed = paralyzed;
         }
     }
 
@@ -726,9 +732,15 @@ public class PlayState extends GameState {
         // from the server's actual per-tick decisions.
         synchronized (this.pendingInputs) {
             for (final PendingInput input : this.pendingInputs) {
-                if (input.paralyzed) continue;
-                local.setDx(input.vx * input.pxPerTick);
-                local.setDy(input.vy * input.pxPerTick);
+                // OR the per-input snapshot with the CURRENT effect state so an
+                // effect that landed mid-flight (between send and ack) is applied
+                // to the still-unacked inputs the server is about to process the
+                // same way. Matches webclient game.js simulateTick.
+                if (local.hasEffect(StatusEffectType.PARALYZED) || input.paralyzed) continue;
+                final boolean slowed = local.hasEffect(StatusEffectType.SLOWED) || input.slowed;
+                final float step = input.basePxPerTick * (slowed ? 0.5f : 1.0f);
+                local.setDx(input.vx * step);
+                local.setDy(input.vy * step);
                 this.movePlayer(local);
             }
         }
@@ -1053,10 +1065,14 @@ public class PlayState extends GameState {
                 // Status modifiers MUST match webclient game.js simulateTick
                 // exactly so client + server (and replay) all agree on the
                 // step magnitude per tick.
-                float tilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
-                if (player.hasEffect(StatusEffectType.SPEEDY)) tilesPerSec *= 1.5f;
-                if (player.hasEffect(StatusEffectType.SLOWED)) tilesPerSec *= 0.5f;
-                final float pxPerTick = tilesPerSec * 32.0f / TICK_RATE;
+                // basePxPerTick excludes SLOWED so the replay can re-derive the
+                // 0.5 factor from (current OR snapshot) SLOWED without double-
+                // counting; SPEEDY stays baked in (snapshot semantics, matches web).
+                float baseTilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
+                if (player.hasEffect(StatusEffectType.SPEEDY)) baseTilesPerSec *= 1.5f;
+                final float basePxPerTick = baseTilesPerSec * 32.0f / TICK_RATE;
+                final boolean slowedNow = player.hasEffect(StatusEffectType.SLOWED);
+                final float pxPerTick = basePxPerTick * (slowedNow ? 0.5f : 1.0f);
 
                 int ticks = 0;
                 while (this.moveAccumulator >= TICK_DT) {
@@ -1106,7 +1122,7 @@ public class PlayState extends GameState {
                     // did, not what it would do today.
                     synchronized (this.pendingInputs) {
                         final boolean paralyzedAtSend = player.hasEffect(StatusEffectType.PARALYZED);
-                        this.pendingInputs.addLast(new PendingInput(seq, vx, vy, pxPerTick, paralyzedAtSend));
+                        this.pendingInputs.addLast(new PendingInput(seq, vx, vy, basePxPerTick, slowedNow, paralyzedAtSend));
                         while (this.pendingInputs.size() > 128) {
                             this.pendingInputs.pollFirst();
                         }
@@ -2076,7 +2092,10 @@ public class PlayState extends GameState {
             float wy = enemy.getPos().getWorldVar().y;
             int barWidth = enemy.getSize();
             int barHeight = 4;
-            float barY = wy - 6;
+            // Below the sprite (webclient parity): +Y is screen-down, so wy + size
+            // is the sprite's bottom edge. The enemy name sits ABOVE the head, so
+            // nothing competes for the space directly under the sprite.
+            float barY = wy + enemy.getSize() + 2;
             shapes.setColor(0.2f, 0.2f, 0.2f, 0.8f);
             shapes.rect(wx, barY, barWidth, barHeight);
             shapes.setColor(1f, 0f, 0f, 0.9f);
@@ -2204,6 +2223,39 @@ public class PlayState extends GameState {
                 shapes.setColor(def.r, def.g, def.b, 0.92f);
                 shapes.rect(iconX, chipY, iconW, iconH);
                 // Highlight strip along the top edge for polish
+                shapes.setColor(1f, 1f, 1f, 0.18f);
+                shapes.rect(iconX + 1, chipY + iconH - 4f, iconW - 2, 3f);
+                _statusChipLayout.add(new float[] { iconX, chipY, iconW, iconH });
+                _statusChipLabels.add(def.label);
+                activeIdx++;
+            }
+        }
+
+        // Enemy status-effect chips — same pooled shapes/labels pass as players,
+        // anchored above the enemy head (lifted one row when a name label shows so
+        // the chips clear it). Mirrors webclient renderEnemy status-icon block.
+        for (Enemy en : gfx.isShowStatusBubbles() ? visibleEnemies
+                : java.util.Collections.<Enemy>emptyList()) {
+            final Short[] effs = en.getEffectIds();
+            if (effs == null) continue;
+            final int sSize = en.getSize() > 0 ? en.getSize() : 32;
+            final float wx = en.getPos().getWorldVar().x;
+            final float wy = en.getPos().getWorldVar().y;
+            final float WS = OpenRealmGame.WORLD_SCALE;
+            final float iconW = 40f / WS;
+            final float iconH = 14f / WS;
+            final float iconGap = 2f / WS;
+            final float iconX = wx + (sSize * 0.5f) - (iconW * 0.5f);
+            final boolean named = this.shouldLabelEnemy(en);
+            final float bottomY = wy - 4f - (named ? 16f / WS : 0f);
+            int activeIdx = 0;
+            for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
+                if (!hasEffectId(effs, def.effectId)) continue;
+                final float chipY = bottomY - (activeIdx + 1) * (iconH + iconGap);
+                shapes.setColor(0f, 0f, 0f, 0.85f);
+                shapes.rect(iconX - 1, chipY - 1, iconW + 2, iconH + 2);
+                shapes.setColor(def.r, def.g, def.b, 0.92f);
+                shapes.rect(iconX, chipY, iconW, iconH);
                 shapes.setColor(1f, 1f, 1f, 0.18f);
                 shapes.rect(iconX + 1, chipY + iconH - 4f, iconW - 2, 3f);
                 _statusChipLayout.add(new float[] { iconX, chipY, iconW, iconH });
@@ -2346,6 +2398,24 @@ public class PlayState extends GameState {
                         wx + (s * 0.5f) - (this.chatBubbleLayoutScratch.width * 0.5f),
                         wy - 12 - this.nameLayoutScratch.height - 4 - this.chatBubbleLayoutScratch.height);
             }
+        }
+        // Enemy names — light-red label just above the head (webclient renderEnemy
+        // draws the name in 0xff8080). Horde-culled via shouldLabelEnemy so a
+        // large load-test swarm doesn't pay a text draw per enemy.
+        for (Enemy en : visibleEnemies) {
+            final String enm = en.getName();
+            if (enm == null || enm.isEmpty()) continue;
+            if (!this.shouldLabelEnemy(en)) continue;
+            final int s = en.getSize() > 0 ? en.getSize() : 32;
+            final float wx = en.getPos().getWorldVar().x;
+            final float wy = en.getPos().getWorldVar().y;
+            this.nameLayoutScratch.setText(font, enm);
+            font.setColor(ENEMY_NAME_COLOR);
+            // Above the head: flipped ortho draws downward from the y arg, so place
+            // the glyph top a name-height above the sprite's top edge (wy).
+            font.draw(batch, this.nameLayoutScratch,
+                    wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
+                    wy - 2 - this.nameLayoutScratch.height);
         }
         font.getData().setScale(origScale);
         font.setColor(Color.WHITE);
@@ -2657,6 +2727,18 @@ public class PlayState extends GameState {
         return this.realmManager.getRealm().getPlayer(this.playerId);
     }
 
+    /** Horde name-cull: label all enemies below the threshold, else only those
+     *  near the local player. Mirrors webclient renderer.js _shouldLabelEnemy. */
+    private boolean shouldLabelEnemy(Enemy enemy) {
+        final var enemies = this.realmManager.getRealm().getEnemies();
+        if (enemies == null || enemies.size() <= NAME_HORDE_THRESHOLD) return true;
+        final Player lp = this.getPlayer();
+        if (lp == null || lp.getPos() == null) return false;
+        final float dx = enemy.getPos().getWorldVar().x - lp.getPos().getWorldVar().x;
+        final float dy = enemy.getPos().getWorldVar().y - lp.getPos().getWorldVar().y;
+        return dx * dx + dy * dy <= NAME_HORDE_RADIUS_SQ;
+    }
+
     /**
      * Render all active visual effects using ShapeRenderer.
      * Called between batch.end() and batch.begin() while blending is enabled.
@@ -2670,6 +2752,8 @@ public class PlayState extends GameState {
     private static final Color ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
     private static final Color ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
     private static final Color ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
+    // Enemy nameplate colour — webclient renderEnemy uses 0xff8080 (light red).
+    private static final Color ENEMY_NAME_COLOR = new Color(1f, 0.5f, 0.5f, 1f);
 
     private static Color roleColorFor(String role) {
         if (role == null) return ROLE_DEFAULT;
@@ -3158,20 +3242,36 @@ public class PlayState extends GameState {
         // through bullet clutter.
         if (vfx.getTier() >= 10) {
             final float bossAlpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
+            // Grenade colour by tier: 10 = red, 11 = green, 12 = blue (webclient parity).
+            final int gtier = vfx.getTier();
+            final float fillR, fillG, fillB, edgeR, edgeG, edgeB, edg2R, edg2G, edg2B;
+            if (gtier == 11) {
+                fillR = 0.078f; fillG = 0.722f; fillB = 0.235f;
+                edgeR = 0.200f; edgeG = 0.878f; edgeB = 0.333f;
+                edg2R = 0.451f; edg2G = 1.000f; edg2B = 0.584f;
+            } else if (gtier == 12) {
+                fillR = 0.078f; fillG = 0.471f; fillB = 1.000f;
+                edgeR = 0.200f; edgeG = 0.600f; edgeB = 1.000f;
+                edg2R = 0.451f; edg2G = 0.753f; edg2B = 1.000f;
+            } else {
+                fillR = 1.000f; fillG = 0.051f; fillB = 0.051f;
+                edgeR = 1.000f; edgeG = 0.200f; edgeB = 0.200f;
+                edg2R = 1.000f; edg2G = 0.451f; edg2B = 0.333f;
+            }
 
             shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(1.0f, 0.05f, 0.05f, bossAlpha * 0.95f);
+            shapes.setColor(fillR, fillG, fillB, bossAlpha * 0.95f);
             drawCircle(shapes, cx, cy, maxRadius, 36);
             shapes.end();
 
             shapes.begin(ShapeRenderer.ShapeType.Line);
             Gdx.gl.glLineWidth(8f);
             final float urgency = 0.85f + 0.15f * (float) Math.sin(t * Math.PI * 12);
-            shapes.setColor(1.0f, 0.2f, 0.2f, bossAlpha * urgency);
+            shapes.setColor(edgeR, edgeG, edgeB, bossAlpha * urgency);
             drawCircleOutline(shapes, cx, cy, maxRadius, 48);
             drawCircleOutline(shapes, cx, cy, maxRadius * 0.97f, 48);
             drawCircleOutline(shapes, cx, cy, maxRadius * 1.03f, 48);
-            shapes.setColor(1.0f, 0.45f, 0.35f, bossAlpha * 0.85f);
+            shapes.setColor(edg2R, edg2G, edg2B, bossAlpha * 0.85f);
             drawCircleOutline(shapes, cx, cy, maxRadius * 0.9f, 48);
             drawCircleOutline(shapes, cx, cy, maxRadius * 1.1f, 48);
             shapes.end();
@@ -4055,25 +4155,27 @@ public class PlayState extends GameState {
         final float dist = (float) Math.sqrt(dx * dx + dy * dy);
         if (dist < 1f) return;
 
-        // Red-grenade palette gated on a tier sentinel — keeps assassin tiers
-        // 0-6 (and the untiered Soulrot Vial at tier 0) on the green look.
-        final boolean redGrenade = vfx.getTier() >= 10;
+        // Grenade colour by tier sentinel: 10 = red, 12 = blue, else green (11 /
+        // untiered assassin vial). Matches the webclient renderPoisonThrow palette
+        // so both clients look identical; keeps assassin tiers 0-6 on the green look.
+        final int gtier = vfx.getTier();
+        final boolean gRed = gtier == 10, gBlue = gtier == 12;
 
-        final float trailR = redGrenade ? 0.95f : 0.20f;
-        final float trailG = redGrenade ? 0.15f : 0.65f;
-        final float trailB = redGrenade ? 0.10f : 0.15f;
-        final float dripR  = redGrenade ? 0.85f : 0.15f;
-        final float dripG  = redGrenade ? 0.10f : 0.60f;
-        final float dripB  = redGrenade ? 0.05f : 0.10f;
-        final float glowR  = redGrenade ? 1.00f : 0.20f;
-        final float glowG  = redGrenade ? 0.20f : 0.70f;
-        final float glowB  = redGrenade ? 0.10f : 0.10f;
-        final float bodyR  = redGrenade ? 1.00f : 0.30f;
-        final float bodyG  = redGrenade ? 0.30f : 0.90f;
-        final float bodyB  = redGrenade ? 0.05f : 0.20f;
-        final float coreR  = redGrenade ? 1.00f : 0.70f;
-        final float coreG  = redGrenade ? 0.85f : 1.00f;
-        final float coreB  = redGrenade ? 0.30f : 0.50f;
+        final float trailR = gRed ? 0.902f : gBlue ? 0.118f : 0.200f;
+        final float trailG = gRed ? 0.157f : gBlue ? 0.435f : 0.600f;
+        final float trailB = gRed ? 0.059f : gBlue ? 0.902f : 0.125f;
+        final float dripR  = gRed ? 0.753f : gBlue ? 0.082f : 0.165f;
+        final float dripG  = gRed ? 0.082f : gBlue ? 0.314f : 0.533f;
+        final float dripB  = gRed ? 0.020f : gBlue ? 0.753f : 0.094f;
+        final float glowR  = gRed ? 1.000f : gBlue ? 0.200f : 0.188f;
+        final float glowG  = gRed ? 0.200f : gBlue ? 0.627f : 0.467f;
+        final float glowB  = gRed ? 0.082f : gBlue ? 1.000f : 0.102f;
+        final float bodyR  = gRed ? 1.000f : gBlue ? 0.176f : 0.251f;
+        final float bodyG  = gRed ? 0.302f : gBlue ? 0.490f : 0.800f;
+        final float bodyB  = gRed ? 0.051f : gBlue ? 1.000f : 0.188f;
+        final float coreR  = gRed ? 1.000f : gBlue ? 0.565f : 0.565f;
+        final float coreG  = gRed ? 0.851f : gBlue ? 0.816f : 1.000f;
+        final float coreB  = gRed ? 0.333f : gBlue ? 1.000f : 0.439f;
 
         // Tall parabolic arc — 50% of throw distance as peak height
         int steps = 24;
