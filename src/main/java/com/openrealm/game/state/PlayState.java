@@ -68,6 +68,8 @@ import com.openrealm.net.server.packet.MoveItemPacket;
 import com.openrealm.net.server.packet.PlayerMovePacket;
 import com.openrealm.net.server.packet.PlayerShootPacket;
 import com.openrealm.net.server.packet.UseAbilityPacket;
+import com.openrealm.net.server.packet.InvestSkillPointPacket;
+import com.openrealm.game.model.ability.Ability;
 import com.openrealm.net.server.packet.LoginAckPacket;
 import com.openrealm.game.contants.ProjectileFlag;
 import com.openrealm.net.server.packet.InteractTilePacket;
@@ -1366,16 +1368,15 @@ public class PlayState extends GameState {
                 this.pui.input(mouse, key);
             }
             boolean canQuickUse = (System.currentTimeMillis() - this.lastQuickUseTick) > QUICK_USE_COOLDOWN_MS;
-            if (canQuickUse) {
-                // Shift held → address slots 13..20 (second half of the 16-slot
-                // grid). Plain 1-8 → slots 5..12 (first half). Phase 1B grew
-                // equipment from 4 → 5 slots, so backpack starts at 5 now
-                // (not 4). Without this update, plain-1 read inv[4] (the ring
-                // EQUIP slot) and nothing in the bag was reachable via hotkey,
-                // which is what broke shift+# for gauntlets/boots specifically.
-                final boolean shiftHeld = com.badlogic.gdx.Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.SHIFT_LEFT)
-                        || com.badlogic.gdx.Gdx.input.isKeyPressed(com.badlogic.gdx.Input.Keys.SHIFT_RIGHT);
-                final int base = shiftHeld ? 13 : 5;
+            // Shift + 1..8 hot-swaps the first eight backpack slots (5..12, the
+            // visible main row) into their target equipment slot, or consumes a
+            // consumable. Matches webclient main.js shift+Digit1-8. Hot-swap
+            // REQUIRES shift because plain 1..4 are ability casts (handled below);
+            // without the gate, pressing 1 to cast would also equip slot 5.
+            final boolean shiftHotswap = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+                    || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
+            if (canQuickUse && shiftHotswap) {
+                final int base = 5;
                 boolean used = false;
                 if (key.one.clicked) { this.handleQuickUseKey(base + 0); used = true; }
                 else if (key.two.clicked)   { this.handleQuickUseKey(base + 1); used = true; }
@@ -1531,34 +1532,42 @@ public class PlayState extends GameState {
                 }
             }
         }
+        // Right-click a hotbar ability cell → invest a skill point into the bound
+        // ability. Webclient parity (ui-widgets contextmenu → __webclientInvest-
+        // SkillPoint). Edge-triggered so a held right-click can't drain the pool;
+        // the global right-click ability-fire below is suppressed over the hotbar
+        // (hoveringHotbar) so the two don't both act on the same click.
+        if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT) && this.pui != null) {
+            final int investBinding = this.pui.getHotbarBindingAtScreen(mouse.getX(), mouse.getY());
+            if (investBinding >= 0) {
+                try {
+                    final InvestSkillPointPacket pkt = new InvestSkillPointPacket((byte) investBinding);
+                    this.realmManager.getClient().sendRemote(pkt);
+                    // Optimistic local mirror so the SP pip column updates immediately —
+                    // server-authoritative state lands on the next sync.
+                    final Ability ab = this.getPlayer().getActiveAbility(investBinding);
+                    if (ab != null) this.getPlayer().investSkillPoint(ab.getId());
+                } catch (Exception e) {
+                    PlayState.log.error("Failed to send InvestSkillPoint from hotbar right-click for slot {}. Reason: {}",
+                            investBinding, e);
+                }
+            }
+        }
 
-        // Phase 2C/2D — number-key hotbar mapping. Keys 1..4 fire the four
-        // hotbar slots at the cursor; Shift+1..4 invests a skill point
-        // into the bound ability (server enforces cap + pool). Mirrors
-        // webclient main.js Digit1..Digit4 handlers. We send the packet
-        // BEFORE the right-click branch below so the dedicated slot key
-        // wins over the legacy "right-click fires slot 0" path.
+        // Phase 2C/2D — number-key hotbar mapping. Plain keys 1..4 fire the four
+        // hotbar slots at the cursor. Shift + number is reserved for inventory
+        // hot-swap (handled above), so we skip the cast when shift is held.
+        // Skill-point investment moved to right-clicking the hotbar ability cell
+        // (webclient parity) — see the hotbar right-click branch above.
         {
-            final boolean shiftSp = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+            final boolean shiftHeldDigit = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
                     || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
             final int[] digitKeys = { Input.Keys.NUM_1, Input.Keys.NUM_2, Input.Keys.NUM_3, Input.Keys.NUM_4 };
             for (int slot = 0; slot < 4; slot++) {
                 if (!Gdx.input.isKeyJustPressed(digitKeys[slot])) continue;
                 if (this.pui != null && this.pui.isHoveringInventory(mouse.getX())) continue;
-                if (shiftSp) {
-                    try {
-                        com.openrealm.net.server.packet.InvestSkillPointPacket pkt =
-                                new com.openrealm.net.server.packet.InvestSkillPointPacket((byte) slot);
-                        this.realmManager.getClient().sendRemote(pkt);
-                        // Optimistic local mirror so the SP pip column updates
-                        // immediately — server-authoritative state lands on
-                        // the next sync.
-                        final com.openrealm.game.model.ability.Ability ab = this.getPlayer().getActiveAbility(slot);
-                        if (ab != null) this.getPlayer().investSkillPoint(ab.getId());
-                    } catch (Exception e) {
-                        PlayState.log.error("Failed to send InvestSkillPoint packet. Reason: {}", e);
-                    }
-                } else if (canUseAbility) {
+                if (shiftHeldDigit) continue;
+                if (canUseAbility) {
                     try {
                         Vector2f pos = clampCastPos(player, slot, aimWx, aimWy);
                         UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
@@ -1571,7 +1580,8 @@ public class PlayState extends GameState {
             }
         }
 
-        if ((mouse.isPressed(3)) && canUseAbility && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))) {
+        if ((mouse.isPressed(3)) && canUseAbility && !hoveringHotbar
+                && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))) {
             // Client-side mana gate. Server enforces this too, but without
             // a local check the player can spam-click and watch predicted
             // projectiles spawn before the server reply unloads them, then
@@ -2711,7 +2721,7 @@ public class PlayState extends GameState {
         return false;
     }
 
-    private void handleQuickUseKey(int slotIndex) {
+    public void handleQuickUseKey(int slotIndex) {
         try {
             GameItem from = this.getPlayer().getInventory()[slotIndex];
             if (from == null) return;

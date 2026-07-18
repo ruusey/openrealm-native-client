@@ -195,6 +195,12 @@ public class PlayerUI {
     private boolean isDragging = false;
     private Vector2f dragStartPos = null;
     private static final float DRAG_THRESHOLD = 8.0f;
+    // Double-click detection for inventory slots — double-clicking a backpack item
+    // equips it to its target slot (or consumes a consumable), matching the
+    // webclient. Shift-click does the same in a single click.
+    private long lastSlotClickTime = 0L;
+    private int lastSlotClickIdx = -1;
+    private static final long DOUBLE_CLICK_MS = 400L;
     private ItemTooltip activeTooltip = null;
     /** Hover tooltip for ability cells (own hotbar + party cd strip). Set
      *  by updateTooltip on hover, consumed by the render pass. Mutually
@@ -924,6 +930,28 @@ public class PlayerUI {
                     log.info("[inv-rclick-drop] slot={} itemId={}",
                             actualIdx, item != null ? item.getItemId() : -1);
                     this.playState.getRealmManager().moveItem(-1, actualIdx, true, false);
+                }
+            });
+
+            b.onMouseDown(btn -> {
+                // Shift-click or double-click a backpack item = smart equip/use
+                // (equip to its target slot, or consume a consumable). Mirrors the
+                // webclient double-click / shift-click. A plain single left-click
+                // just arms a drag and otherwise does nothing — there is no
+                // click-to-select-then-move/drop mode on either client. Move is
+                // drag; drop is right-click.
+                if (this.isTrading || item == null) return;
+                final boolean shiftHeld = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
+                        || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
+                final long now = System.currentTimeMillis();
+                final boolean doubleClick = this.lastSlotClickIdx == actualIdx
+                        && (now - this.lastSlotClickTime) < DOUBLE_CLICK_MS;
+                this.lastSlotClickTime = now;
+                this.lastSlotClickIdx = actualIdx;
+                if (shiftHeld || doubleClick) {
+                    if (!this.canSwap()) return;
+                    this.setActionTime();
+                    this.playState.handleQuickUseKey(actualIdx);
                 }
             });
 
