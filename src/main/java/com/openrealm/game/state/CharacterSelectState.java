@@ -23,6 +23,7 @@ import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.graphics.SpriteSheet;
+import com.openrealm.game.ui.CharacterStatsWindow;
 import com.openrealm.game.ui.LeaderboardPanel;
 import com.openrealm.game.ui.TextField;
 import com.openrealm.net.client.ClientGameLogic;
@@ -139,6 +140,7 @@ public class CharacterSelectState extends GameState {
     private final TextField serverHostField = new TextField(0, 0, 200, 32);
 
     private final LeaderboardPanel leaderboard = new LeaderboardPanel();
+    private final CharacterStatsWindow statsWindow = new CharacterStatsWindow();
 
     /** Result fields from background threads; consumed on the GL thread. */
     private final AtomicReference<PlayerAccountDto> refreshResult = new AtomicReference<>();
@@ -149,6 +151,7 @@ public class CharacterSelectState extends GameState {
     private boolean pendingLogout = false;
 
     private boolean prevMouseDown = false;
+    private boolean prevRightDown = false;
     /** Vertical scroll offset for the character list (pixels; 0 = top). */
     private float scrollOffset = 0f;
     /** Pixels per scroll-wheel notch — matches typical OS feel. */
@@ -238,6 +241,8 @@ public class CharacterSelectState extends GameState {
 
     @Override
     public void update(double time) {
+        // Stats report owns its own async drain + ESC/close handling.
+        this.statsWindow.update();
         // Drain pending background results.
         PlayerAccountDto refreshed = this.refreshResult.getAndSet(null);
         if (refreshed != null) {
@@ -293,6 +298,34 @@ public class CharacterSelectState extends GameState {
         // hit-tests stay aligned. Keeping layout in one helper would be nicer
         // but the read-only render() path is hot, so duplicate the math here.
         Layout L = this.layout();
+
+        // While the stats report is open it owns all input — route the wheel to it
+        // and swallow everything else so clicks don't fall through to the list.
+        if (this.statsWindow.isVisible()) {
+            float wheelStats = KeyHandler.consumeScroll();
+            if (wheelStats != 0f) this.statsWindow.onWheel(wheelStats);
+            this.prevRightDown = mouse.isPressed(3);
+            return;
+        }
+
+        // Right-click a character row → open its lifetime stats report.
+        boolean rightDown = mouse.isPressed(3);
+        boolean rightJustClicked = rightDown && !this.prevRightDown;
+        this.prevRightDown = rightDown;
+        if (rightJustClicked) {
+            List<CharacterDto> rc = (this.tab == Tab.CHARACTERS) ? this.aliveChars() : this.deadChars();
+            for (int i = 0; i < rc.size(); i++) {
+                int rowY = L.listY + i * L.rowH - (int) this.scrollOffset;
+                if (rowY + L.rowH <= L.listY || rowY >= L.listY + L.listH) continue;
+                if (hit(mx, my, L.listX, rowY, L.listW, L.rowH)
+                        && my >= L.listY && my <= L.listY + L.listH) {
+                    CharacterDto rcChar = rc.get(i);
+                    int rcClass = rcChar.getCharacterClass() == null ? -1 : rcChar.getCharacterClass();
+                    this.statsWindow.show(rcChar, this.classNameFor(rcClass));
+                    return;
+                }
+            }
+        }
 
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             // ESC defocuses any password field, then nothing — there's no
@@ -450,6 +483,8 @@ public class CharacterSelectState extends GameState {
                 + "  *" + (this.account.getAccountFame() == null ? 0 : this.account.getAccountFame())
                 + "   <" + (this.account.getAccountEmail() == null ? "" : this.account.getAccountEmail()) + ">";
         font.draw(batch, "Logged in as: " + ident, 32, 32);
+        font.setColor(0.55f, 0.50f, 0.45f, 1f);
+        font.draw(batch, "Tip: right-click a character for lifetime stats", 32, 48);
 
         // Tabs
         this.drawTab(batch, shapes, font, L.tabCharsX, L.tabsY, L.tabW, L.tabH, "CHARACTERS", this.tab == Tab.CHARACTERS);
@@ -622,6 +657,9 @@ public class CharacterSelectState extends GameState {
             font.draw(batch, this.error, 32, OpenRealmGame.height - 12);
         }
         font.setColor(Color.WHITE);
+
+        // Right-click stats report overlays everything else.
+        this.statsWindow.render(batch, shapes, font);
     }
 
     private void renderCharRow(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,

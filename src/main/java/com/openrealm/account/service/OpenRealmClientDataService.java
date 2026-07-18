@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.openrealm.account.dto.AccountDto;
 import com.openrealm.account.dto.AccountProvision;
+import com.openrealm.account.dto.CharacterMetricsDto;
 import com.openrealm.account.dto.LoginRequestDto;
 import com.openrealm.account.dto.PlayerAccountDto;
 import com.openrealm.account.dto.SessionTokenDto;
@@ -208,6 +209,12 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     /** DELETE /data/account/character/{characterUuid} — soft-delete (sets `deleted` for graveyard). */
     public JsonNode deleteCharacter(String characterUuid) throws Exception {
         return this.executeDelete("/data/account/character/" + characterUuid, JsonNode.class);
+    }
+
+    /** GET /data/account/character/{characterUuid}/metrics — lifetime stats report (owner-or-admin). */
+    public CharacterMetricsDto getCharacterMetrics(String characterUuid) throws Exception {
+        return this.executeGet(
+                "/data/account/character/" + characterUuid + "/metrics", null, CharacterMetricsDto.class);
     }
 
     /** POST /data/account/{accountUuid}/chest/new — appends a chest, capped server-side. */
