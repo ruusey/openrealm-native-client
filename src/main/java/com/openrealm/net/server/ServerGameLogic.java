@@ -71,7 +71,7 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class ServerGameLogic {
-	public static final String GAME_VERSION = "0.8.0";
+	public static final String GAME_VERSION = "0.9.0";
 
 	/** Per-player throttle for the "invalid weapon equipped" chat notice —
 	 *  one notice per 5s so a player holding fire on a legacy ability item
