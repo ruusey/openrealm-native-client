@@ -86,7 +86,17 @@ public abstract class Entity extends GameObject {
 
     public void removeExpiredEffects() {
         for (int i = 0; i < this.effectIds.length; i++) {
-            if (this.effectIds[i] != -1) {
+            if (this.effectIds[i] != -1 && this.effectTimes[i] != -1) {
+                // Movement-gating effects (paralyze, slow) are cleared ONLY by the
+                // server's authoritative effect update, never by the local clock.
+                // effectTimes are ABSOLUTE server-clock timestamps; comparing them to
+                // this client's clock let client/server skew expire them early, after
+                // which prediction moved while the server kept the player locked —
+                // the rubberband. The connection is reliable, so the server's clear
+                // always arrives; hold until then.
+                final short id = this.effectIds[i];
+                if (id == StatusEffectType.PARALYZED.effectId
+                        || id == StatusEffectType.SLOWED.effectId) continue;
                 if (Instant.now().toEpochMilli() > this.effectTimes[i]) {
                     this.effectIds[i] = (short) -1;
                     this.effectTimes[i] = (long) -1;
