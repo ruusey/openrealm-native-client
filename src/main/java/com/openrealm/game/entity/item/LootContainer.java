@@ -242,16 +242,21 @@ public class LootContainer {
             final float bx = this.pos.getWorldVar().x + offset;
             final float by = this.pos.getWorldVar().y + offset;
             final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
-            // Dark silhouette outline (matches the in-world sprite stroke):
-            // four offset tinted copies behind the bag, then the bag on top.
-            // Skipped when the global sprite-stroke toggle is off.
+            // Dark silhouette outline (matches the in-world sprite stroke): 8
+            // offset tinted copies (4 cardinal + 4 diagonal) behind the bag, then
+            // the bag on top. The diagonals fill the corner pixels a cardinal-only
+            // stroke misses. Skipped when the global sprite-stroke toggle is off.
             if (Settings.get().isSpriteStroke()) {
                 final float prevColor = batch.getPackedColor();
                 batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-                batch.draw(region, bx + OUTLINE_OFFSET, by, draw, draw);
-                batch.draw(region, bx - OUTLINE_OFFSET, by, draw, draw);
-                batch.draw(region, bx, by + OUTLINE_OFFSET, draw, draw);
-                batch.draw(region, bx, by - OUTLINE_OFFSET, draw, draw);
+                batch.draw(region, bx + OUTLINE_OFFSET, by,                 draw, draw);
+                batch.draw(region, bx - OUTLINE_OFFSET, by,                 draw, draw);
+                batch.draw(region, bx,                 by + OUTLINE_OFFSET, draw, draw);
+                batch.draw(region, bx,                 by - OUTLINE_OFFSET, draw, draw);
+                batch.draw(region, bx + OUTLINE_OFFSET, by + OUTLINE_OFFSET, draw, draw);
+                batch.draw(region, bx + OUTLINE_OFFSET, by - OUTLINE_OFFSET, draw, draw);
+                batch.draw(region, bx - OUTLINE_OFFSET, by + OUTLINE_OFFSET, draw, draw);
+                batch.draw(region, bx - OUTLINE_OFFSET, by - OUTLINE_OFFSET, draw, draw);
                 batch.setPackedColor(prevColor);
             }
             // Soulbound bags get a red tint so the player visually distinguishes

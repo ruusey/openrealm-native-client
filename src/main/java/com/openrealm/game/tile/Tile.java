@@ -123,10 +123,14 @@ public class Tile {
 		final float wy = (this.row * this.tileSize) - Vector2f.worldY;
 		final float prev = batch.getPackedColor();
 		batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-		batch.draw(region, wx + OUTLINE_OFFSET, wy, this.tileSize, this.tileSize);
-		batch.draw(region, wx - OUTLINE_OFFSET, wy, this.tileSize, this.tileSize);
-		batch.draw(region, wx, wy + OUTLINE_OFFSET, this.tileSize, this.tileSize);
-		batch.draw(region, wx, wy - OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.draw(region, wx + OUTLINE_OFFSET, wy,                 this.tileSize, this.tileSize);
+		batch.draw(region, wx - OUTLINE_OFFSET, wy,                 this.tileSize, this.tileSize);
+		batch.draw(region, wx,                 wy + OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.draw(region, wx,                 wy - OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.draw(region, wx + OUTLINE_OFFSET, wy + OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.draw(region, wx + OUTLINE_OFFSET, wy - OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.draw(region, wx - OUTLINE_OFFSET, wy + OUTLINE_OFFSET, this.tileSize, this.tileSize);
+		batch.draw(region, wx - OUTLINE_OFFSET, wy - OUTLINE_OFFSET, this.tileSize, this.tileSize);
 		batch.setPackedColor(prev);
 	}
 

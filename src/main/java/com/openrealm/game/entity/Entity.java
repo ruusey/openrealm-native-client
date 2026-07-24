@@ -25,11 +25,15 @@ public abstract class Entity extends GameObject {
     protected String lastAnimSet = "idle_side";
     protected String lastMovementDirection = "side"; // "side", "front", or "back" - used for hysteresis
     private static final float DIRECTION_SWITCH_THRESHOLD = 0.15f;
-    // Sprite stroke: 4 cardinal-offset dark copies behind the body (matches the
-    // webclient outline + the bullet/loot stroke). Offset in world units.
+    // Sprite stroke: 8 dark copies behind the body — 4 cardinal + 4 diagonal.
+    // The diagonals fill the corner pixels at concave/angled sprite edges that a
+    // cardinal-only stroke leaves as a missing sliver. Matches the webclient
+    // OUTLINE_OFFSETS + the bullet/loot stroke. Offset in world units.
     private static final float STROKE_OFFSET = 1f;
     private static final float STROKE_ALPHA = 0.85f;
-    private static final float[][] STROKE_OFFSETS = { { 1f, 0f }, { -1f, 0f }, { 0f, 1f }, { 0f, -1f } };
+    private static final float[][] STROKE_OFFSETS = {
+            { 1f, 0f }, { -1f, 0f }, { 0f, 1f }, { 0f, -1f },
+            { 1f, 1f }, { 1f, -1f }, { -1f, 1f }, { -1f, -1f } };
 
     public boolean xCol = false;
     public boolean yCol = false;

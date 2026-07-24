@@ -553,9 +553,11 @@ public class Bullet extends GameObject  {
     private static final float OUTLINE_OFFSET = 1f;
     private static final float OUTLINE_ALPHA = 0.85f;
 
-    /** Dark silhouette outline: four cardinal-offset tinted copies behind the
-     *  bullet (web parity with the tile/entity outline). Caller draws the real
-     *  sprite on top afterwards. */
+    /** Dark silhouette outline: 8 tinted copies behind the bullet — 4 cardinal +
+     *  4 diagonal. The diagonals fill the corner pixels at concave/angled sprite
+     *  edges (e.g. the notches of a plus-shaped projectile) that a cardinal-only
+     *  stroke leaves as a missing sliver. Web parity with the tile/entity outline.
+     *  Caller draws the real sprite on top afterwards. */
     public void renderOutline(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
         // Invisible melee swing — no sprite, no outline.
@@ -586,10 +588,14 @@ public class Bullet extends GameObject  {
         final float halfSize = this.size / 2f;
         final float prev = batch.getPackedColor();
         batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-        batch.draw(frame, wx + OUTLINE_OFFSET, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx - OUTLINE_OFFSET, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx, wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx, wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx + OUTLINE_OFFSET, wy,                 halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx - OUTLINE_OFFSET, wy,                 halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx,                 wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx,                 wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx + OUTLINE_OFFSET, wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx + OUTLINE_OFFSET, wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx - OUTLINE_OFFSET, wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
+        batch.draw(frame, wx - OUTLINE_OFFSET, wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
         batch.setPackedColor(prev);
     }
 }

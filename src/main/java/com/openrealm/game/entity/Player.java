@@ -834,16 +834,22 @@ public class Player extends Entity {
 			bodyDrawY = drawY + (drawH - bodyH);
 		}
 
-		// Outline: dark offset copies behind the body, matching the webclient's
-		// addSpriteWithOutline halo. The bottom copy is skipped while wading so
-		// the waterline edge stays a clean cut rather than an outlined rim.
+		// Outline: 8 dark offset copies (4 cardinal + 4 diagonal) behind the body,
+		// matching the webclient's addSpriteWithOutline halo. The diagonals fill the
+		// corner pixels a cardinal-only stroke misses. The bottom copies (+Y) are
+		// skipped while wading so the waterline edge stays a clean cut, not an
+		// outlined rim.
 		final float prevColor = batch.getPackedColor();
 		batch.setColor(0f, 0f, 0f, BODY_OUTLINE_ALPHA);
-		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX, bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY,                      drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY,                      drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX,                       bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
 		if (!this.wading) {
-			batch.draw(bodyRegion, drawX, bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+			batch.draw(bodyRegion, drawX,                       bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+			batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
+			batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
 		}
 		batch.setPackedColor(prevColor);
 

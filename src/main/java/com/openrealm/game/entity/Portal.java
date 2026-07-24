@@ -105,14 +105,19 @@ public class Portal {
             final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
             final float bx = this.pos.getWorldVar().x;
             final float by = this.pos.getWorldVar().y;
-            // Dark silhouette outline (matches the in-world sprite stroke):
-            // four offset tinted copies behind the portal, then the portal on top.
+            // Dark silhouette outline (matches the in-world sprite stroke): 8
+            // offset tinted copies (4 cardinal + 4 diagonal) behind the portal,
+            // then the portal on top. Diagonals fill the missed corner pixels.
             final float prevColor = batch.getPackedColor();
             batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-            batch.draw(region, bx + OUTLINE_OFFSET, by, 32, 32);
-            batch.draw(region, bx - OUTLINE_OFFSET, by, 32, 32);
-            batch.draw(region, bx, by + OUTLINE_OFFSET, 32, 32);
-            batch.draw(region, bx, by - OUTLINE_OFFSET, 32, 32);
+            batch.draw(region, bx + OUTLINE_OFFSET, by,                 32, 32);
+            batch.draw(region, bx - OUTLINE_OFFSET, by,                 32, 32);
+            batch.draw(region, bx,                 by + OUTLINE_OFFSET, 32, 32);
+            batch.draw(region, bx,                 by - OUTLINE_OFFSET, 32, 32);
+            batch.draw(region, bx + OUTLINE_OFFSET, by + OUTLINE_OFFSET, 32, 32);
+            batch.draw(region, bx + OUTLINE_OFFSET, by - OUTLINE_OFFSET, 32, 32);
+            batch.draw(region, bx - OUTLINE_OFFSET, by + OUTLINE_OFFSET, 32, 32);
+            batch.draw(region, bx - OUTLINE_OFFSET, by - OUTLINE_OFFSET, 32, 32);
             batch.setPackedColor(prevColor);
             batch.draw(region, bx, by, 32, 32);
         }
