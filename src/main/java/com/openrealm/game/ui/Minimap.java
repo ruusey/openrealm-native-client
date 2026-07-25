@@ -11,6 +11,7 @@ import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.math.Vector2f;
+import com.openrealm.game.model.DungeonModel;
 import com.openrealm.game.model.MapModel;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.game.tile.Tile;
@@ -102,16 +103,32 @@ public class Minimap {
         return this.mapWidth > 0 && this.mapHeight > 0;
     }
 
-    public void initializeMap(final Integer mapId) {
-        if (this.cachedMapId != null && this.cachedMapId.equals(mapId)) {
+    public void initializeMap(final int mapId, final int dungeonId) {
+        final Integer key = mapId;
+        if (this.cachedMapId != null && this.cachedMapId.equals(key)) {
             // Same map; just request a refresh so streamed chunks redraw.
             this.dirty = true;
             return;
         }
+        // Assembled dungeons carry mapId -1 (no MapModel); their dimensions live
+        // in DUNGEONS. Never dereference a null MapModel here — doing so aborted
+        // the whole LoadMap handler on dungeon entry, leaving the realm id stale
+        // and the terrain unmerged.
         final MapModel mapModel = GameDataManager.MAPS.get(mapId);
-        this.mapWidth = mapModel.getWidth();
-        this.mapHeight = mapModel.getHeight();
-        this.cachedMapId = mapId;
+        if (mapModel != null) {
+            this.mapWidth = mapModel.getWidth();
+            this.mapHeight = mapModel.getHeight();
+        } else if (dungeonId > -1 && GameDataManager.DUNGEONS != null
+                && GameDataManager.DUNGEONS.get(dungeonId) != null) {
+            final DungeonModel dungeon = GameDataManager.DUNGEONS.get(dungeonId);
+            this.mapWidth = dungeon.getMapWidth();
+            this.mapHeight = dungeon.getMapHeight();
+        } else {
+            // Unknown realm: let the streamed tile grid drive the minimap size.
+            this.mapWidth = 0;
+            this.mapHeight = 0;
+        }
+        this.cachedMapId = key;
         // Default zoom: target ~64 tiles visible at any map size. For
         // small maps (nexus, vault, dungeons) that's the whole map at
         // zoom=1.0. For the 640x640 overworld it's zoom~0.1 — only the

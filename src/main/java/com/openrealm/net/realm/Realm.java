@@ -448,7 +448,14 @@ public class Realm {
         if (this.isServer) {
             this.tileManager = new TileManager(mapId);
         } else {
-            this.tileManager = new TileManager(GameDataManager.MAPS.get(mapId));
+            // Dungeons (mapId -1) have no MapModel — keep the current grid and let
+            // the incoming LoadMapPacket rebuild it from its dungeonId
+            // (TileManager.mergeMap -> resolveGridDims). Building from a null
+            // MapModel here NPE'd and aborted the client transition bookkeeping.
+            final MapModel model = GameDataManager.MAPS.get(mapId);
+            if (model != null) {
+                this.tileManager = new TileManager(model);
+            }
             this.tileGridRebuilt = true;
         }
     }

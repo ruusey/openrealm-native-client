@@ -312,9 +312,13 @@ public class ClientGameLogic {
 			final boolean mapGridReset = realmChanged || cli.getRealm().isTileGridRebuilt();
 			cli.getRealm().setTileGridRebuilt(false);
 
-			cli.getState().getPui().getMinimap().initializeMap((int) loadPacket.getMapId());
+			// Set core realm state BEFORE the minimap init: a UI-side throw must
+			// never leave the realm id stale (which broke dungeon exit/nexus).
 			cli.getRealm().setRealmId(loadPacket.getRealmId());
 			cli.getRealm().setMapId(loadPacket.getMapId());
+			cli.getRealm().setDungeonId((int) loadPacket.getDungeonId());
+			cli.getState().getPui().getMinimap().initializeMap((int) loadPacket.getMapId(),
+					(int) loadPacket.getDungeonId());
 			// Zero the tile layers + fog-of-war on any transition so a nested
 			// dungeon doesn't inherit the prior realm's tiles bleeding through
 			// on the minimap.

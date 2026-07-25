@@ -2409,24 +2409,8 @@ public class PlayState extends GameState {
                         wy - 12 - this.nameLayoutScratch.height - 4 - this.chatBubbleLayoutScratch.height);
             }
         }
-        // Enemy names — light-red label just above the head (webclient renderEnemy
-        // draws the name in 0xff8080). Horde-culled via shouldLabelEnemy so a
-        // large load-test swarm doesn't pay a text draw per enemy.
-        for (Enemy en : visibleEnemies) {
-            final String enm = en.getName();
-            if (enm == null || enm.isEmpty()) continue;
-            if (!this.shouldLabelEnemy(en)) continue;
-            final int s = en.getSize() > 0 ? en.getSize() : 32;
-            final float wx = en.getPos().getWorldVar().x;
-            final float wy = en.getPos().getWorldVar().y;
-            this.nameLayoutScratch.setText(font, enm);
-            font.setColor(ENEMY_NAME_COLOR);
-            // Above the head: flipped ortho draws downward from the y arg, so place
-            // the glyph top a name-height above the sprite's top edge (wy).
-            font.draw(batch, this.nameLayoutScratch,
-                    wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
-                    wy - 2 - this.nameLayoutScratch.height);
-        }
+        // Enemy names intentionally not drawn — enemies are identified by their
+        // overhead health bar only (Pass 4). Status chips still render below.
         font.getData().setScale(origScale);
         font.setColor(Color.WHITE);
 
