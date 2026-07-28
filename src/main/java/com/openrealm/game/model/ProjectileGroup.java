@@ -25,4 +25,8 @@ public class ProjectileGroup extends SpriteModel {
      *  afterimage trail in this colour behind the projectile (e.g. Trapper
      *  Tar Shot's sticky black streak). Null disables the trail. */
     private String trailColor;
+    /** Data-driven projectile FX (spin, trail, muzzle, impact). The legacy
+     *  {@link #spinning} + per-projectile rotate fields were migrated into this
+     *  list; spin is read from here now. See {@link ProjectileFx}. */
+    private List<ProjectileFx> fx;
 }

@@ -86,6 +86,7 @@ import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import com.badlogic.gdx.Input;
 import com.openrealm.game.graphics.ShaderManager;
+import com.openrealm.game.graphics.ProjectileFxManager;
 import com.openrealm.game.graphics.Sprite;
 
 @Data
@@ -128,6 +129,8 @@ public class PlayState extends GameState {
     public long lastAbilityTick = 0;
     private long lastQuickUseTick = 0;
     private long lastPortalTick = 0;
+    /** Data-driven projectile FX particles (trails, muzzle/impact bursts). */
+    private final ProjectileFxManager projectileFx = new ProjectileFxManager();
     private static final long QUICK_USE_COOLDOWN_MS = 250;
     private static final long PORTAL_COOLDOWN_MS = 1000;
     // De-render a remote peer once it passes this range from the local player —
@@ -2087,6 +2090,11 @@ public class PlayState extends GameState {
                 visibleBullets.get(i).renderOutline(batch);
             }
         }
+        // Projectile FX particles (data-driven trails + muzzle/impact bursts),
+        // drawn behind the bullet bodies. World-space, same batch as bullets.
+        this.projectileFx.emitAndUpdate(visibleBullets,
+                this.realmManager.getRealm().getBullets(), Gdx.graphics.getDeltaTime());
+        this.projectileFx.render(batch);
         for (int i = 0; i < visibleBullets.size(); i++) {
             visibleBullets.get(i).render(batch);
         }

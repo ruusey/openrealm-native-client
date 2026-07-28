@@ -12,6 +12,7 @@ import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.Projectile;
 import com.openrealm.game.model.ProjectileGroup;
+import com.openrealm.game.model.ProjectileFx;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -191,6 +192,9 @@ public class Bullet extends GameObject  {
      *  projectiles until the next UnloadPacket. The eventual UnloadPacket
      *  cleans up for real. */
     private transient boolean consumedClient = false;
+    /** Fractional particle-emission accumulator for the projectile FX trail
+     *  (ProjectileFxManager), so trail spawn rate is frame-rate independent. */
+    private transient float fxTrailAcc = 0f;
 
     public boolean isConsumedClient() { return this.consumedClient; }
     public void setConsumedClient(boolean v) { this.consumedClient = v; }
@@ -446,40 +450,32 @@ public class Bullet extends GameObject  {
         final float angleOffset = (group != null && group.getAngleOffset() != null)
                 ? Float.parseFloat(group.getAngleOffset()) : 0f;
 
-        // Optional continuous sprite spin (data-driven, purely visual). If any
-        // projectile in this group opts into rotation, spin the sprite — and every
-        // tile of a wall — at rotateRate rad/tick (or, when 0, a rate derived from
-        // the bullet's speed) in rotateDir. Additive on the base orientation.
-        // LibGDX rotation is CCW-positive degrees, so CW = negative.
+        // Base orientation (points along travel; angleOffset undoes a diagonal
+        // sprite). LibGDX rotation is CCW-positive degrees.
+        final float baseDeg = (angleOffset > 0.0f)
+                ? (float) Math.toDegrees(-this.getAngle() + (this.tfAngle + angleOffset))
+                : (float) Math.toDegrees(-this.getAngle() + this.tfAngle);
+        // Unified projectile FX spin (group.getFx()): continuous = override the
+        // flight angle with a wall-clock spin (shurikens); additive = spin on top
+        // of the flight orientation. Legacy rotate/spinning were migrated here.
+        // dir is "visual CW/CCW"; LibGDX is CCW-positive so CW = negative.
+        // rotateSpinDeg (additive) is also applied to LINE_SEGMENT wall tiles below.
+        float rotationDeg = baseDeg;
         float rotateSpinDeg = 0f;
-        if (group != null && group.getProjectiles() != null) {
-            for (final Projectile rp : group.getProjectiles()) {
-                if (rp != null && rp.isRotate()) {
-                    final float rate = rp.getRotateRate() > 0f ? rp.getRotateRate()
-                            : Math.max(0.02f, Math.abs(this.magnitude) * 0.03f);
-                    final float dir = "CCW".equalsIgnoreCase(rp.getRotateDir()) ? 1f : -1f;
-                    final double spinRad = (System.currentTimeMillis() * 0.001) * rate * 64.0;
-                    rotateSpinDeg = dir * (float) Math.toDegrees(spinRad);
-                    break;
+        if (group != null && group.getFx() != null) {
+            for (final ProjectileFx fx : group.getFx()) {
+                if (fx == null || !"spin".equals(fx.getType())) continue;
+                final float rate = (fx.getRate() != null) ? fx.getRate() : 6f;
+                final float dir = "CCW".equalsIgnoreCase(fx.getDir()) ? 1f : -1f;
+                final float spinDeg = dir * (float) Math.toDegrees((System.currentTimeMillis() * 0.001) * rate);
+                if ("continuous".equals(fx.getMode())) {
+                    rotationDeg = spinDeg;
+                } else {
+                    rotateSpinDeg += spinDeg;
+                    rotationDeg = baseDeg + rotateSpinDeg;
                 }
             }
         }
-
-        // Convert angle to degrees for LibGDX (counter-clockwise positive).
-        // Spinning projectiles (shurikens) ignore the flight-angle and rotate
-        // by a continuous wall-clock-driven phase so they read as spinning
-        // blades regardless of flight direction.
-        float rotationDeg;
-        if (group != null && group.isSpinning()) {
-            // ~6 rad/s — matches webclient renderer (Date.now() * 0.006).
-            final double phase = (System.currentTimeMillis() * 0.006) % (Math.PI * 2);
-            rotationDeg = (float) Math.toDegrees(phase);
-        } else if (angleOffset > 0.0f) {
-            rotationDeg = (float) Math.toDegrees(-this.getAngle() + (this.tfAngle + angleOffset));
-        } else {
-            rotationDeg = (float) Math.toDegrees(-this.getAngle() + this.tfAngle);
-        }
-        rotationDeg += rotateSpinDeg;
 
         float wx = this.pos.getWorldVar().x;
         float wy = this.pos.getWorldVar().y;
