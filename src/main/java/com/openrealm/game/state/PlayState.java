@@ -105,8 +105,10 @@ public class PlayState extends GameState {
             new com.openrealm.net.entity.NetPlayerPosition[0];
     private Queue<EffectText> damageText;
     private Queue<ActiveVisualEffect> activeEffects;
-    // Lazily-built frames for the generic melee swing (animations "effect:62").
-    private TextureRegion[] meleeSwingFrames;
+    // Lazily-built swing frames per weapon archetype (animations "effect:62",
+    // set "swing_sword"/"_axe"/"_hammer"/"_dagger" or generic "swing"). Only
+    // successful builds are cached so a not-yet-loaded sheet retries next frame.
+    private final Map<String, TextureRegion[]> swingFrameCache = new HashMap<>();
     // Phase 4 — party state mirror of webclient game.partyId / partyMembers.
     // Latest snapshot from PartyUpdatePacket. partyId == 0 means "not in
     // a party"; the UI hides the panel in that case.
@@ -2997,14 +2999,26 @@ public class PlayState extends GameState {
         if (newestBlender != null) drawBladeBlender(batch, newestBlender, now, wx, wy);
     }
 
-    /** Lazily builds the generic melee-swing frames from animations "effect:62".
-     *  Returns null until the sheet + data are loaded (caller falls back to a ring). */
-    private TextureRegion[] meleeSwingFrames() {
-        if (this.meleeSwingFrames != null) return this.meleeSwingFrames;
+    private static String swingSetName(short tier) {
+        switch (tier) {
+            case 2:  return "swing_axe";
+            case 3:  return "swing_hammer";
+            case 10: return "swing_dagger";
+            default: return "swing_sword";
+        }
+    }
+
+    /** Per-archetype swing frames from animations "effect:62". Null until a sheet
+     *  is authored + loaded — then the procedural drawMeleeSwing() draws instead. */
+    private TextureRegion[] swingFramesFor(short tier) {
+        final String setName = swingSetName(tier);
+        final TextureRegion[] cached = this.swingFrameCache.get(setName);
+        if (cached != null) return cached;
         final AnimationModel anim = GameDataManager.getAnimation("effect",
                 CreateEffectPacket.EFFECT_MELEE_SWING);
         if (anim == null || anim.getAnimations() == null) return null;
-        final AnimationSetModel set = anim.getAnimations().get("swing");
+        AnimationSetModel set = anim.getAnimations().get(setName);
+        if (set == null) set = anim.getAnimations().get("swing");
         if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) return null;
         if (GameSpriteManager.TEXTURE_CACHE == null) return null;
         final Texture tex = GameSpriteManager.TEXTURE_CACHE.get(anim.getSpriteKey());
@@ -3019,21 +3033,26 @@ public class PlayState extends GameState {
             reg.flip(false, true);
             regions[i] = reg;
         }
-        this.meleeSwingFrames = regions;
+        this.swingFrameCache.put(setName, regions);
         return regions;
     }
 
-    /** Generic directional melee slash — draws the swing arc emanating from the
-     *  player (posX/posY) toward the swing center (targetPos), rotated to the aim.
-     *  Frame is picked by effect progress; alpha holds then fades the tail. */
+    /** True when a sprite swing sheet is authored for this archetype — the
+     *  procedural path then skips so renderMeleeSwings() draws the frames. */
+    private boolean hasSwingSprite(short tier) {
+        return swingFramesFor(tier) != null;
+    }
+
+    /** Sprite-override swing (only when a sheet is authored). Directional slash
+     *  emanating from the player toward the aim, frame picked by effect progress. */
     private void renderMeleeSwings(SpriteBatch batch) {
         if (this.activeEffects == null || this.activeEffects.isEmpty()) return;
-        final TextureRegion[] frames = meleeSwingFrames();
-        if (frames == null) return;
         final float wx = Vector2f.worldX;
         final float wy = Vector2f.worldY;
         for (ActiveVisualEffect vfx : this.activeEffects) {
             if (vfx.getEffectType() != CreateEffectPacket.EFFECT_MELEE_SWING) continue;
+            final TextureRegion[] frames = swingFramesFor(vfx.getTier());
+            if (frames == null) continue;   // no art — procedural drawMeleeSwing() drew it
             final float progress = vfx.getProgress();
             final int idx = Math.min(frames.length - 1, (int) (progress * frames.length));
             final TextureRegion region = frames[idx];
@@ -3053,6 +3072,109 @@ public class PlayState extends GameState {
                     (float) Math.toDegrees(ang));
         }
         batch.setColor(1f, 1f, 1f, 1f);
+    }
+
+    /** Procedural per-archetype melee swing (no art required). Sword: clean
+     *  far-reaching crescent + tip gleam. Axe: fat short red cleave + chunk burst.
+     *  Hammer: overhead smash then shockwave ring + ground cracks. Dagger: quick
+     *  lunging thrust. tier = weapon archetype (1/2/3/10). Coords are world-camera
+     *  space (matches the other ShapeRenderer effects); manages its own begin/end. */
+    private void drawMeleeSwing(ShapeRenderer shapes, ActiveVisualEffect vfx, float wx, float wy, float t) {
+        final float ox = vfx.getTargetPosX() - wx;   // origin (player)
+        final float oy = vfx.getTargetPosY() - wy;
+        final float cx = vfx.getPosX() - wx;          // center (aim)
+        final float cy = vfx.getPosY() - wy;
+        final float ang = (float) Math.atan2(cy - oy, cx - ox);
+        final float reach = Math.max((float) Math.hypot(cx - ox, cy - oy), 22f);
+        final float a = Math.max(0f, 1f - t);
+        final short tier = vfx.getTier();
+        final float cos = (float) Math.cos(ang), sin = (float) Math.sin(ang);
+
+        if (tier == 3) {
+            // HAMMER — overhead drive, then radial shockwave ring + cracks.
+            if (t < 0.5f) {
+                final float p = t / 0.5f;
+                final float headR = reach * (0.45f + 0.55f * p);
+                final float hx = ox + cos * headR, hy = oy + sin * headR;
+                shapes.begin(ShapeRenderer.ShapeType.Filled);
+                shapes.setColor(0.85f, 0.71f, 0.54f, a);            // heavy haft
+                shapes.rectLine(ox + cos * reach * 0.18f, oy + sin * reach * 0.18f, hx, hy, 7f);
+                shapes.setColor(0.54f, 0.35f, 0.17f, a);            // hammer head
+                shapes.circle(hx, hy, 9f);
+                shapes.end();
+            } else {
+                final float p = (t - 0.5f) / 0.5f;
+                final float ix = ox + cos * reach, iy = oy + sin * reach;
+                final float ringR = reach * 0.2f + p * reach * 0.85f;
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                Gdx.gl.glLineWidth(3f);
+                shapes.setColor(1f, 0.88f, 0.63f, a);               // shockwave ring
+                shapes.circle(ix, iy, ringR, 40);
+                shapes.setColor(0.73f, 0.54f, 0.31f, a);            // ground cracks
+                for (int k = 0; k < 6; k++) {
+                    final float ca = ang + (k - 2.5f) * 0.52f;
+                    shapes.line(ix, iy, ix + (float) Math.cos(ca) * ringR * 0.7f,
+                            iy + (float) Math.sin(ca) * ringR * 0.7f);
+                }
+                shapes.end();
+                Gdx.gl.glLineWidth(1f);
+            }
+        } else if (tier == 10) {
+            // DAGGER — quick lunging thrust that extends then retracts.
+            final float ext = t < 0.45f ? t / 0.45f : 1f - (t - 0.45f) / 0.55f;
+            final float tipR = reach * (0.35f + 0.8f * ext);
+            final float tx = ox + cos * tipR, ty = oy + sin * tipR;
+            final float perp = ang + (float) (Math.PI / 2), w = 3f;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.85f, 0.98f, 1f, a);                   // sharp spike
+            shapes.triangle(tx, ty,
+                    ox + (float) Math.cos(perp) * w, oy + (float) Math.sin(perp) * w,
+                    ox - (float) Math.cos(perp) * w, oy - (float) Math.sin(perp) * w);
+            if (ext > 0.85f) { shapes.setColor(1f, 1f, 1f, a); shapes.circle(tx, ty, 2.5f); }
+            shapes.end();
+        } else {
+            // SWORD (1) / AXE (2) — sweeping crescent (triangle-fan smear + edge).
+            final boolean isAxe = tier == 2;
+            final float half = isAxe ? 1.35f : 1.1f;
+            final float reachA = isAxe ? reach * 0.9f : reach;
+            final float blade = ang - half + t * (2f * half);
+            final int SEG = 10;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            if (isAxe) shapes.setColor(0.84f, 0.35f, 0.12f, 0.22f * a);
+            else       shapes.setColor(0.75f, 0.91f, 1f, 0.16f * a);
+            for (int k = 0; k < SEG; k++) {
+                final float a0 = ang - half + (blade - (ang - half)) * (k / (float) SEG);
+                final float a1 = ang - half + (blade - (ang - half)) * ((k + 1) / (float) SEG);
+                shapes.triangle(ox, oy,
+                        ox + (float) Math.cos(a0) * reachA, oy + (float) Math.sin(a0) * reachA,
+                        ox + (float) Math.cos(a1) * reachA, oy + (float) Math.sin(a1) * reachA);
+            }
+            if (isAxe) shapes.setColor(1f, 0.5f, 0.19f, a);         // bright leading edge
+            else       shapes.setColor(0.85f, 0.94f, 1f, a);
+            shapes.rectLine(ox + (float) Math.cos(blade) * reachA * 0.3f,
+                    oy + (float) Math.sin(blade) * reachA * 0.3f,
+                    ox + (float) Math.cos(blade) * reachA,
+                    oy + (float) Math.sin(blade) * reachA, isAxe ? 5f : 3f);
+            if (!isAxe) {
+                shapes.setColor(1f, 1f, 1f, a);                     // tip gleam
+                shapes.circle(ox + (float) Math.cos(blade) * reachA,
+                        oy + (float) Math.sin(blade) * reachA, 2.5f);
+            }
+            shapes.end();
+            if (isAxe && t > 0.75f) {                                // chunk burst
+                final float bx = ox + (float) Math.cos(blade) * reachA;
+                final float by = oy + (float) Math.sin(blade) * reachA;
+                shapes.begin(ShapeRenderer.ShapeType.Line);
+                Gdx.gl.glLineWidth(2f);
+                shapes.setColor(1f, 0.69f, 0.44f, a);
+                for (int k = 0; k < 3; k++) {
+                    final float ca = blade + (k - 1) * 0.4f;
+                    shapes.line(bx, by, bx + (float) Math.cos(ca) * 10f, by + (float) Math.sin(ca) * 10f);
+                }
+                shapes.end();
+                Gdx.gl.glLineWidth(1f);
+            }
+        }
     }
 
     private void drawBladeOrbit(SpriteBatch batch, ActiveVisualEffect vfx,
@@ -3227,6 +3349,14 @@ public class PlayState extends GameState {
         final float cx = vfx.getPosX() - wx;
         final float cy = vfx.getPosY() - wy;
         final float maxRadius = vfx.getRadius();
+
+        // Per-archetype melee swing (tier = weapon: 1 Sword, 2 Axe, 3 Hammer,
+        // 10 Dagger). Procedural here; the sprite override (if authored) is drawn
+        // in renderMeleeSwings() during the batch pass, and this skips those.
+        if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
+            if (!hasSwingSprite(vfx.getTier())) drawMeleeSwing(shapes, vfx, wx, wy, t);
+            return;
+        }
 
         // Water fountain has its own procedural renderer (parabolic-arc
         // droplets + splash ripples), not the standard ring/particle setup.
