@@ -3415,22 +3415,8 @@ public class PlayState extends GameState {
         // Stay fully visible for 70% of duration, then fade
         final float alpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
-        // Melee swing is drawn as a directional slash sprite in renderMeleeSwings()
-        // (batch pass). Only fall back to a ring here — at the swing center (cx,cy
-        // = posX/posY) — if that sheet isn't loaded.
-        if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
-            if (meleeSwingFrames() != null) return;
-            final float ringR = maxRadius * Math.min(0.5f + t * 0.7f, 1.2f);
-            shapes.begin(ShapeRenderer.ShapeType.Line);
-            Gdx.gl.glLineWidth(2f);
-            shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
-            drawCircleOutline(shapes, cx, cy, ringR, 32);
-            shapes.setColor(0.75f, 0.78f, 0.82f, alpha * 0.6f);
-            drawCircleOutline(shapes, cx, cy, ringR * 0.7f, 32);
-            shapes.end();
-            Gdx.gl.glLineWidth(1f);
-            return;
-        }
+        // MELEE_SWING is handled at the top of this method (procedural per-archetype
+        // swing, or the sprite override in renderMeleeSwings()).
 
         // SOUL_VORTEX (45) is a persistent vortex with bespoke art — render
         // it specially so it doesn't get drawn as a generic ring on top of
