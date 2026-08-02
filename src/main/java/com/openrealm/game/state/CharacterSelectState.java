@@ -22,7 +22,10 @@ import com.openrealm.game.SessionStore;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
+import com.openrealm.game.graphics.SpriteRecolorCache;
 import com.openrealm.game.graphics.SpriteSheet;
+import com.openrealm.game.model.AnimationModel;
+import com.openrealm.game.model.CharacterClassModel;
 import com.openrealm.game.ui.CharacterStatsWindow;
 import com.openrealm.game.ui.LeaderboardPanel;
 import com.openrealm.game.ui.TextField;
@@ -108,7 +111,7 @@ public class CharacterSelectState extends GameState {
     /** Resolve a class id to its display name, preferring the JSON definition. */
     private String classNameFor(int classId) {
         if (GameDataManager.CHARACTER_CLASSES != null) {
-            com.openrealm.game.model.CharacterClassModel m = GameDataManager.CHARACTER_CLASSES.get(classId);
+            CharacterClassModel m = GameDataManager.CHARACTER_CLASSES.get(classId);
             if (m != null && m.getClassName() != null) return m.getClassName();
         }
         return classId >= 0 && classId < CLASS_NAMES.length ? CLASS_NAMES[classId] : ("Class " + classId);
@@ -692,7 +695,7 @@ public class CharacterSelectState extends GameState {
                     final int dyeId = dyeIdBoxed != null ? dyeIdBoxed : 0;
                     TextureRegion drawFrame = frame;
                     if (dyeId > 0) {
-                        final com.openrealm.game.model.AnimationModel anim =
+                        final AnimationModel anim =
                                 GameDataManager.getAnimation("player", cc.classId);
                         if (anim != null) {
                             final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
@@ -706,7 +709,7 @@ public class CharacterSelectState extends GameState {
                                     : frame.getRegionY();
                             final int row = spY / spH;
                             final int col = spX / spW;
-                            TextureRegion dyed = com.openrealm.game.graphics.SpriteRecolorCache
+                            TextureRegion dyed = SpriteRecolorCache
                                     .getDyedRegion(anim.getSpriteKey(), cc.classId,
                                             row, col, spW, dyeId);
                             if (dyed != null) drawFrame = dyed;

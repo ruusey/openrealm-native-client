@@ -5,6 +5,8 @@ import java.io.InputStream;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
@@ -48,6 +50,9 @@ public class SpriteRecolorCache {
     /** Source-PNG bytes by spriteKey, fetched on first miss and reused
      *  across all subsequent recolors of the same sheet. */
     private static final Map<String, Pixmap> SOURCE_PIXMAPS = new HashMap<>();
+    /** Per-key one-shot warn so the log tells you exactly which lookup
+     *  is bailing out without spamming a line per render frame. */
+    private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();
 
     /**
      * Fetch (or build) a recolored player class sprite for the given
@@ -265,9 +270,6 @@ public class SpriteRecolorCache {
         }
     }
 
-    /** Per-key one-shot warn so the log tells you exactly which lookup
-     *  is bailing out without spamming a line per render frame. */
-    private static final java.util.Set<String> WARNED = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static void warnOnce(String key, String fmt, Object... args) {
         if (WARNED.add(key)) log.warn("[RECOLOR] " + fmt, args);
     }

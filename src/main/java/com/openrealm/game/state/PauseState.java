@@ -18,8 +18,10 @@ import com.openrealm.game.SessionStore;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
+import com.openrealm.game.graphics.SpriteRecolorCache;
 import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.math.Vector2f;
+import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.ui.LeaderboardPanel;
 import com.openrealm.game.ui.VaultWindow;
 import com.openrealm.net.client.ClientGameLogic;
@@ -308,7 +310,7 @@ public class PauseState extends GameState {
                     final Integer dyeIdBoxed = cls.getStats() != null ? cls.getStats().getDyeId() : null;
                     final int dyeId = dyeIdBoxed != null ? dyeIdBoxed : 0;
                     if (dyeId > 0) {
-                        final com.openrealm.game.model.AnimationModel anim =
+                        final AnimationModel anim =
                                 GameDataManager.getAnimation("player", characterClass.classId);
                         if (anim != null) {
                             final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
@@ -322,7 +324,7 @@ public class PauseState extends GameState {
                                     : frame.getRegionY();
                             final int row = spY / spH;
                             final int col = spX / spW;
-                            TextureRegion dyed = com.openrealm.game.graphics.SpriteRecolorCache
+                            TextureRegion dyed = SpriteRecolorCache
                                     .getDyedRegion(anim.getSpriteKey(), characterClass.classId,
                                             row, col, spW, dyeId);
                             if (dyed != null) drawFrame = dyed;

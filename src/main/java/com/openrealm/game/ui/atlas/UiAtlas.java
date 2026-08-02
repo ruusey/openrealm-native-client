@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.openrealm.game.data.GameDataManager;
@@ -190,7 +191,7 @@ public class UiAtlas {
 			InputStream in = UiAtlas.class.getClassLoader().getResourceAsStream("ui/" + key);
 			if (in == null) return null;
 			byte[] bytes = in.readAllBytes();
-			com.badlogic.gdx.graphics.Pixmap pixmap = new com.badlogic.gdx.graphics.Pixmap(
+			Pixmap pixmap = new Pixmap(
 					bytes, 0, bytes.length);
 			Texture tex = new Texture(pixmap);
 			tex.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);

@@ -69,8 +69,16 @@ import com.openrealm.net.client.packet.OpenPotionStoragePacket;
 import com.openrealm.net.client.packet.PotionStorageUpdatePacket;
 import com.openrealm.net.server.ServerFameStoreHelper;
 import com.openrealm.net.client.packet.PlayerStatePacket;
+import com.openrealm.net.client.packet.AbilityCastStartPacket;
+import com.openrealm.net.client.packet.PartyUpdatePacket;
+import com.openrealm.net.entity.NetGameItem;
+import com.openrealm.net.entity.NetPartyMember;
+import com.openrealm.game.entity.item.GameItem;
+import com.openrealm.game.ui.PerfMetrics;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 public class ClientGameLogic {
@@ -141,12 +149,12 @@ public class ClientGameLogic {
 	/** Convert AcceptTradeRequestPacket.player1Inv (NetGameItem[]) into a
 	 *  GameItem[] the trade overlay can read directly. Empty / itemId<=0
 	 *  slots stay null so the overlay's null-check renders an empty cell. */
-	private static com.openrealm.game.entity.item.GameItem[] buildPartnerInventory(
+	private static GameItem[] buildPartnerInventory(
 			AcceptTradeRequestPacket pkt) {
-		final com.openrealm.net.entity.NetGameItem[] src = pkt.getPlayer1Inv();
-		if (src == null) return new com.openrealm.game.entity.item.GameItem[0];
-		final com.openrealm.game.entity.item.GameItem[] out =
-				new com.openrealm.game.entity.item.GameItem[src.length];
+		final NetGameItem[] src = pkt.getPlayer1Inv();
+		if (src == null) return new GameItem[0];
+		final GameItem[] out =
+				new GameItem[src.length];
 		for (int i = 0; i < src.length; i++) {
 			if (src[i] == null) continue;
 			if (src[i].getItemId() <= 0) continue;
@@ -192,10 +200,10 @@ public class ClientGameLogic {
 		}
 	}
 
-	@PacketHandlerClient(com.openrealm.net.client.packet.AbilityCastStartPacket.class)
+	@PacketHandlerClient(AbilityCastStartPacket.class)
 	public static void handleAbilityCastStartClient(RealmManagerClient cli, Packet packet) {
-		final com.openrealm.net.client.packet.AbilityCastStartPacket cast =
-				(com.openrealm.net.client.packet.AbilityCastStartPacket) packet;
+		final AbilityCastStartPacket cast =
+				(AbilityCastStartPacket) packet;
 		try {
 			if (cli.getState() == null) return;
 			// Store as [startEpochMs, durationMs] so PlayState's renderer can
@@ -345,17 +353,17 @@ public class ClientGameLogic {
 				if (!isInitialConnect) {
 					try {
 						final long localId = cli.getCurrentPlayerId();
-						final java.util.Map<Long, com.openrealm.game.entity.Player> players = cli.getRealm().getPlayers();
+						final Map<Long, Player> players = cli.getRealm().getPlayers();
 						if (players != null) {
 							players.entrySet().removeIf(e -> e.getKey() != localId);
 						}
-						final java.util.Map<Long, com.openrealm.game.entity.Enemy> enemies = cli.getRealm().getEnemies();
+						final Map<Long, Enemy> enemies = cli.getRealm().getEnemies();
 						if (enemies != null) enemies.clear();
-						final java.util.Map<Long, com.openrealm.game.entity.Bullet> bullets = cli.getRealm().getBullets();
+						final Map<Long, Bullet> bullets = cli.getRealm().getBullets();
 						if (bullets != null) bullets.clear();
-						final java.util.Map<Long, com.openrealm.game.entity.item.LootContainer> loot = cli.getRealm().getLoot();
+						final Map<Long, LootContainer> loot = cli.getRealm().getLoot();
 						if (loot != null) loot.clear();
-						final java.util.Map<Long, com.openrealm.game.entity.Portal> portals = cli.getRealm().getPortals();
+						final Map<Long, Portal> portals = cli.getRealm().getPortals();
 						if (portals != null) portals.clear();
 						// Buffered UpdatePackets for the previous realm's
 						// players are stale — drop them so a same-id player
@@ -505,15 +513,15 @@ public class ClientGameLogic {
 		}
 	}
 
-	@PacketHandlerClient(com.openrealm.net.client.packet.PartyUpdatePacket.class)
+	@PacketHandlerClient(PartyUpdatePacket.class)
 	public static void handlePartyUpdateClient(RealmManagerClient cli, Packet packet) {
 		try {
 			if (cli.getState() == null) return;
-			final com.openrealm.net.client.packet.PartyUpdatePacket upd =
-					(com.openrealm.net.client.packet.PartyUpdatePacket) packet;
+			final PartyUpdatePacket upd =
+					(PartyUpdatePacket) packet;
 			cli.getState().setPartyId(upd.getPartyId());
 			cli.getState().setPartyMembers(upd.getMembers() == null
-					? new com.openrealm.net.entity.NetPartyMember[0] : upd.getMembers());
+					? new NetPartyMember[0] : upd.getMembers());
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle PartyUpdate Packet. Reason: {}", e);
 		}
@@ -780,7 +788,7 @@ public class ClientGameLogic {
 			// PerfMetrics hasn't accumulated samples yet.
 			int oneWayMsForCatchup = 0;
 			try {
-				oneWayMsForCatchup = com.openrealm.game.ui.PerfMetrics.get().getPing();
+				oneWayMsForCatchup = PerfMetrics.get().getPing();
 			} catch (Exception ignored) { /* leave as 0 */ }
 			final float catchupSec = Math.min(oneWayMsForCatchup / 1000f, 0.25f);
 			final float catchupScale = catchupSec * 64f;
@@ -1153,8 +1161,8 @@ public class ClientGameLogic {
 	 *  (`oldOtherUpdate.equals(stripped, false)`) considered the
 	 *  one-shot first-send already done and never resent the UpdatePacket
 	 *  even though the receiving client never actually applied it. */
-	private static final java.util.concurrent.ConcurrentHashMap<Long, UpdatePacket> PENDING_UPDATES =
-			new java.util.concurrent.ConcurrentHashMap<>();
+	private static final ConcurrentHashMap<Long, UpdatePacket> PENDING_UPDATES =
+			new ConcurrentHashMap<>();
 
 	public static void handleUpdateClient(RealmManagerClient cli, Packet packet) {
 		final UpdatePacket updatePacket = (UpdatePacket) packet;

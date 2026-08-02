@@ -31,6 +31,12 @@ import com.openrealm.game.model.ItemTooltip;
 import com.openrealm.game.model.ability.Ability;
 import com.openrealm.game.model.ability.PassiveAbility;
 import com.openrealm.game.model.AbilityTooltip;
+import com.openrealm.game.model.PassiveTooltip;
+import com.openrealm.game.model.AnimationModel;
+import com.openrealm.game.model.AnimationSetModel;
+import com.openrealm.game.model.AnimationFrameModel;
+import com.openrealm.net.entity.NetPartyMember;
+import com.badlogic.gdx.graphics.Texture;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.game.state.RealmTransitionState;
 import com.openrealm.net.client.packet.UpdatePlayerTradeSelectionPacket;
@@ -212,7 +218,7 @@ public class PlayerUI {
      *  rebuilt iff the cursor is over cell 0. Two distinct fields rather than
      *  one polymorphic surface because the passive description has no MP /
      *  cooldown / SP machinery and uses different chrome colors. */
-    private com.openrealm.game.model.PassiveTooltip activePassiveTooltip = null;
+    private PassiveTooltip activePassiveTooltip = null;
     /** Per-cell rects captured during renderPartyMembers' cd-strip pass so
      *  updateTooltip can hit-test them on hover. Each entry encodes
      *  [x, y, w, h, abilityId, investedSp]. Cleared at the start of every
@@ -1189,7 +1195,7 @@ public class PlayerUI {
                     && my >= cell0[1] && my < cell0[1] + cell0[3]) {
                 final PassiveAbility pa = local.getClassPassive();
                 if (pa != null) {
-                    this.activePassiveTooltip = new com.openrealm.game.model.PassiveTooltip(
+                    this.activePassiveTooltip = new PassiveTooltip(
                             pa, local.getStats(),
                             new Vector2f(tooltipX, 100), panelWidth);
                     this.activeTooltip = null;
@@ -2343,14 +2349,14 @@ public class PlayerUI {
                                     int startX, int panelWidth) {
         if (this.playState == null) return 0;
         final long partyId = this.playState.getPartyId();
-        final com.openrealm.net.entity.NetPartyMember[] members = this.playState.getPartyMembers();
+        final NetPartyMember[] members = this.playState.getPartyMembers();
         if (partyId == 0L || members == null || members.length == 0) return 0;
 
         final long localId = this.playState.getPlayer() != null
                 ? this.playState.getPlayer().getId() : 0L;
         // Build display list — skip self so the panel matches webclient.
-        java.util.List<com.openrealm.net.entity.NetPartyMember> toDraw = new java.util.ArrayList<>();
-        for (com.openrealm.net.entity.NetPartyMember m : members) {
+        List<NetPartyMember> toDraw = new ArrayList<>();
+        for (NetPartyMember m : members) {
             if (m != null && m.getPlayerId() != localId) toDraw.add(m);
         }
 
@@ -2372,7 +2378,7 @@ public class PlayerUI {
         font.setColor(Color.WHITE);
         int y = headerY + 12;
         final long nowMs = System.currentTimeMillis();
-        for (com.openrealm.net.entity.NetPartyMember m : toDraw) {
+        for (NetPartyMember m : toDraw) {
             TextureRegion icon = this.getClassIcon(m.getClassId());
             if (icon != null) {
                 batch.draw(icon, startX, y + (rowH - iconSize) / 2f, iconSize, iconSize);
@@ -2650,8 +2656,8 @@ public class PlayerUI {
         // model hasn't loaded yet (cold-boot only).
         int level = -1;
         try {
-            if (com.openrealm.game.data.GameDataManager.EXPERIENCE_LVLS != null) {
-                level = com.openrealm.game.data.GameDataManager.EXPERIENCE_LVLS.getLevel(p.getExperience());
+            if (GameDataManager.EXPERIENCE_LVLS != null) {
+                level = GameDataManager.EXPERIENCE_LVLS.getLevel(p.getExperience());
             }
         } catch (Exception ignored) { /* leave as -1 */ }
         final String levelStr = (level > 0) ? ("Lv " + level + " ") : "";
@@ -2991,8 +2997,8 @@ public class PlayerUI {
         // fell through to executeDrop's normal swap path and the forge
         // slots stayed empty no matter what the player tried.
         if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex < this.inventory.length) {
-            final int mx = com.badlogic.gdx.Gdx.input.getX();
-            final int my = com.badlogic.gdx.Gdx.input.getY();
+            final int mx = Gdx.input.getX();
+            final int my = Gdx.input.getY();
             final Slots srcSlot = this.inventory[fromIndex];
             final GameItem srcItem = srcSlot != null ? srcSlot.getItem() : null;
             int crystalItemId = -1;
@@ -3016,8 +3022,8 @@ public class PlayerUI {
         // the normal MoveItemPacket pipeline, because the storage state
         // lives off-inventory on the server.
         if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex < this.inventory.length) {
-            final int mx = com.badlogic.gdx.Gdx.input.getX();
-            final int my = com.badlogic.gdx.Gdx.input.getY();
+            final int mx = Gdx.input.getX();
+            final int my = Gdx.input.getY();
             if (this.potionStorageWindow.tryAcceptDrop(mx, my, fromIndex)) {
                 return;
             }
@@ -3040,8 +3046,8 @@ public class PlayerUI {
             final Slots srcSlot = this.groundLoot[fromIndex - MoveItemPacket.groundLootBase()];
             final GameItem srcItem = srcSlot != null ? srcSlot.getItem() : null;
             if (srcItem != null
-                    && (srcItem.getItemId() == com.openrealm.game.entity.Player.HP_POTION_ITEM_ID
-                     || srcItem.getItemId() == com.openrealm.game.entity.Player.MP_POTION_ITEM_ID)) {
+                    && (srcItem.getItemId() == Player.HP_POTION_ITEM_ID
+                     || srcItem.getItemId() == Player.MP_POTION_ITEM_ID)) {
                 this.playState.getRealmManager().moveItem(Player.EQUIPMENT_SLOT_COUNT, fromIndex, false, false);
             } else {
                 this.playState.getRealmManager().moveItem(targetIndex, fromIndex, false, false);
@@ -3126,7 +3132,7 @@ public class PlayerUI {
         final int boxY = OpenRealmGame.height - hotbarReserve - 12 - boxH - stackIndex * (boxH + 6);
 
         batch.end();
-        com.badlogic.gdx.Gdx.gl.glEnable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+        Gdx.gl.glEnable(GL20.GL_BLEND);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0f, 0f, 0f, 0.85f);
         shapes.rect(boxX, boxY, boxW, boxH);
@@ -3136,7 +3142,7 @@ public class PlayerUI {
         shapes.rect(boxX, boxY, 2, boxH);
         shapes.rect(boxX + boxW - 2, boxY, 2, boxH);
         shapes.end();
-        com.badlogic.gdx.Gdx.gl.glDisable(com.badlogic.gdx.graphics.GL20.GL_BLEND);
+        Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
         font.setColor(0.95f, 0.85f, 0.45f, 1f);
@@ -3487,7 +3493,7 @@ public class PlayerUI {
                     final float origScale = font.getData().scaleX;
                     font.getData().setScale(0.7f);
                     final GlyphLayout gl = new GlyphLayout(font, name,
-                            com.badlogic.gdx.graphics.Color.valueOf("e8d8b8"), cw - 2, 1, true);
+                            Color.valueOf("e8d8b8"), cw - 2, 1, true);
                     final float tx = cx + (cw - gl.width) * 0.5f;
                     // font.draw y = TOP of the text under the flipped y-down cam,
                     // and this wraps to multiple lines, so center the whole block:
@@ -3910,34 +3916,34 @@ public class PlayerUI {
      *  class's animation data and builds a one-off TextureRegion off the
      *  class sheet — independent of the in-world Player.spriteSheet, so
      *  walking / attacking doesn't animate the HUD avatar. */
-    private final java.util.Map<String, com.badlogic.gdx.graphics.g2d.TextureRegion> _hudIdleCache
-            = new java.util.HashMap<>();
-    private com.badlogic.gdx.graphics.g2d.TextureRegion getHudIdleFrame(Player p) {
+    private final Map<String, TextureRegion> _hudIdleCache
+            = new HashMap<>();
+    private TextureRegion getHudIdleFrame(Player p) {
         if (p == null) return null;
         final int classId = p.getClassId();
-        final com.openrealm.game.model.AnimationModel anim =
-                com.openrealm.game.data.GameDataManager.getAnimation("player", classId);
+        final AnimationModel anim =
+                GameDataManager.getAnimation("player", classId);
         if (anim == null || anim.getAnimations() == null) {
             // Fallback to the live current frame so SOMETHING shows up
             // until anim data lands.
             return (p.getSpriteSheet() != null) ? p.getSpriteSheet().getCurrentFrame() : null;
         }
-        com.openrealm.game.model.AnimationSetModel set = anim.getAnimations().get("idle_front");
+        AnimationSetModel set = anim.getAnimations().get("idle_front");
         if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) {
             set = anim.getAnimations().get("idle_side");
         }
         if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) return null;
-        final com.openrealm.game.model.AnimationFrameModel f = set.getFrames().get(0);
+        final AnimationFrameModel f = set.getFrames().get(0);
         final String key = classId + ":" + f.getRow() + ":" + f.getCol();
-        com.badlogic.gdx.graphics.g2d.TextureRegion cached = _hudIdleCache.get(key);
+        TextureRegion cached = _hudIdleCache.get(key);
         if (cached != null) return cached;
-        final com.badlogic.gdx.graphics.Texture tex = (com.openrealm.game.data.GameSpriteManager.TEXTURE_CACHE != null)
-                ? com.openrealm.game.data.GameSpriteManager.TEXTURE_CACHE.get(anim.getSpriteKey()) : null;
+        final Texture tex = (GameSpriteManager.TEXTURE_CACHE != null)
+                ? GameSpriteManager.TEXTURE_CACHE.get(anim.getSpriteKey()) : null;
         if (tex == null) return null;
         final int spW = anim.getSpriteSize();
         final int spH = anim.getEffectiveSpriteHeight();
-        final com.badlogic.gdx.graphics.g2d.TextureRegion region =
-                new com.badlogic.gdx.graphics.g2d.TextureRegion(
+        final TextureRegion region =
+                new TextureRegion(
                         tex, f.getCol() * spW, f.getRow() * spH, spW, spH);
         // Match GameSpriteManager's flip convention so the avatar isn't
         // upside-down on the y-down camera.

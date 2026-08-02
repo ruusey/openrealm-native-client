@@ -1,6 +1,7 @@
 package com.openrealm.game.entity;
 
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import java.time.Instant;
 
 import com.openrealm.game.data.GameDataManager;
@@ -102,7 +103,7 @@ public class Portal {
 
     public void render(SpriteBatch batch) {
         if (this.sprite != null && this.sprite.getRegion() != null) {
-            final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
+            final TextureRegion region = this.sprite.getRegion();
             final float bx = this.pos.getWorldVar().x;
             final float by = this.pos.getWorldVar().y;
             // Dark silhouette outline (matches the in-world sprite stroke): 8

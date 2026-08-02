@@ -1,5 +1,7 @@
 package com.openrealm.game.tile;
 
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -105,8 +107,8 @@ public class TileManager {
      *  from the wall sprite's pixmap (lightened by 35%) so the N+W
      *  edge highlight looks like the wall material's own light side
      *  rather than a hard pure-white band. Lazy-populated. */
-    private static final java.util.Map<Integer, float[]> WALL_HIGHLIGHT_CACHE =
-            new java.util.HashMap<>();
+    private static final Map<Integer, float[]> WALL_HIGHLIGHT_CACHE =
+            new HashMap<>();
     /** Default highlight if we can't sample (sheet missing, etc.) — a
      *  warm off-white that reads softer than pure white on most
      *  ambient-tone walls. */
@@ -123,14 +125,14 @@ public class TileManager {
         if (cached != null) return cached;
         float[] result = WALL_HIGHLIGHT_FALLBACK;
         try {
-            final TextureRegion region = com.openrealm.game.data.GameSpriteManager.TILE_SPRITES.get(tileId);
+            final TextureRegion region = GameSpriteManager.TILE_SPRITES.get(tileId);
             if (region != null && region.getTexture() != null) {
-                final com.badlogic.gdx.graphics.Texture tex = region.getTexture();
+                final Texture tex = region.getTexture();
                 if (tex.getTextureData() != null) {
                     if (!tex.getTextureData().isPrepared()) {
                         tex.getTextureData().prepare();
                     }
-                    final com.badlogic.gdx.graphics.Pixmap pix = tex.getTextureData().consumePixmap();
+                    final Pixmap pix = tex.getTextureData().consumePixmap();
                     if (pix != null) {
                         // Sample a small grid in the center of the
                         // region — averages out edge dithering / outlines.

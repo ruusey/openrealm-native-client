@@ -13,7 +13,10 @@ import com.openrealm.game.entity.Player;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.DungeonModel;
 import com.openrealm.game.model.MapModel;
+import com.openrealm.game.model.TileModel;
 import com.openrealm.game.state.PlayState;
+import com.openrealm.net.entity.NetPlayerPosition;
+import java.util.Set;
 import com.openrealm.game.tile.Tile;
 import com.openrealm.game.tile.TileData;
 import com.openrealm.game.tile.TileManager;
@@ -230,9 +233,9 @@ public class Minimap {
         // minimap.js _getTileColor. Was previously hashing by `id % 4`
         // which painted unrelated tiles in the same color and gave the
         // overall map a random / uncoordinated look.
-        final com.openrealm.game.model.TileModel def =
-                (com.openrealm.game.data.GameDataManager.TILES != null)
-                        ? com.openrealm.game.data.GameDataManager.TILES.get(id) : null;
+        final TileModel def =
+                (GameDataManager.TILES != null)
+                        ? GameDataManager.TILES.get(id) : null;
         if (def == null) return COL_DEFAULT;
         final String name = def.getName() == null ? "" : def.getName().toLowerCase();
         if (name.contains("sand") || name.contains("beach") || name.contains("desert")) return COL_SAND;
@@ -292,7 +295,7 @@ public class Minimap {
             try {
                 final Player local = this.playState.getPlayer();
                 final long localId = local != null ? local.getId() : -1;
-                final java.util.Set<Player> others = this.playState.getRealmManager().getRealm()
+                final Set<Player> others = this.playState.getRealmManager().getRealm()
                         .getPlayersExcept(localId);
                 if (others != null) {
                     int idx = 0;
@@ -445,7 +448,7 @@ public class Minimap {
         final Player local = this.playState.getPlayer();
         try {
             final long localId = local != null ? local.getId() : -1;
-            final java.util.Set<Player> others = this.playState.getRealmManager().getRealm()
+            final Set<Player> others = this.playState.getRealmManager().getRealm()
                     .getPlayersExcept(localId);
             if (others != null) {
                 shapes.setColor(OTHER_COLOR);
@@ -467,7 +470,7 @@ public class Minimap {
             // so the dot tracks zoom correctly. The previous handler
             // bypassed the minimap entirely (it overwrote in-realm pos
             // instead) so these dots never moved with the camera.
-            final com.openrealm.net.entity.NetPlayerPosition[] globals = this.playState.getMinimapPlayers();
+            final NetPlayerPosition[] globals = this.playState.getMinimapPlayers();
             if (globals != null && globals.length > 0) {
                 shapes.setColor(0.55f, 0.55f, 0.85f, 0.8f);
                 final int ts = GlobalConstants.BASE_TILE_SIZE;
@@ -476,7 +479,7 @@ public class Minimap {
                 // (localPlayerTile applies +size/2). NetPlayerPosition
                 // doesn't carry per-player size, so use the default.
                 final float halfPlayer = GlobalConstants.PLAYER_SIZE / 2f;
-                for (com.openrealm.net.entity.NetPlayerPosition gp : globals) {
+                for (NetPlayerPosition gp : globals) {
                     if (gp == null) continue;
                     if (local != null && gp.getPlayerId() == localId) continue;
                     // Skip if this player is already in our local realm

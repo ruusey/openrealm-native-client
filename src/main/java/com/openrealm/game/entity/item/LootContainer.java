@@ -1,6 +1,7 @@
 package com.openrealm.game.entity.item;
 
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -40,7 +41,7 @@ public class LootContainer {
 
     // Soulbound loot: -1 means public (anyone can see/pickup),
     // otherwise only the player with this ID can see/interact with this bag
-    @lombok.Builder.Default
+    @Builder.Default
     private long soulboundPlayerId = -1;
 
     public LootContainer(LootTier tier, Vector2f pos) {
@@ -241,7 +242,7 @@ public class LootContainer {
             final float offset = (32 - draw) / 2f;
             final float bx = this.pos.getWorldVar().x + offset;
             final float by = this.pos.getWorldVar().y + offset;
-            final com.badlogic.gdx.graphics.g2d.TextureRegion region = this.sprite.getRegion();
+            final TextureRegion region = this.sprite.getRegion();
             // Dark silhouette outline (matches the in-world sprite stroke): 8
             // offset tinted copies (4 cardinal + 4 diagonal) behind the bag, then
             // the bag on top. The diagonals fill the corner pixels a cardinal-only
