@@ -16,6 +16,7 @@ import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.entity.item.Enchantment;
 import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.model.ClassMaskModel;
+import com.openrealm.game.model.ClassMaskFrame;
 import com.openrealm.game.model.DyeAssetModel;
 import com.openrealm.net.client.ClientGameLogic;
 
@@ -96,7 +97,7 @@ public class SpriteRecolorCache {
             warnOnce("dye-id-" + dyeId, "Dye recolor skipped: dyeId {} not in registry", dyeId);
             return null;
         }
-        final ClassMaskModel.Frame frame = GameDataManager.CLASS_MASK_FRAMES.get(classId + ":" + row + ":" + col);
+        final ClassMaskFrame frame = GameDataManager.CLASS_MASK_FRAMES.get(classId + ":" + row + ":" + col);
         if (frame == null || frame.getMask() == null) {
             warnOnce("mask-" + classId + "-" + row + "-" + col,
                     "Dye recolor skipped: no mask for classId={} row={} col={} (sheet={})",

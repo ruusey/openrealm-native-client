@@ -22,13 +22,5 @@ public class ClassMaskModel {
     private String className;
     private String spriteKey;
     private int spriteSize;
-    private List<Frame> frames;
-
-    @Data
-    public static class Frame {
-        private int row;
-        private int col;
-        private List<String> animKeys;
-        private int[][] mask;
-    }
+    private List<ClassMaskFrame> frames;
 }

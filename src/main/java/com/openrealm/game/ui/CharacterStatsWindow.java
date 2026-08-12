@@ -32,16 +32,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class CharacterStatsWindow {
 
-    /** A rendered line: a section header (value == null) or a stat row. */
-    private static final class Row {
-        final String label;
-        final String value;
-        Row(String label, String value) {
-            this.label = label;
-            this.value = value;
-        }
-    }
-
     private static final int ROW_H = 20;
     private static final int HEADER_H = 32;
 
@@ -51,7 +41,7 @@ public class CharacterStatsWindow {
 
     private String title = "Lifetime Stats";
     private String status = "";
-    private final List<Row> rows = new ArrayList<>();
+    private final List<CharacterStatsRow> rows = new ArrayList<>();
 
     private final AtomicReference<CharacterMetricsDto> pendingData = new AtomicReference<>();
     private final AtomicReference<String> pendingError = new AtomicReference<>();
@@ -200,7 +190,7 @@ public class CharacterStatsWindow {
         final int valueX = x + dialogW - 150;
 
         for (int i = firstIdx; i < lastIdx; i++) {
-            final Row row = this.rows.get(i);
+            final CharacterStatsRow row = this.rows.get(i);
             final int rowY = rowsTop + (i - firstIdx) * ROW_H + ROW_H - 6;
             if (row.value == null) {
                 // Section header.
@@ -222,15 +212,15 @@ public class CharacterStatsWindow {
     }
 
     private void section(String name) {
-        this.rows.add(new Row(name, null));
+        this.rows.add(new CharacterStatsRow(name, null));
     }
 
     private void stat(String label, long value) {
-        this.rows.add(new Row(label, String.format("%,d", value)));
+        this.rows.add(new CharacterStatsRow(label, String.format("%,d", value)));
     }
 
     private void stat(String label, String value) {
-        this.rows.add(new Row(label, value));
+        this.rows.add(new CharacterStatsRow(label, value));
     }
 
     private void buildRows(CharacterMetricsDto m) {

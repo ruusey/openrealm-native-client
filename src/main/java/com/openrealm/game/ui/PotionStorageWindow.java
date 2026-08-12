@@ -119,7 +119,7 @@ public class PotionStorageWindow {
         // Close × hit-test on press: clicking the X in the top-right
         // corner hides the modal, matching the webclient's close button.
         if (down && !this.mouseDownPrev && this.dragStorageIdx < 0 && !invDragActive) {
-            final Layout layoutForClose = computeLayout();
+            final PotionStorageLayout layoutForClose = computeLayout();
             if (layoutForClose != null) {
                 final int[] xr = closeButtonRect(layoutForClose);
                 final int mx = Gdx.input.getX();
@@ -181,23 +181,7 @@ public class PotionStorageWindow {
     // entries; nothing in this section uses hardcoded panel dimensions.
     // ----------------------------------------------------------------------
 
-    /** Cached layout for the current frame. Recomputed each render() so a
-     *  window resize or atlas reload picks up immediately, and shared with
-     *  the click/hit-test path so render and input can never disagree. */
-    private static class Layout {
-        int s;                      // displayScale
-        int dialogX, dialogY;       // screen origin of the parent chrome
-        int dialogW, dialogH;       // screen dimensions of the parent chrome
-        int leftGridScreenX;        // left grid screen origin
-        int rightGridScreenX;       // right grid screen origin
-        int gridScreenY;            // shared y for both grids (top of grid area)
-        int gridSrcX_left, gridSrcY_left;   // grid source origin (atlas coords)
-        int gridSrcX_right, gridSrcY_right; // (same panel reused — both = inv_only.grid)
-        int[][] cells;              // gridCells output: 16 source rects
-        UiComponent gridDef;        // panel.hud.inv_only.grid definition
-    }
-
-    private Layout computeLayout() {
+    private PotionStorageLayout computeLayout() {
         if (!UiAtlas.isReady()) return null;
         final UiComponent text = UiAtlas.componentOf("panel.hud.chat.text_area");
         final UiComponent grid = UiAtlas.componentOf("panel.hud.inv_only.grid");
@@ -223,7 +207,7 @@ public class PotionStorageWindow {
         final int dialogW  = Math.max(contentW, chromeW);
         final int dialogH  = Math.max(contentH, chromeH);
 
-        final Layout L = new Layout();
+        final PotionStorageLayout L = new PotionStorageLayout();
         L.s = s;
         L.dialogX = (OpenRealmGame.width  - dialogW) / 2;
         L.dialogY = (OpenRealmGame.height - dialogH) / 2;
@@ -247,7 +231,7 @@ public class PotionStorageWindow {
     }
 
     /** Convert (slot 0..31) into a screen rect using the current frame's layout. */
-    private int[] cellRectFor(int slot, Layout L) {
+    private int[] cellRectFor(int slot, PotionStorageLayout L) {
         if (L == null) return null;
         final int side = slot < 16 ? 0 : 1;
         final int local = slot < 16 ? slot : slot - 16;
@@ -261,7 +245,7 @@ public class PotionStorageWindow {
     }
 
     private int hitTestStorage(int mx, int my) {
-        final Layout L = computeLayout();
+        final PotionStorageLayout L = computeLayout();
         if (L == null) return -1;
         for (int i = 0; i < SIZE; i++) {
             final int[] r = cellRectFor(i, L);
@@ -274,7 +258,7 @@ public class PotionStorageWindow {
     /** Close-× button rect at the top-right of the header band. Sized to
      *  fit comfortably inside the 28-px header above the grids. Returns
      *  {x, y, w, h} in flipped-ortho screen coords. */
-    private int[] closeButtonRect(Layout L) {
+    private int[] closeButtonRect(PotionStorageLayout L) {
         final int w = 18;
         final int h = 18;
         final int x = L.dialogX + L.dialogW - w - 8;
@@ -287,7 +271,7 @@ public class PotionStorageWindow {
      *  coords, or null when the modal is hidden / atlas not ready. */
     public int[] getCellRect(int slot) {
         if (!this.visible || slot < 0 || slot >= SIZE) return null;
-        final Layout L = computeLayout();
+        final PotionStorageLayout L = computeLayout();
         if (L == null) return null;
         return cellRectFor(slot, L);
     }
@@ -310,7 +294,7 @@ public class PotionStorageWindow {
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (!this.visible) return;
-        final Layout L = computeLayout();
+        final PotionStorageLayout L = computeLayout();
         if (L == null) {
             // Atlas not yet bound — show nothing so we don't paint stale
             // hardcoded rects on top of the HUD.

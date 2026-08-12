@@ -140,34 +140,6 @@ public class ForgeWindow {
         this.mouseDownPrev = down;
     }
 
-    /** Atlas-driven per-frame layout. Single source of truth shared by
-     *  render() + handleClick() + slotRect() so they can never disagree.
-     *  All rects are flipped-ortho screen pixels, derived by translating
-     *  each child panel's atlas (x,y) into the container's local coord
-     *  space and multiplying by displayScale. The pixel canvas is sized
-     *  to fit panel.forge.output exactly so painted pixels land in the
-     *  same on-screen rect the user annotated. */
-    private static final class Layout {
-        int s;                                    // displayScale
-        // Container chrome (panel.forge.container)
-        int containerX, containerY, containerW, containerH;
-        // Status bar (panel.forge.status) — also hosts the action buttons.
-        int statusX, statusY, statusW, statusH;
-        // Three button rects packed inside the status bar.
-        int btnForgeX, btnRemoveX, btnCancelX, btnY, btnW, btnH;
-        // Input slot rects (panel.forge.input.{item,crystal,essence}).
-        int itemSlotX, itemSlotY, itemSlotW, itemSlotH;
-        int crystalSlotX, crystalSlotY, crystalSlotW, crystalSlotH;
-        int essenceSlotX, essenceSlotY, essenceSlotW, essenceSlotH;
-        // Label rects (panel.forge.label.*).
-        int labelItemX, labelItemY, labelItemW, labelItemH;
-        int labelCrystalX, labelCrystalY, labelCrystalW, labelCrystalH;
-        int labelEssenceX, labelEssenceY, labelEssenceW, labelEssenceH;
-        // Output region (panel.forge.output) and the painted canvas inside.
-        int outputX, outputY, outputW, outputH;
-        int canvasX, canvasY, canvasSize;
-    }
-
     /** Modal-only scale multiplier on top of UiAtlas.getDisplayScale().
      *  The atlas was authored at displayScale=2 to fit comfortably as
      *  in-game HUD chrome, but the forge dialog is a focused modal that
@@ -180,7 +152,7 @@ public class ForgeWindow {
     /** Build a Layout from the atlas. Returns null when the atlas isn't
      *  ready — callers should bail without drawing/handling clicks so we
      *  never paint stale hardcoded geometry on top of the HUD. */
-    private Layout computeLayout() {
+    private ForgeLayout computeLayout() {
         if (!UiAtlas.isReady()) return null;
         final UiComponent cont   = UiAtlas.componentOf("panel.forge.container");
         final UiComponent status = UiAtlas.componentOf("panel.forge.status");
@@ -199,7 +171,7 @@ public class ForgeWindow {
                 || lbEss == null || output == null) return null;
 
         final int s = UiAtlas.getDisplayScale() * MODAL_SCALE;
-        final Layout L = new Layout();
+        final ForgeLayout L = new ForgeLayout();
         L.s = s;
         L.containerW = cont.getW() * s;
         L.containerH = cont.getH() * s;
@@ -281,7 +253,7 @@ public class ForgeWindow {
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (!this.visible) return;
-        final Layout L = computeLayout();
+        final ForgeLayout L = computeLayout();
         if (L == null) return; // atlas not ready — fail silently
 
         // ------------------------------------------------------------------
@@ -463,7 +435,7 @@ public class ForgeWindow {
     }
 
     private void handleClick(int mx, int my) {
-        final Layout L = computeLayout();
+        final ForgeLayout L = computeLayout();
         if (L == null) return;
 
         // ------------------------------------------------------------------
@@ -602,7 +574,7 @@ public class ForgeWindow {
 
     private int[] slotRect(int idx) {
         if (!this.visible) return null;
-        final Layout L = computeLayout();
+        final ForgeLayout L = computeLayout();
         if (L == null) return null;
         switch (idx) {
             case 0: return new int[]{ L.itemSlotX,    L.itemSlotY,    L.itemSlotW,    L.itemSlotH    };

@@ -2669,25 +2669,6 @@ public class RealmManagerServer implements Runnable {
 	}
 
 
-	/**
-	 * Data class for a deferred realm transition. The heavy realm generation
-	 * (terrain, enemies, dungeon layout) runs on a worker thread. Once complete,
-	 * the result is enqueued here and the tick thread integrates it: adds the
-	 * realm, transfers the player, sends map/load packets.
-	 */
-	public static class PendingRealmTransition {
-		public final Realm generatedRealm;
-		public final Player player;
-		public final Realm sourceRealm;
-		public final Portal usedPortal;
-		public PendingRealmTransition(Realm generatedRealm, Player player, Realm sourceRealm, Portal usedPortal) {
-			this.generatedRealm = generatedRealm;
-			this.player = player;
-			this.sourceRealm = sourceRealm;
-			this.usedPortal = usedPortal;
-		}
-	}
-
 	public void enqueuePendingTransition(PendingRealmTransition transition) {
 		this.pendingRealmTransitions.add(transition);
 	}
@@ -2729,26 +2710,6 @@ public class RealmManagerServer implements Runnable {
 		for (final Long pid : realm.getPlayers().keySet()) {
 			this.playerLoadState.remove(pid);
 			this.playerLastFullSnapshotMs.remove(pid);
-		}
-	}
-
-	/**
-	 * Data class for a deferred realm-join operation. Worker threads create these
-	 * after async authentication completes; the tick thread drains and executes
-	 * them before building LoadPackets, guaranteeing no race with the delta logic.
-	 */
-	public static class PendingRealmJoin {
-		public final Realm realm;
-		public final Player player;
-		public final String srcIp;
-		public final ClientSession session;
-		public final Packet loginResponse;
-		public PendingRealmJoin(Realm realm, Player player, String srcIp, ClientSession session, Packet loginResponse) {
-			this.realm = realm;
-			this.player = player;
-			this.srcIp = srcIp;
-			this.session = session;
-			this.loginResponse = loginResponse;
 		}
 	}
 

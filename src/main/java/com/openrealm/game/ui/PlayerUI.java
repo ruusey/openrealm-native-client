@@ -67,6 +67,32 @@ import com.openrealm.game.graphics.SpriteRecolorCache;
 @Data
 @Slf4j
 public class PlayerUI {
+    private static final String LOG_NS = "[CLIENT](player-ui)";
+
+    /** Cached chat-role nameplate colors used by the hover tooltip, mirrors
+     *  webclient renderer.js GameRenderer.getNameColorHex. Kept here as
+     *  well as PlayState (where the in-world nameplate uses them) so
+     *  PlayerUI doesn't need a static cross-class import dance. */
+    private static final Color UI_ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
+    private static final Color UI_ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
+    private static final Color UI_ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
+    private static final Color UI_ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
+    private static final Color UI_ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
+    private static final Color UI_ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
+
+    /** Width / height of the trade-tp context menu. Two rows of options
+     *  plus a name header. Wide enough for "Teleport to <NAME>" with
+     *  a 10-char trimmed name (longest expected label). */
+    private static final int CTX_MENU_W = 180;
+    private static final int CTX_MENU_HEADER_H = 22;
+    private static final int CTX_MENU_OPTION_H = 22;
+
+    /** itemId of the bundled HP/MP potion entries in game-items.json.
+     *  Used by the bottom-bar potion oval renderer to look up the actual
+     *  potion sprite (so the side panels show a small bottle, not text). */
+    private static final int HP_POTION_ITEM_ID = 296;
+    private static final int MP_POTION_ITEM_ID = 297;
+
     /** Total cells in the bottom-center ability hotbar. Mirrors the webclient
      *  layout (ui-widgets.updateAbilityBar): cell 0 = class passive (label),
      *  cells 1..4 = active abilities bound via hotbarBindings[0..3]. Must
@@ -436,6 +462,17 @@ public class PlayerUI {
     // vault. See PotionStorageWindow for layout + drag-drop wiring.
     private final PotionStorageWindow potionStorageWindow = new PotionStorageWindow();
 
+    // Reusable position vectors for slot rendering to avoid per-frame
+    // allocations: 5 equipment (0..4) + 20 inventory page cells (5..24).
+    private final Vector2f[] slotPositions = new Vector2f[Player.EQUIPMENT_SLOT_COUNT + INV_PAGE_SIZE];
+    private final Vector2f[] groundLootPositions = new Vector2f[10];
+    {
+        for (int i = 0; i < slotPositions.length; i++) slotPositions[i] = new Vector2f();
+        for (int i = 0; i < 10; i++) groundLootPositions[i] = new Vector2f();
+    }
+
+    private final Map<String, TextureRegion> _hudIdleCache = new HashMap<>();
+
     // Right-sidebar layout, mirroring the webclient #hud column order:
     //   [name+lvl header] [fame badge] [square minimap] [HP/MP/XP bars]
     //   [stats grid] [Equipment label + 4 slots] [Bag tabs + 8 slots]
@@ -758,15 +795,15 @@ public class PlayerUI {
                 }
             } catch (Exception ignored) { /* fall through to legacy coords */ }
             Button b = new Button(new Vector2f(x, y), SLOT_SIZE);
-            log.info("[loot-build] slot={} itemId={} pos=({}, {}) size={}",
-                    actualIdx, item.getItemId(), x, y, SLOT_SIZE);
+            log.info("{} loot-build slot={} itemId={} pos=({}, {}) size={}",
+                    LOG_NS, actualIdx, item.getItemId(), x, y, SLOT_SIZE);
 
             b.onMouseUp(event -> {
                 // Always log entry so a missing log makes it obvious the
                 // click never reached the handler (button bounds wrong /
                 // input order issue) vs reached but blocked by a guard.
-                log.info("[loot-click] FIRED slot={} itemId={} trading={} dragging={} canSwap={}",
-                        actualIdx, item != null ? item.getItemId() : -1,
+                log.info("{} loot-click FIRED slot={} itemId={} trading={} dragging={} canSwap={}",
+                        LOG_NS, actualIdx, item != null ? item.getItemId() : -1,
                         this.isTrading, this.isDragging, this.canSwap());
                 if (this.isTrading) return;
                 if (this.isDragging) return;
@@ -789,10 +826,10 @@ public class PlayerUI {
                 final byte wireTargetSlot = (byte) Player.EQUIPMENT_SLOT_COUNT;
                 try {
                     this.playState.getRealmManager().moveItem(wireTargetSlot, wireFromIdx, false, false);
-                    log.info("[loot-click] moveItem sent (target={} from={})", wireTargetSlot, wireFromIdx);
+                    log.info("{} loot-click moveItem sent (target={} from={})", LOG_NS, wireTargetSlot, wireFromIdx);
                 } catch (Exception e) {
-                    log.warn("[loot-click] moveItem failed for slot {} item {}: {}",
-                            actualIdx, item != null ? item.getItemId() : -1, e.getMessage());
+                    log.warn("{} loot-click moveItem failed for slot {} item {}: {}",
+                            LOG_NS, actualIdx, item != null ? item.getItemId() : -1, e.getMessage());
                 }
             });
             this.groundLoot[actualIdx] = new Slots(b, item);
@@ -824,8 +861,8 @@ public class PlayerUI {
                 if (this.isTrading) return;
                 if (!this.canSwap()) return;
                 this.setActionTime();
-                log.info("[equip-rclick-drop] slot={} itemId={}",
-                        dropEquipIdx, item != null ? item.getItemId() : -1);
+                log.info("{} equip-rclick-drop slot={} itemId={}",
+                        LOG_NS, dropEquipIdx, item != null ? item.getItemId() : -1);
                 this.playState.getRealmManager().moveItem(-1, dropEquipIdx, true, false);
             });
 
@@ -881,7 +918,7 @@ public class PlayerUI {
                                             this.getPlayState().getPlayer(), this);
                             this.playState.getRealmManager().getClient().sendRemote(updatedTrade);
                         } catch (Exception e) {
-                            log.warn("[trade-toggle] update failed: {}", e.getMessage());
+                            log.warn("{} trade-toggle update failed: {}", LOG_NS, e.getMessage());
                         }
                     }
                 } else {
@@ -900,10 +937,10 @@ public class PlayerUI {
                         try {
                             final SplitStackPacket pkt = new SplitStackPacket(actualIdx);
                             this.playState.getRealmManager().getClient().getOutboundPacketQueue().add(pkt);
-                            log.info("[inv-rclick-split] slot={} itemId={} stack={}",
-                                    actualIdx, item.getItemId(), item.getStackCount());
+                            log.info("{} inv-rclick-split slot={} itemId={} stack={}",
+                                    LOG_NS, actualIdx, item.getItemId(), item.getStackCount());
                         } catch (Exception e) {
-                            log.warn("[inv-rclick-split] failed: {}", e.getMessage());
+                            log.warn("{} inv-rclick-split failed: {}", LOG_NS, e.getMessage());
                         }
                         return;
                     }
@@ -926,15 +963,15 @@ public class PlayerUI {
                                     PotionStorageMovePacket.SIDE_INV, actualIdx,
                                     PotionStorageMovePacket.SIDE_STORAGE, -1);
                             this.playState.getRealmManager().getClient().getOutboundPacketQueue().add(pkt);
-                            log.info("[inv-rclick-quickstore] slot={} itemId={}",
-                                    actualIdx, item.getItemId());
+                            log.info("{} inv-rclick-quickstore slot={} itemId={}",
+                                    LOG_NS, actualIdx, item.getItemId());
                         } catch (Exception e) {
-                            log.warn("[inv-rclick-quickstore] failed: {}", e.getMessage());
+                            log.warn("{} inv-rclick-quickstore failed: {}", LOG_NS, e.getMessage());
                         }
                         return;
                     }
-                    log.info("[inv-rclick-drop] slot={} itemId={}",
-                            actualIdx, item != null ? item.getItemId() : -1);
+                    log.info("{} inv-rclick-drop slot={} itemId={}",
+                            LOG_NS, actualIdx, item != null ? item.getItemId() : -1);
                     this.playState.getRealmManager().moveItem(-1, actualIdx, true, false);
                 }
             });
@@ -1051,8 +1088,8 @@ public class PlayerUI {
             if (curr != null) {
                 if (lootDebugLogThisFrame && curr.getButton() != null) {
                     final var bnd = curr.getButton().getBounds();
-                    log.info("[loot-input] slot={} mouse=({}, {}) bounds=({}, {}, {}x{}) inside={}",
-                            i, mouse.getX(), mouse.getY(),
+                    log.info("{} loot-input slot={} mouse=({}, {}) bounds=({}, {}, {}x{}) inside={}",
+                            LOG_NS, i, mouse.getX(), mouse.getY(),
                             (int) bnd.getPos().x, (int) bnd.getPos().y,
                             (int) bnd.getWidth(), (int) bnd.getHeight(),
                             bnd.inside(mouse.getX(), mouse.getY()));
@@ -1343,7 +1380,7 @@ public class PlayerUI {
                     serverCommand);
             this.playState.getRealmManager().getClient().sendRemote(packet);
         } catch (Exception e) {
-            log.error("Failed to send trade command. Reason: {}", e);
+            log.error("{} Failed to send trade command. Reason: {}", LOG_NS, e);
         }
     }
 
@@ -1403,20 +1440,11 @@ public class PlayerUI {
                 try {
                     this.playState.getRealmManager().getClient().sendRemote(pkt);
                 } catch (Exception e) {
-                    log.warn("[trade-overlay] selection update failed: {}", e.getMessage());
+                    log.warn("{} trade-overlay selection update failed: {}", LOG_NS, e.getMessage());
                 }
             });
             this.tradeMyButtons[i] = b;
         }
-    }
-
-    // Reusable position vectors for slot rendering to avoid per-frame
-    // allocations: 5 equipment (0..4) + 20 inventory page cells (5..24).
-    private final Vector2f[] slotPositions = new Vector2f[Player.EQUIPMENT_SLOT_COUNT + INV_PAGE_SIZE];
-    private final Vector2f[] groundLootPositions = new Vector2f[10];
-    {
-        for (int i = 0; i < slotPositions.length; i++) slotPositions[i] = new Vector2f();
-        for (int i = 0; i < 10; i++) groundLootPositions[i] = new Vector2f();
     }
 
     /** Centered horizontal purification bar at the top of the screen; self-contained shapes/batch cycle. */
@@ -1444,50 +1472,6 @@ public class PlayerUI {
         font.setColor(Color.WHITE);
         final GlyphLayout layout = new GlyphLayout(font, label);
         font.draw(batch, label, barX + (barW - layout.width) / 2f, barY + (barH - layout.height) / 2f);
-    }
-
-    /** Realm name + difficulty + difficulty-tinted icon, drawn just above the minimap. */
-    private void renderRealmInfo(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
-        if (this.minimap == null || !this.minimap.isInitialized()) return;
-        final Realm realm = (this.playState.getRealmManager() != null)
-                ? this.playState.getRealmManager().getRealm() : null;
-        if (realm == null) return;
-
-        String name = null;
-        if (realm.getNodeId() != null && GameDataManager.DUNGEON_GRAPH != null) {
-            final DungeonGraphNode node = GameDataManager.DUNGEON_GRAPH.get(realm.getNodeId());
-            if (node != null) name = node.getDisplayName();
-        }
-        if (name == null) {
-            final MapModel map = GameDataManager.MAPS != null ? GameDataManager.MAPS.get(realm.getMapId()) : null;
-            name = (map != null && map.getMapName() != null) ? map.getMapName() : ("Realm " + realm.getMapId());
-        }
-        float diff = 1f;
-        try { diff = realm.getDifficulty(); } catch (Exception ignored) {}
-
-        final int mx = this.minimap.getDrawX();
-        final int my = this.minimap.getDrawY();
-        final int mw = this.minimap.getSizePx();
-        final int barH = 20;
-        final int barY = my - barH - 2;
-
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.08f, 0.06f, 0.07f, 0.9f);
-        shapes.rect(mx, barY, mw, barH);
-        final float[] c = difficultyColor(diff);
-        shapes.setColor(c[0], c[1], c[2], 1f);
-        shapes.rect(mx + 4, barY + 4, barH - 8, barH - 8);
-        shapes.end();
-        batch.begin();
-
-        final float prevScale = font.getData().scaleX;
-        font.getData().setScale(0.6f);
-        font.setColor(Color.WHITE);
-        final String label = name + "   Diff " + String.format("%.1f", diff);
-        final GlyphLayout layout = new GlyphLayout(font, label);
-        font.draw(batch, label, mx + barH + 2, barY + (barH - layout.height) / 2f);
-        font.getData().setScale(prevScale);
     }
 
     /** Difficulty tint matching the webclient minimap badge (green → red as difficulty rises). */
@@ -1838,7 +1822,7 @@ public class PlayerUI {
                 this.minimap.update();
                 this.minimap.render(batch, shapes);
             } catch (Throwable t) {
-                log.warn("Minimap render failed (recovering): {}", t.toString());
+                log.warn("{} Minimap render failed (recovering): {}", LOG_NS, t.toString());
             }
         }
 
@@ -2496,17 +2480,6 @@ public class PlayerUI {
         return Math.max(0, y - headerY + 8);
     }
 
-    /** Cached chat-role nameplate colors used by the hover tooltip, mirrors
-     *  webclient renderer.js GameRenderer.getNameColorHex. Kept here as
-     *  well as PlayState (where the in-world nameplate uses them) so
-     *  PlayerUI doesn't need a static cross-class import dance. */
-    private static final Color UI_ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
-    private static final Color UI_ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
-    private static final Color UI_ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
-    private static final Color UI_ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
-    private static final Color UI_ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
-    private static final Color UI_ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
-
     private static Color roleColorFor(String role) {
         if (role == null) return UI_ROLE_DEFAULT;
         switch (role) {
@@ -2518,13 +2491,6 @@ public class PlayerUI {
             default:         return UI_ROLE_DEFAULT;
         }
     }
-
-    /** Width / height of the trade-tp context menu. Two rows of options
-     *  plus a name header. Wide enough for "Teleport to <NAME>" with
-     *  a 10-char trimmed name (longest expected label). */
-    private static final int CTX_MENU_W = 180;
-    private static final int CTX_MENU_HEADER_H = 22;
-    private static final int CTX_MENU_OPTION_H = 22;
 
     /**
      * Render + input for the player context menu. Mirrors webclient
@@ -2625,7 +2591,7 @@ public class PlayerUI {
                     CommandType.SERVER_COMMAND, msg);
             this.playState.getRealmManager().getClient().sendRemote(packet);
         } catch (Exception ex) {
-            log.error("Failed to send server command /{} {}: {}", command, arg, ex.getMessage());
+            log.error("{} Failed to send server command /{} {}: {}", LOG_NS, command, arg, ex.getMessage());
         }
     }
 
@@ -3693,12 +3659,6 @@ public class PlayerUI {
         slot.getButton().getPos().y = y;
     }
 
-    /** itemId of the bundled HP/MP potion entries in game-items.json.
-     *  Used by the bottom-bar potion oval renderer to look up the actual
-     *  potion sprite (so the side panels show a small bottle, not text). */
-    private static final int HP_POTION_ITEM_ID = 296;
-    private static final int MP_POTION_ITEM_ID = 297;
-
     /** Render a potion oval's contents — small potion bottle sprite drawn
      *  on the LEFT half of the oval, count text drawn on the RIGHT half.
      *  Mirrors the webclient {@code #hp-potion-slot} / {@code #mp-potion-slot}. */
@@ -3813,111 +3773,11 @@ public class PlayerUI {
         font.getData().setScale(origScale);
     }
 
-    /** Render difficulty + account fame badges to the RIGHT of the preview
-     *  panel, mirroring the webclient pill style:
-     *    GREEN PILL: "☠ 1.0"        difficulty multiplier
-     *    GOLD  PILL: "+ 99,022 FAME" account fame total
-     *  Each is a small rounded-corner-ish rect with text centered. */
-    private void renderBadgesNextToPreview(SpriteBatch batch, ShapeRenderer shapes,
-                                            BitmapFont font,
-                                            float previewRightX, float previewTopY) {
-        if (this.playState == null || this.playState.getPlayer() == null) return;
-        final Player p = this.playState.getPlayer();
-        // Account fame source-of-truth = PlayState.account, populated from
-        // GET /data/account/{uuid}. Mirrors the webclient (account.accountFame
-        // from main.js's REST account payload). Fall back to other caches
-        // if the REST account hasn't loaded yet.
-        long accountFame = 0L;
-        if (this.playState.getAccount() != null
-                && this.playState.getAccount().getAccountFame() != null) {
-            accountFame = this.playState.getAccount().getAccountFame();
-        }
-        if (accountFame == 0L && this.fameStoreWindow != null
-                && this.fameStoreWindow.getAccountFame() > 0L) {
-            accountFame = this.fameStoreWindow.getAccountFame();
-        }
-        if (accountFame == 0L) {
-            accountFame = p.getCachedAccountFame();
-        }
-        float difficulty = 1.0f;
-        try {
-            if (this.playState.getRealmManager() != null
-                    && this.playState.getRealmManager().getRealm() != null) {
-                difficulty = this.playState.getRealmManager().getRealm().getDifficulty();
-            }
-        } catch (Exception ignored) {}
-
-        // Pre-measure text so pill widths actually FIT the content (FAME
-        // values can hit 6-7 digits, e.g. "99,022 FAME" overflowed the
-        // previous 130-px pill leaving the leading digit outside the chrome).
-        final float origScale = font.getData().scaleX;
-        font.getData().setScale(1.0f);
-        final GlyphLayout glDiff = new GlyphLayout();
-        final GlyphLayout glFame = new GlyphLayout();
-        final String diffStr = "DIFF " + String.format("%.1f", difficulty);
-        final String fameStr = String.format("%,d FAME", accountFame);
-        glDiff.setText(font, diffStr);
-        glFame.setText(font, fameStr);
-
-        // Per-pill width = text + 32 px horizontal padding (16 each side).
-        // Stack uses the WIDER of the two so both pills line up flush-right.
-        final float padX = 16f;
-        final float pillH = 30;
-        final float pillGap = 6;
-        final float pillW = Math.max(glDiff.width, glFame.width) + padX * 2;
-        final float pillStackH = pillH * 2 + pillGap;
-        final float previewH = 148; // panel.container.small at displayScale 2
-        final float pillX = previewRightX + 8;
-        final float diffY = previewTopY + (previewH - pillStackH) / 2f;
-        final float fameY = diffY + pillH + pillGap;
-
-        // ShapeRenderer pass — solid backgrounds matching the webclient
-        // #difficulty-icon / #account-fame-display CSS rgba values.
-        batch.end();
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(180/255f, 60/255f, 60/255f, 1.0f);
-        shapes.rect(pillX, diffY, pillW, pillH);
-        shapes.setColor(50/255f, 38/255f, 24/255f, 1.0f);
-        shapes.rect(pillX, fameY, pillW, pillH);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(160/255f, 64/255f, 64/255f, 1f);
-        shapes.rect(pillX, diffY, pillW, pillH);
-        shapes.setColor(200/255f, 168/255f, 110/255f, 1f);
-        shapes.rect(pillX, fameY, pillW, pillH);
-        shapes.end();
-        Gdx.gl.glDisable(GL20.GL_BLEND);
-        batch.begin();
-
-        // Manual centering. font.draw with the project's y-DOWN ortho camera
-        // takes (x, y) as the TOP-LEFT of the text bounding box — NOT the
-        // baseline. Previous attempts treated y as the baseline, which
-        // shoved both pill labels to the bottom edge of their pills.
-        // Vertical center = pillY + (pillH - textHeight) / 2.
-        final float diffTextX = pillX + (pillW - glDiff.width) / 2f;
-        final float fameTextX = pillX + (pillW - glFame.width) / 2f;
-        final float diffTextY = diffY + (pillH - glDiff.height) / 2f;
-        final float fameTextY = fameY + (pillH - glFame.height) / 2f;
-
-        font.setColor(1f, 1f, 1f, 1f);
-        font.draw(batch, diffStr, diffTextX, diffTextY);
-
-        font.setColor(255/255f, 216/255f, 107/255f, 1f);
-        font.draw(batch, fameStr, fameTextX, fameTextY);
-
-        font.setColor(Color.WHITE);
-        font.getData().setScale(origScale);
-    }
-
     /** Static idle-front frame for the HUD preview canvas. Pulls the row/col
      *  for {@code idle_front} (or {@code idle_side} as fallback) from the
      *  class's animation data and builds a one-off TextureRegion off the
      *  class sheet — independent of the in-world Player.spriteSheet, so
      *  walking / attacking doesn't animate the HUD avatar. */
-    private final Map<String, TextureRegion> _hudIdleCache
-            = new HashMap<>();
     private TextureRegion getHudIdleFrame(Player p) {
         if (p == null) return null;
         final int classId = p.getClassId();

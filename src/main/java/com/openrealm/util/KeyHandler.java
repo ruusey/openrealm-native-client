@@ -47,33 +47,6 @@ public class KeyHandler implements InputProcessor {
     }
     public static volatile TextSink textSink = null;
 
-    public static class Key {
-        public int presses, absorbs;
-        public boolean down, clicked;
-
-        public Key() {
-            KeyHandler.keys.add(this);
-        }
-
-        public void toggle(boolean pressed) {
-            if (pressed != this.down) {
-                this.down = pressed;
-            }
-            if (pressed) {
-                this.presses++;
-            }
-        }
-
-        public void tick() {
-            if (this.absorbs < this.presses) {
-                this.absorbs++;
-                this.clicked = true;
-            } else {
-                this.clicked = false;
-            }
-        }
-    }
-
     public Key up = new Key();
     public Key down = new Key();
     public Key left = new Key();

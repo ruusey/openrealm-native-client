@@ -59,7 +59,7 @@ public class PassiveTooltip {
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.passive == null) return;
 
-        final List<Line> lines = this.buildLines(font);
+        final List<TooltipLine> lines = this.buildLines(font);
 
         final int contentH = lines.size() * LINE_HEIGHT;
         final int boxH = contentH + PADDING * 2;
@@ -88,7 +88,7 @@ public class PassiveTooltip {
         batch.begin();
 
         float ty = by + PADDING + LINE_HEIGHT - 4;
-        for (Line line : lines) {
+        for (TooltipLine line : lines) {
             font.setColor(line.color);
             font.draw(batch, line.text, bx + PADDING, ty);
             ty += LINE_HEIGHT;
@@ -96,19 +96,19 @@ public class PassiveTooltip {
         font.setColor(Color.WHITE);
     }
 
-    private List<Line> buildLines(BitmapFont font) {
-        final List<Line> lines = new ArrayList<>();
+    private List<TooltipLine> buildLines(BitmapFont font) {
+        final List<TooltipLine> lines = new ArrayList<>();
         final int maxTextW = this.width - PADDING * 2;
 
-        lines.add(new Line(this.passive.getName() != null ? this.passive.getName() : "Passive",
+        lines.add(new TooltipLine(this.passive.getName() != null ? this.passive.getName() : "Passive",
                 NAME_COLOR));
-        lines.add(new Line("Class Passive - always on", SUB_COLOR));
+        lines.add(new TooltipLine("Class Passive - always on", SUB_COLOR));
 
         if (this.passive.getDescription() != null && !this.passive.getDescription().isEmpty()) {
             final String resolved = substituteStatTemplates(
                     this.passive.getDescription(), this.viewerStats);
             for (String l : wrapLines(font, resolved, maxTextW)) {
-                lines.add(new Line(l, DESC_COLOR));
+                lines.add(new TooltipLine(l, DESC_COLOR));
             }
         }
 
@@ -186,11 +186,5 @@ public class PassiveTooltip {
         }
         if (current.length() > 0) out.add(current.toString());
         return out;
-    }
-
-    private static final class Line {
-        final String text;
-        final Color color;
-        Line(String text, Color color) { this.text = text; this.color = color; }
     }
 }

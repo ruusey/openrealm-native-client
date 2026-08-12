@@ -33,24 +33,12 @@ import java.lang.reflect.Method;
 @Slf4j
 public class FameStoreWindow {
 
-    /** A single purchasable entry rendered in the grid. */
-    public static class Entry {
-        public int itemId;
-        public String name;
-        public long cost;
-        public Entry(int itemId, String name, long cost) {
-            this.itemId = itemId;
-            this.name = name;
-            this.cost = cost;
-        }
-    }
-
     private boolean visible = false;
     private boolean mouseDownPrev = false;
 
     @Setter private RealmManagerClient realmManager;
     @Getter @Setter private long accountFame = 0L;
-    @Setter private List<Entry> entries = Collections.emptyList();
+    @Setter private List<FameStoreEntry> entries = Collections.emptyList();
 
     private String statusMsg = "";
     private boolean statusIsError = false;
@@ -169,7 +157,7 @@ public class FameStoreWindow {
 
         for (int i = firstIdx; i < lastIdx; i++) {
             int rowY = rowsTop + (i - firstIdx) * rowH;
-            Entry e = this.entries.get(i);
+            FameStoreEntry e = this.entries.get(i);
             font.setColor(Color.WHITE);
             font.draw(batch, e.name + "  (#" + e.itemId + ")", x + 22, rowY + rowH - 14);
             font.setColor(this.accountFame >= e.cost ? Color.WHITE : Color.LIGHT_GRAY);
@@ -235,7 +223,7 @@ public class FameStoreWindow {
         }
     }
 
-    private void attemptBuy(Entry entry) {
+    private void attemptBuy(FameStoreEntry entry) {
         if (entry == null || this.realmManager == null) return;
         if (this.accountFame < entry.cost) {
             this.setStatus("Not enough fame", true);

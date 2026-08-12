@@ -234,7 +234,7 @@ public class RealmOverseer {
         if (model == null) return;
 
         // Check if this kill completes an active realm event
-        for (Realm.ActiveRealmEvent evt : realm.getActiveRealmEvents()) {
+        for (ActiveRealmEvent evt : realm.getActiveRealmEvents()) {
             if (evt.bossEnemyId == enemy.getId() && !evt.completed) {
                 completeRealmEvent(evt);
                 return;
@@ -395,7 +395,7 @@ public class RealmOverseer {
         // Create the active event state
         int waveCount = event.getMinionWaves() != null ? event.getMinionWaves().size() : 0;
         long durationMs = event.getDurationSeconds() * 1000L;
-        Realm.ActiveRealmEvent activeEvent = new Realm.ActiveRealmEvent(
+        ActiveRealmEvent activeEvent = new ActiveRealmEvent(
             event.getEventId(), boss.getId(), tileX, tileY,
             savedBase, savedColl, waveCount, durationMs);
         realm.getActiveRealmEvents().add(activeEvent);
@@ -426,7 +426,7 @@ public class RealmOverseer {
      * the client filters this from chat and parses the body into an
      * {eventId, x, y, name} record. REMOVE messages clear the pin.
      */
-    private void broadcastEventMarker(Realm.ActiveRealmEvent evt, Enemy boss, RealmEventModel eventModel) {
+    private void broadcastEventMarker(ActiveRealmEvent evt, Enemy boss, RealmEventModel eventModel) {
         if (boss == null || eventModel == null) return;
         // Format: "ADD|eventId|bossId|x|y|name"
         final float x = boss.getPos().x + boss.getSize() / 2f;
@@ -463,9 +463,9 @@ public class RealmOverseer {
 
         final boolean broadcastMarkers = (tickCounter % EVENT_MARKER_INTERVAL_TICKS == 0);
 
-        final Iterator<Realm.ActiveRealmEvent> it = realm.getActiveRealmEvents().iterator();
+        final Iterator<ActiveRealmEvent> it = realm.getActiveRealmEvents().iterator();
         while (it.hasNext()) {
-            Realm.ActiveRealmEvent evt = it.next();
+            ActiveRealmEvent evt = it.next();
             if (evt.completed) {
                 it.remove();
                 continue;
@@ -549,7 +549,7 @@ public class RealmOverseer {
         return null;
     }
 
-    private void spawnMinionWave(Realm.ActiveRealmEvent evt, Enemy boss, MinionWave wave, String eventName) {
+    private void spawnMinionWave(ActiveRealmEvent evt, Enemy boss, MinionWave wave, String eventName) {
         EnemyModel minionModel = GameDataManager.ENEMIES.get(wave.getEnemyId());
         if (minionModel == null) return;
 
@@ -585,7 +585,7 @@ public class RealmOverseer {
     /**
      * Complete a realm event (boss killed): restore terrain, cleanup minions, announce.
      */
-    private void completeRealmEvent(Realm.ActiveRealmEvent evt) {
+    private void completeRealmEvent(ActiveRealmEvent evt) {
         evt.completed = true;
         broadcastEventMarkerRemove(evt.bossEnemyId);
         RealmEventModel eventModel = GameDataManager.REALM_EVENTS.get(evt.eventId);
@@ -613,7 +613,7 @@ public class RealmOverseer {
     /**
      * Timeout a realm event: despawn boss + minions, restore terrain, announce.
      */
-    private void timeoutRealmEvent(Realm.ActiveRealmEvent evt) {
+    private void timeoutRealmEvent(ActiveRealmEvent evt) {
         evt.completed = true;
         broadcastEventMarkerRemove(evt.bossEnemyId);
         RealmEventModel eventModel = GameDataManager.REALM_EVENTS.get(evt.eventId);

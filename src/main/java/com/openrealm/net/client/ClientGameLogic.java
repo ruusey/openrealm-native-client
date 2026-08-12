@@ -60,6 +60,7 @@ import com.openrealm.net.server.packet.TextPacket;
 import com.openrealm.util.PacketHandlerClient;
 
 import lombok.extern.slf4j.Slf4j;
+import com.openrealm.game.ui.FameStoreEntry;
 import com.openrealm.game.ui.FameStoreWindow;
 import com.openrealm.game.ui.ForgeWindow;
 import com.openrealm.game.ui.PotionStorageWindow;
@@ -551,7 +552,7 @@ public class ClientGameLogic {
 			// initial fame-store stock so the UI is interactive end-to-end.
 			// When the server emits a catalog payload, replace this with the
 			// served list.
-			List<FameStoreWindow.Entry> entries = new ArrayList<>();
+			List<FameStoreEntry> entries = new ArrayList<>();
 			// Catalog mirrors ServerFameStoreHelper's accepted itemId
 			// ranges and per-tier costs:
 			//   821-828  -> 8 dyes      (500 fame each)
@@ -560,35 +561,35 @@ public class ClientGameLogic {
 			final long DYE_COST     = ServerFameStoreHelper.DYE_FAME_COST;
 			final long CRYSTAL_COST = ServerFameStoreHelper.CRYSTAL_FAME_COST;
 			final long GEM_COST     = ServerFameStoreHelper.GEM_FAME_COST;
-			entries.add(new FameStoreWindow.Entry(821, "Green Dye",  DYE_COST));
-			entries.add(new FameStoreWindow.Entry(822, "Yellow Dye", DYE_COST));
-			entries.add(new FameStoreWindow.Entry(823, "Red Dye",    DYE_COST));
-			entries.add(new FameStoreWindow.Entry(824, "Blue Dye",   DYE_COST));
-			entries.add(new FameStoreWindow.Entry(825, "Purple Dye", DYE_COST));
-			entries.add(new FameStoreWindow.Entry(826, "Orange Dye", DYE_COST));
-			entries.add(new FameStoreWindow.Entry(827, "White Dye",  DYE_COST));
-			entries.add(new FameStoreWindow.Entry(828, "Black Dye",  DYE_COST));
-			entries.add(new FameStoreWindow.Entry(808, "Vit Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(809, "Wis Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(810, "HP Crystal",  CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(811, "MP Crystal",  CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(812, "Att Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(813, "Def Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(814, "Spd Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(815, "Dex Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreWindow.Entry(830, "Wisdom Scaling Gem", GEM_COST));
-			entries.add(new FameStoreWindow.Entry(831, "Swift Scaling Gem",  GEM_COST));
-			entries.add(new FameStoreWindow.Entry(832, "Multishot Gem",      GEM_COST));
-			entries.add(new FameStoreWindow.Entry(833, "Crushing Gem",       GEM_COST));
-			entries.add(new FameStoreWindow.Entry(834, "Slowing Gem",        GEM_COST));
-			entries.add(new FameStoreWindow.Entry(835, "Vampiric Gem",       GEM_COST));
-			entries.add(new FameStoreWindow.Entry(836, "Brutal Gem",         GEM_COST));
-			entries.add(new FameStoreWindow.Entry(854, "Attack Scaling Gem",    GEM_COST));
-			entries.add(new FameStoreWindow.Entry(855, "Defense Scaling Gem",   GEM_COST));
-			entries.add(new FameStoreWindow.Entry(856, "Dexterity Scaling Gem", GEM_COST));
-			entries.add(new FameStoreWindow.Entry(857, "Vitality Scaling Gem",  GEM_COST));
-			entries.add(new FameStoreWindow.Entry(858, "Health Scaling Gem",    GEM_COST));
-			entries.add(new FameStoreWindow.Entry(859, "Mana Scaling Gem",      GEM_COST));
+			entries.add(new FameStoreEntry(821, "Green Dye",  DYE_COST));
+			entries.add(new FameStoreEntry(822, "Yellow Dye", DYE_COST));
+			entries.add(new FameStoreEntry(823, "Red Dye",    DYE_COST));
+			entries.add(new FameStoreEntry(824, "Blue Dye",   DYE_COST));
+			entries.add(new FameStoreEntry(825, "Purple Dye", DYE_COST));
+			entries.add(new FameStoreEntry(826, "Orange Dye", DYE_COST));
+			entries.add(new FameStoreEntry(827, "White Dye",  DYE_COST));
+			entries.add(new FameStoreEntry(828, "Black Dye",  DYE_COST));
+			entries.add(new FameStoreEntry(808, "Vit Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreEntry(809, "Wis Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreEntry(810, "HP Crystal",  CRYSTAL_COST));
+			entries.add(new FameStoreEntry(811, "MP Crystal",  CRYSTAL_COST));
+			entries.add(new FameStoreEntry(812, "Att Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreEntry(813, "Def Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreEntry(814, "Spd Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreEntry(815, "Dex Crystal", CRYSTAL_COST));
+			entries.add(new FameStoreEntry(830, "Wisdom Scaling Gem", GEM_COST));
+			entries.add(new FameStoreEntry(831, "Swift Scaling Gem",  GEM_COST));
+			entries.add(new FameStoreEntry(832, "Multishot Gem",      GEM_COST));
+			entries.add(new FameStoreEntry(833, "Crushing Gem",       GEM_COST));
+			entries.add(new FameStoreEntry(834, "Slowing Gem",        GEM_COST));
+			entries.add(new FameStoreEntry(835, "Vampiric Gem",       GEM_COST));
+			entries.add(new FameStoreEntry(836, "Brutal Gem",         GEM_COST));
+			entries.add(new FameStoreEntry(854, "Attack Scaling Gem",    GEM_COST));
+			entries.add(new FameStoreEntry(855, "Defense Scaling Gem",   GEM_COST));
+			entries.add(new FameStoreEntry(856, "Dexterity Scaling Gem", GEM_COST));
+			entries.add(new FameStoreEntry(857, "Vitality Scaling Gem",  GEM_COST));
+			entries.add(new FameStoreEntry(858, "Health Scaling Gem",    GEM_COST));
+			entries.add(new FameStoreEntry(859, "Mana Scaling Gem",      GEM_COST));
 			store.setEntries(entries);
 			store.show();
 		} catch (Exception e) {

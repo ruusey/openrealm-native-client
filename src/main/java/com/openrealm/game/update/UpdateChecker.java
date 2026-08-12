@@ -303,16 +303,6 @@ public final class UpdateChecker {
         return s;
     }
 
-    private static class ReleaseInfo {
-        String tagName;
-        String version;
-        String notes;
-        String htmlUrl;
-        String assetName;
-        String assetUrl;
-        long assetSize;
-    }
-
     /** Modal dialog that shows download progress. Disposed by the worker on done(). */
     private static class ProgressDialog extends JDialog {
         final JProgressBar bar = new JProgressBar(0, 100);

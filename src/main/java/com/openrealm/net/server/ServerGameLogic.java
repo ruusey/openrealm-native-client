@@ -39,6 +39,8 @@ import com.openrealm.net.Packet;
 import com.openrealm.net.messaging.CommandType;
 import com.openrealm.net.messaging.LoginRequestMessage;
 import com.openrealm.net.messaging.LoginResponseMessage;
+import com.openrealm.net.realm.PendingRealmJoin;
+import com.openrealm.net.realm.PendingRealmTransition;
 import com.openrealm.net.realm.Realm;
 import com.openrealm.net.realm.RealmManagerServer;
 import com.openrealm.net.server.packet.CommandPacket;
@@ -332,7 +334,7 @@ public class ServerGameLogic {
 					log.info("[SERVER] Async realm generation complete for player {} (mapId={}, node={})",
 						user.getName(), mapId, resolvedNodeId);
 
-					mgr.enqueuePendingTransition(new RealmManagerServer.PendingRealmTransition(
+					mgr.enqueuePendingTransition(new PendingRealmTransition(
 						generatedRealm, user, finalCurrentRealm, finalUsedPortal));
 				} catch (Exception e) {
 					log.error("[SERVER] Async realm generation failed for player {}. Reason: {}",
@@ -792,7 +794,7 @@ public class ServerGameLogic {
 
 				// Defer realm join to the tick thread so addPlayer + invalidateRealmLoadState
 				// run atomically with the LoadPacket delta logic (no race condition).
-				mgr.enqueuePendingJoin(new RealmManagerServer.PendingRealmJoin(
+				mgr.enqueuePendingJoin(new PendingRealmJoin(
 						targetRealm, player, command.getSrcIp(), userSession, commandResponse));
 				log.info("[SERVER] Player {} login queued for tick-thread processing", player);
 			} catch (Exception e) {

@@ -468,14 +468,4 @@ public class ItemTooltip {
 
         font.setColor(Color.WHITE);
     }
-
-    private static class TooltipLine {
-        String text;
-        Color color;
-
-        TooltipLine(String text, Color color) {
-            this.text = text;
-            this.color = color;
-        }
-    }
 }

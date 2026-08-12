@@ -92,8 +92,6 @@ import com.openrealm.util.WorkerThread;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import com.badlogic.gdx.Input;
 import com.openrealm.game.graphics.ShaderManager;
@@ -107,6 +105,35 @@ import static com.openrealm.game.graphics.AbilityEffectRenderer.drawCircleOutlin
 @EqualsAndHashCode(callSuper = false)
 @Slf4j
 public class PlayState extends GameState {
+    private static final String LOG_NS = "[CLIENT](play-state)";
+
+    private static final long QUICK_USE_COOLDOWN_MS = 250;
+    private static final long PORTAL_COOLDOWN_MS = 1000;
+    private static final long CAST_RING_DURATION_MS = 700L;
+    // De-render a remote peer once it passes this range from the local player —
+    // the server's player load radius (viewport 10 + 5 tiles). Past it the
+    // server stops sending its updates, so keeping it would freeze/extrapolate a
+    // ghost that then teleports when a lagged update lands.
+    private static final float REMOTE_DERENDER_PX = 15 * 32;
+    private static final float REMOTE_DERENDER_PX_SQ = REMOTE_DERENDER_PX * REMOTE_DERENDER_PX;
+    // Enemy name labels: when a realm holds more than this many enemies (a horde),
+    // only enemies within NAME_HORDE_RADIUS of the local player get a name so we
+    // don't pay hundreds of text draws. Mirrors webclient renderer.js.
+    private static final int NAME_HORDE_THRESHOLD = 50;
+    private static final float NAME_HORDE_RADIUS_SQ = (32f * 5f) * (32f * 5f);
+
+    /** Cached chat-role nameplate colors. Mirrors webclient renderer.js
+     *  GameRenderer.getNameColorHex. Static so we don't allocate a Color
+     *  per name draw. */
+    private static final Color ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
+    private static final Color ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
+    private static final Color ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
+    private static final Color ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
+    private static final Color ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
+    private static final Color ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
+    // Enemy nameplate colour — webclient renderEnemy uses 0xff8080 (light red).
+    private static final Color ENEMY_NAME_COLOR = new Color(1f, 0.5f, 0.5f, 1f);
+
     private RealmManagerClient realmManager;
     /** Server-wide players surfaced by GlobalPlayerPositionPacket — used
      *  ONLY by the minimap to plot dots for players who aren't in our
@@ -114,7 +141,6 @@ public class PlayState extends GameState {
      *  Previously the global-pos handler was overwriting our local
      *  players' coords with these positions, which dragged the in-realm
      *  dots around as players in OTHER realms moved. */
-    @Getter @Setter
     private NetPlayerPosition[] minimapPlayers = new NetPlayerPosition[0];
     private Queue<EffectText> damageText;
     private Queue<ActiveVisualEffect> activeEffects;
@@ -125,14 +151,11 @@ public class PlayState extends GameState {
     // Phase 4 — party state mirror of webclient game.partyId / partyMembers.
     // Latest snapshot from PartyUpdatePacket. partyId == 0 means "not in
     // a party"; the UI hides the panel in that case.
-    @Getter @Setter
     private long partyId = 0L;
-    @Getter @Setter
     private NetPartyMember[] partyMembers = new NetPartyMember[0];
     /** Active cast bars by playerId — set by AbilityCastStartPacket handler,
      *  rendered as a bottom→top fill overlay on each casting player's
      *  sprite. Auto-cleared by the renderer when the cast completes. */
-    @Getter
     private final Map<Long, long[]> activeCasts = new ConcurrentHashMap<>();
     private List<Vector2f> shotDestQueue;
     private PlayerAccountDto account;
@@ -145,20 +168,6 @@ public class PlayState extends GameState {
     private long lastPortalTick = 0;
     /** Data-driven projectile FX particles (trails, muzzle/impact bursts). */
     private final ProjectileFxManager projectileFx = new ProjectileFxManager();
-    private static final long QUICK_USE_COOLDOWN_MS = 250;
-    private static final long PORTAL_COOLDOWN_MS = 1000;
-    // De-render a remote peer once it passes this range from the local player —
-    // the server's player load radius (viewport 10 + 5 tiles). Past it the
-    // server stops sending its updates, so keeping it would freeze/extrapolate a
-    // ghost that then teleports when a lagged update lands.
-    private static final float REMOTE_DERENDER_PX = 15 * 32;
-    private static final float REMOTE_DERENDER_PX_SQ = REMOTE_DERENDER_PX * REMOTE_DERENDER_PX;
-
-    // Enemy name labels: when a realm holds more than this many enemies (a horde),
-    // only enemies within NAME_HORDE_RADIUS of the local player get a name so we
-    // don't pay hundreds of text draws. Mirrors webclient renderer.js.
-    private static final int NAME_HORDE_THRESHOLD = 50;
-    private static final float NAME_HORDE_RADIUS_SQ = (32f * 5f) * (32f * 5f);
     public long playerId = -1l;
     /** Local player's privilege role (sysadmin/admin/mod/editor/demo), captured
      *  at login. STATIC so it survives a PlayState re-created on a realm
@@ -222,28 +231,6 @@ public class PlayState extends GameState {
      */
     private final ArrayDeque<PendingInput> pendingInputs = new ArrayDeque<>(128);
 
-    /** One sim-tick worth of input + the per-tick step magnitude that
-     *  was active when the input was sent. Captured at send-time so the
-     *  reconciler replay is exactly what the client originally simulated
-     *  (spd stat / SPEEDY effect could otherwise change between send and
-     *  ack). */
-    private static final class PendingInput {
-        final int seq;
-        final float vx, vy, basePxPerTick;
-        /** SLOWED / PARALYZED at send time. Replay ORs each with the player's
-         *  CURRENT effect state (webclient game.js simulateTick parity): an input
-         *  sent while slowed/paralyzed — OR replayed while slowed/paralyzed now —
-         *  moves at half speed / stays frozen. basePxPerTick EXCLUDES the SLOWED
-         *  0.5 factor so it's applied fresh from the OR'd state and never double-
-         *  counted; SPEEDY stays baked into base (webclient reads it from the
-         *  snapshot only, so send-time capture is correct). */
-        final boolean slowed, paralyzed;
-        PendingInput(int seq, float vx, float vy, float basePxPerTick, boolean slowed, boolean paralyzed) {
-            this.seq = seq; this.vx = vx; this.vy = vy; this.basePxPerTick = basePxPerTick;
-            this.slowed = slowed; this.paralyzed = paralyzed;
-        }
-    }
-
     /** Visual-only smoothing offset applied to the local player's render
      *  position when reconciliation finds a small mismatch (collision /
      *  slow-tile divergence). The logical pos is snapped to the replay
@@ -255,7 +242,6 @@ public class PlayState extends GameState {
 
     private long castRingExpiresAt = 0L;
     private float castRingCx, castRingCy, castRingRadius;
-    private static final long CAST_RING_DURATION_MS = 700L;
 
     /**
      * Set when the initial login send fails. The state's first update() tick
@@ -298,36 +284,6 @@ public class PlayState extends GameState {
     private boolean hasInterpAnchor = false;
 
     private final Matrix4 worldTransformIdt = new Matrix4();
-
-    /** Cached chat-role nameplate colors. Mirrors webclient renderer.js
-     *  GameRenderer.getNameColorHex. Static so we don't allocate a Color
-     *  per name draw. */
-    private static final Color ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
-    private static final Color ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
-    private static final Color ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
-    private static final Color ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
-    private static final Color ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
-    private static final Color ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
-    // Enemy nameplate colour — webclient renderEnemy uses 0xff8080 (light red).
-    private static final Color ENEMY_NAME_COLOR = new Color(1f, 0.5f, 0.5f, 1f);
-
-    /**
-     * Status icon palette mirrors webclient renderer.js STATUS_ICON_DEFS so
-     * the same effect renders the same color on both clients (player can
-     * identify "green DoT pip = poison" from any client they're using).
-     */
-    private static final class StatusEffectIconDef {
-        final short effectId;
-        final String label;
-        final float r, g, b;
-        StatusEffectIconDef(short effectId, String label, int rgb) {
-            this.effectId = effectId;
-            this.label = label;
-            this.r = ((rgb >> 16) & 0xFF) / 255f;
-            this.g = ((rgb >>  8) & 0xFF) / 255f;
-            this.b = ( rgb        & 0xFF) / 255f;
-        }
-    }
 
     /** Labels MUST match webclient renderer.js STATUS_ICON_DEFS so a
      *  player can read the same chip text on either client. Suffix
@@ -392,8 +348,8 @@ public class PlayState extends GameState {
             // Connection refused / unreachable host / etc. — don't kill the
             // whole client; log it and bounce back to character-select so the
             // user can change the game-server host and try again.
-            log.error("Failed to send initial LoginRequest, returning to character select. Reason: {}",
-                    e.getMessage());
+            log.error("{} failed to send initial LoginRequest, returning to character select: {}",
+                    LOG_NS, e.getMessage());
             this.connectError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             return;
         }
@@ -685,7 +641,7 @@ public class PlayState extends GameState {
                     this.realmManager.getClient().sendRemote(packet);
                     this.spawnPredictedBullets(player, source, dest);
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to build player shoot packet. Reason: {}", e.getMessage());
+                    PlayState.log.error("{} failed to build player shoot packet: {}", LOG_NS, e.getMessage());
                 }
             }
 
@@ -1020,8 +976,8 @@ public class PlayState extends GameState {
                 ? _archShot.getRangeMul() : 1.0f;
         final boolean archPierces = _archShot != null && _archShot.isPiercing();
         final int totalBullets = archCount + gemMulti;
-        log.info("[shoot-predict] weapon='{}' projGroupId={} archCount={} gemMulti={} totalBullets={} enchants={}",
-                weapon.getName(), projGroupId, archCount, gemMulti, totalBullets,
+        log.info("{} shoot-predict weapon='{}' projGroupId={} archCount={} gemMulti={} totalBullets={} enchants={}",
+                LOG_NS, weapon.getName(), projGroupId, archCount, gemMulti, totalBullets,
                 weapon.getEnchantments() == null ? 0 : weapon.getEnchantments().size());
 
         // Homing prediction target: nearest enemy to the cursor within ~6 tiles
@@ -1272,7 +1228,7 @@ public class PlayState extends GameState {
                         PlayerMovePacket packet = PlayerMovePacket.from(player, seq, vx, vy);
                         this.realmManager.getClient().sendRemote(packet);
                     } catch (Exception e) {
-                        PlayState.log.error("Failed to create player move packet. Reason: {}", e);
+                        PlayState.log.error("{} failed to create player move packet", LOG_NS, e);
                     }
 
                     ticks++;
@@ -1406,7 +1362,7 @@ public class PlayState extends GameState {
                         this.lastPortalTick = System.currentTimeMillis();
                     }
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to send test UsePortalPacket", e.getMessage());
+                    PlayState.log.error("{} failed to send UsePortalPacket: {}", LOG_NS, e.getMessage());
                 }
 
             }
@@ -1426,7 +1382,7 @@ public class PlayState extends GameState {
                     this.realmManager.getClient().sendRemote(LoginAckPacket.from());
                     this.lastPortalTick = System.currentTimeMillis();
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to send Nexus UsePortalPacket", e.getMessage());
+                    PlayState.log.error("{} failed to send Nexus UsePortalPacket: {}", LOG_NS, e.getMessage());
                 }
             }
             if (key.f1.clicked && canUsePortal) {
@@ -1440,7 +1396,7 @@ public class PlayState extends GameState {
                         this.lastPortalTick = System.currentTimeMillis();
                     }
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to send test UsePortalPacket", e.getMessage());
+                    PlayState.log.error("{} failed to send Vault UsePortalPacket: {}", LOG_NS, e.getMessage());
                 }
 
             }
@@ -1492,7 +1448,7 @@ public class PlayState extends GameState {
                         this.realmManager.getClient().sendRemote(pkt);
                     }
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to send InteractTilePacket. Reason: {}", e.getMessage());
+                    PlayState.log.error("{} failed to send InteractTilePacket: {}", LOG_NS, e.getMessage());
                 }
             }
             if (this.pui != null) {
@@ -1658,8 +1614,8 @@ public class PlayState extends GameState {
                     this.realmManager.getClient().sendRemote(useAbility);
                     this.lastAbilityTick = System.currentTimeMillis();
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to send UseAbility packet from hotbar click for slot {}. Reason: {}",
-                            bindingIdx, e);
+                    PlayState.log.error("{} failed to send UseAbility packet from hotbar click for slot {}",
+                            LOG_NS, bindingIdx, e);
                 }
             }
         }
@@ -1679,8 +1635,8 @@ public class PlayState extends GameState {
                     final Ability ab = this.getPlayer().getActiveAbility(investBinding);
                     if (ab != null) this.getPlayer().investSkillPoint(ab.getId());
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to send InvestSkillPoint from hotbar right-click for slot {}. Reason: {}",
-                            investBinding, e);
+                    PlayState.log.error("{} failed to send InvestSkillPoint from hotbar right-click for slot {}",
+                            LOG_NS, investBinding, e);
                 }
             }
         }
@@ -1705,7 +1661,7 @@ public class PlayState extends GameState {
                         this.realmManager.getClient().sendRemote(useAbility);
                         this.lastAbilityTick = System.currentTimeMillis();
                     } catch (Exception e) {
-                        PlayState.log.error("Failed to send UseAbility packet for slot {}. Reason: {}", slot, e);
+                        PlayState.log.error("{} failed to send UseAbility packet for slot {}", LOG_NS, slot, e);
                     }
                 }
             }
@@ -1739,15 +1695,10 @@ public class PlayState extends GameState {
                         player.setMana(Math.max(0, player.getMana() - abilityCost));
                     }
                 } catch (Exception e) {
-                    PlayState.log.error("Failed to send UseAbility packet. Reason: {}", e);
+                    PlayState.log.error("{} failed to send UseAbility packet", LOG_NS, e);
                 }
             }
         }
-    }
-
-    @SuppressWarnings("unused")
-    private CharacterClass currentPlayerCharacterClass() {
-        return CharacterClass.valueOf(this.getPlayer().getClassId());
     }
 
     private Vector2f clampCastPos(Player p, int bindingIdx, float rawX, float rawY) {
@@ -1974,7 +1925,7 @@ public class PlayState extends GameState {
                 final Collection<Player> ps =
                         this.realmManager.getRealm().getPlayers().values();
                 final StringBuilder sb = new StringBuilder();
-                sb.append("[RENDER] players(").append(ps.size()).append(")=");
+                sb.append("players(").append(ps.size()).append(")=");
                 for (Player rp : ps) {
                     String spriteState = "noSprite";
                     if (rp.getSpriteSheet() != null) {
@@ -2002,10 +1953,10 @@ public class PlayState extends GameState {
                       .append('|').append(spriteState)
                       .append("] ");
                 }
-                log.info(sb.toString());
+                log.info("{} render {}", LOG_NS, sb.toString());
             } catch (Exception ignored) {}
-            log.info("[RENDER] realm[enemies={} bullets={} portals={}] viewport[objs={}]",
-                    realmEnemies, realmBullets, realmPortals, gameObject.length);
+            log.info("{} render realm[enemies={} bullets={} portals={}] viewport[objs={}]",
+                    LOG_NS, realmEnemies, realmBullets, realmPortals, gameObject.length);
         }
 
         // BLIND status — clamp visible radius around the local player. Same
@@ -2814,7 +2765,7 @@ public class PlayState extends GameState {
             MoveItemPacket moveItem = MoveItemPacket.from(from.getTargetSlot(), (byte) slotIndex, false, consume);
             this.realmManager.getClient().sendRemote(moveItem);
         } catch (Exception e) {
-            PlayState.log.error("Failed to send move item packet: {}", "No Item in slot");
+            PlayState.log.error("{} failed to send move item packet: {}", LOG_NS, "No Item in slot");
         }
     }
 

@@ -300,7 +300,7 @@ public class CharacterSelectState extends GameState {
         // Layout regions are computed in render(); we recompute here so click
         // hit-tests stay aligned. Keeping layout in one helper would be nicer
         // but the read-only render() path is hot, so duplicate the math here.
-        Layout L = this.layout();
+        CharacterSelectLayout L = this.layout();
 
         // While the stats report is open it owns all input — route the wheel to it
         // and swallow everything else so clicks don't fall through to the list.
@@ -345,7 +345,7 @@ public class CharacterSelectState extends GameState {
         // first (right column), then character list (left). Anywhere else
         // we still consume to drain the buffer (avoids carryover firing
         // on the next state transition).
-        Layout LL = this.layout();
+        CharacterSelectLayout LL = this.layout();
         float wheel = KeyHandler.consumeScroll();
         if (wheel != 0f && this.leaderboard.containsPoint(mx, my)) {
             this.leaderboard.scrollBy(wheel > 0 ? 1 : -1);
@@ -478,7 +478,7 @@ public class CharacterSelectState extends GameState {
         shapes.end();
         batch.begin();
 
-        Layout L = this.layout();
+        CharacterSelectLayout L = this.layout();
 
         // Header
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
@@ -845,26 +845,8 @@ public class CharacterSelectState extends GameState {
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
     }
 
-    /** Pre-computed layout coordinates so input + render agree. */
-    private static class Layout {
-        int tabsY, tabH, tabW, tabCharsX, tabGraveX;
-        int listX, listY, listW, listH, rowH;
-        int pickerX, pickerY, pickerCellW, pickerCellH;
-        int playX, playY, deleteX, deleteY, createX, createY;
-        int btnW, btnH;
-        /** Right-column buttons stretch wider than the bottom action ones. */
-        int rightBtnW;
-        int serverX, serverY;
-        int addChestX, addChestY;
-        int changePwX, changePwY;
-        int pwFieldX, pwFieldY, pwFieldW;
-        int pwSubmitX, pwSubmitY;
-        int logoutX, logoutY;
-        int lbX, lbY, lbW, lbH;
-    }
-
-    private Layout layout() {
-        Layout L = new Layout();
+    private CharacterSelectLayout layout() {
+        CharacterSelectLayout L = new CharacterSelectLayout();
         int width = OpenRealmGame.width;
         int height = OpenRealmGame.height;
         // Two columns: left = char list + class picker, right = account

@@ -76,7 +76,7 @@ public class AbilityTooltip {
         if (this.ability == null) return;
 
         // Build text lines first so we can size the box before drawing chrome.
-        final List<Line> lines = this.buildLines(font);
+        final List<TooltipLine> lines = this.buildLines(font);
 
         // Compute box height from line count.
         final int contentH = lines.size() * LINE_HEIGHT;
@@ -113,7 +113,7 @@ public class AbilityTooltip {
         // Lines top-down. In the project's flipped ortho cam, font.draw
         // treats (x, y) as the top of the glyph box.
         float ty = by + PADDING + LINE_HEIGHT - 4;
-        for (Line line : lines) {
+        for (TooltipLine line : lines) {
             font.setColor(line.color);
             font.draw(batch, line.text, bx + PADDING, ty);
             ty += LINE_HEIGHT;
@@ -121,12 +121,12 @@ public class AbilityTooltip {
         font.setColor(Color.WHITE);
     }
 
-    private List<Line> buildLines(BitmapFont font) {
-        final List<Line> lines = new ArrayList<>();
+    private List<TooltipLine> buildLines(BitmapFont font) {
+        final List<TooltipLine> lines = new ArrayList<>();
         final int maxTextW = this.width - PADDING * 2;
 
         // Header — name.
-        lines.add(new Line(this.ability.getName() != null ? this.ability.getName() : "Unknown", NAME_COLOR));
+        lines.add(new TooltipLine(this.ability.getName() != null ? this.ability.getName() : "Unknown", NAME_COLOR));
 
         // Subtitle — "Active Ability — Key N • tag1 · tag2".
         StringBuilder subtitle = new StringBuilder("Active Ability");
@@ -142,12 +142,12 @@ public class AbilityTooltip {
             }
             if (tagBuf.length() > 0) subtitle.append(" * ").append(tagBuf);
         }
-        lines.add(new Line(subtitle.toString(), SUB_COLOR));
+        lines.add(new TooltipLine(subtitle.toString(), SUB_COLOR));
 
         // Description — word-wrapped.
         if (this.ability.getDescription() != null && !this.ability.getDescription().isEmpty()) {
             for (String l : wrapLines(font, this.ability.getDescription(), maxTextW)) {
-                lines.add(new Line(l, DESC_COLOR));
+                lines.add(new TooltipLine(l, DESC_COLOR));
             }
         }
 
@@ -179,10 +179,10 @@ public class AbilityTooltip {
                 final boolean pierce = (this.ability.getTags() != null
                         && this.ability.getTags().contains("armor_pierce"));
                 final Color dmgColor = pierce ? DMG_PIERCE : DMG_COLOR;
-                lines.add(new Line((pierce ? "Armor-Pierce Damage: " : "Damage: ") + total, dmgColor));
+                lines.add(new TooltipLine((pierce ? "Armor-Pierce Damage: " : "Damage: ") + total, dmgColor));
                 final String breakdown = parts.isEmpty() ? Long.toString(total) : String.join(" ", parts);
                 for (String wl : wrapLines(font, "= " + breakdown, maxTextW)) {
-                    lines.add(new Line("  " + wl, GREEN_BONUS));
+                    lines.add(new TooltipLine("  " + wl, GREEN_BONUS));
                 }
             }
         }
@@ -194,12 +194,12 @@ public class AbilityTooltip {
             final long eff = Math.max(500L, base - red);
             String cdText = String.format("Cooldown: %.1fs", eff / 1000f);
             if (eff != base) cdText += String.format(" (base %.1fs)", base / 1000f);
-            lines.add(new Line(cdText, CD_COLOR));
+            lines.add(new TooltipLine(cdText, CD_COLOR));
         }
 
         // MP cost.
         if (this.ability.getMpCost() > 0) {
-            lines.add(new Line("MP Cost: " + this.ability.getMpCost(), MP_COLOR));
+            lines.add(new TooltipLine("MP Cost: " + this.ability.getMpCost(), MP_COLOR));
         }
 
         // Cast time (with SP reduction halved, matching webclient).
@@ -209,14 +209,14 @@ public class AbilityTooltip {
             final long eff = Math.max(150L, baseCast - red);
             String castText = String.format("Cast: %.1fs", eff / 1000f);
             if (eff != baseCast) castText += String.format(" (base %.1fs)", baseCast / 1000f);
-            lines.add(new Line(castText, CAST_COLOR));
+            lines.add(new TooltipLine(castText, CAST_COLOR));
         } else {
-            lines.add(new Line("Cast: Instant", CAST_COLOR));
+            lines.add(new TooltipLine("Cast: Instant", CAST_COLOR));
         }
 
         // SP invested / max.
         final int maxSp = this.ability.getMaxSkillPoints() > 0 ? this.ability.getMaxSkillPoints() : 5;
-        lines.add(new Line("Skill Points: " + this.investedSp + " / " + maxSp, SP_COLOR));
+        lines.add(new TooltipLine("Skill Points: " + this.investedSp + " / " + maxSp, SP_COLOR));
 
         return lines;
     }
@@ -275,11 +275,5 @@ public class AbilityTooltip {
         }
         if (current.length() > 0) out.add(current.toString());
         return out;
-    }
-
-    private static final class Line {
-        final String text;
-        final Color color;
-        Line(String text, Color color) { this.text = text; this.color = color; }
     }
 }

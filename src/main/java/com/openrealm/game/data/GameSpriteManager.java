@@ -31,6 +31,8 @@ import java.util.Set;
 @Slf4j
 public class GameSpriteManager {
 
+    private static final String LOG_NS = "[CLIENT](sprite-manager)";
+
     private static final String[] SPRITE_NAMES = {
             // HUD chrome — fetched from /game-data/ui.png and /game-data/buttons.png
             // which the data service serves out of openrealm-data's classpath:/ui/.
@@ -312,8 +314,8 @@ public class GameSpriteManager {
             TILE_FEATHERS.put(e.getKey(), variants);
         }
 
-        log.info("[SPRITES] Baked tile feathers — {} tiles × 4 = {} variants in {}x{} atlas",
-                tileIds.size(), tileIds.size() * 4, atlasW, atlasH);
+        log.info("{} Baked tile feathers — {} tiles × 4 = {} variants in {}x{} atlas",
+                LOG_NS, tileIds.size(), tileIds.size() * 4, atlasW, atlasH);
     }
 
     /** True if a seam between two base tile types should be feathered. Tiles
@@ -361,7 +363,7 @@ public class GameSpriteManager {
             final SpriteSheet sheet = new SpriteSheet(spriteTexture, spriteModel);
             result = sheet;
         } catch (Exception e) {
-            GameSpriteManager.log.error("Failed to build sprite sheet for sprite model {}. Reason: {}", spriteModel, e);
+            GameSpriteManager.log.error("{} Failed to build sprite sheet for sprite model {}. Reason: {}", LOG_NS, spriteModel, e);
         }
         return result;
     }
@@ -473,7 +475,7 @@ public class GameSpriteManager {
                 }
             }
         } catch (Exception e) {
-            log.warn("Sprite-key discovery failed; falling back to hardcoded list. Reason: {}", e.getMessage());
+            log.warn("{} Sprite-key discovery failed; falling back to hardcoded list. Reason: {}", LOG_NS, e.getMessage());
         }
         return keys;
     }
@@ -498,8 +500,8 @@ public class GameSpriteManager {
         GameSpriteManager.TEXTURE_CACHE = new HashMap<>();
         try {
             final LinkedHashSet<String> allKeys = collectAllSpriteKeys();
-            log.info("Loading {} sprite sheets ({} hardcoded + {} discovered from data)",
-                    allKeys.size(), SPRITE_NAMES.length, allKeys.size() - SPRITE_NAMES.length);
+            log.info("{} Loading {} sprite sheets ({} hardcoded + {} discovered from data)",
+                    LOG_NS, allKeys.size(), SPRITE_NAMES.length, allKeys.size() - SPRITE_NAMES.length);
             for (final String spriteKey : allKeys) {
                 Texture texture = null;
                 // For HUD chrome, prefer the bundled copy outright. It's tiny,
@@ -517,7 +519,7 @@ public class GameSpriteManager {
                 GameSpriteManager.TEXTURE_CACHE.put(spriteKey, texture);
             }
         } catch (Exception e) {
-            GameSpriteManager.log.error("Failed to load game sprites. Exiting. Reason: {}", e);
+            GameSpriteManager.log.error("{} Failed to load game sprites. Exiting. Reason: {}", LOG_NS, e);
             System.exit(-1);
         }
     }
@@ -546,7 +548,7 @@ public class GameSpriteManager {
         try {
             InputStream is = GameSpriteManager.class.getClassLoader().getResourceAsStream(file);
             if (is == null) {
-                GameSpriteManager.log.error("ERROR: could not find file: {}", file);
+                GameSpriteManager.log.error("{} ERROR: could not find file: {}", LOG_NS, file);
                 return null;
             }
             byte[] bytes = readAllBytes(is);
@@ -555,7 +557,7 @@ public class GameSpriteManager {
             texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
             cachePixmap(file, pixmap);
         } catch (Exception e) {
-            GameSpriteManager.log.error("ERROR: could not load file: {}", file);
+            GameSpriteManager.log.error("{} ERROR: could not load file: {}", LOG_NS, file);
         }
         return texture;
     }
@@ -575,7 +577,7 @@ public class GameSpriteManager {
             texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
             cachePixmap(file, pixmap);
         } catch (Exception e) {
-            GameSpriteManager.log.error("ERROR: could not load remote file: {}. Reason: {}", file, e.getMessage());
+            GameSpriteManager.log.error("{} ERROR: could not load remote file: {}. Reason: {}", LOG_NS, file, e.getMessage());
         }
         return texture;
     }
@@ -634,14 +636,14 @@ public class GameSpriteManager {
         }
 
         // Fallback: should not happen once animations.json is always present
-        log.warn("No animation data for classId={}, cannot load sprites", cls.classId);
+        log.warn("{} No animation data for classId={}, cannot load sprites", LOG_NS, cls.classId);
         return null;
     }
 
     private static SpriteSheet loadClassSpritesFromData(CharacterClass cls, AnimationModel animModel) {
         final SpriteSheet sheet = buildAnimatedSpriteSheet(animModel);
         if (sheet == null) {
-            log.warn("No texture for classId={} spriteKey={}", cls.classId, animModel.getSpriteKey());
+            log.warn("{} No texture for classId={} spriteKey={}", LOG_NS, cls.classId, animModel.getSpriteKey());
         }
         return sheet;
     }

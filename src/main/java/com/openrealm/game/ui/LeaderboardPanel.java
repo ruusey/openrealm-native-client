@@ -33,36 +33,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class LeaderboardPanel {
 
-    public static class Row {
-        public int rank;
-        public String accountName;
-        public String className;
-        public int classIdx;
-        public int level;
-        public long fame;
-        /** Item id per slot index, in canonical left-to-right order:
-         *  0=PRIMARY_WEAPON, 1=ARMOR, 2=GAUNTLETS, 3=BOOTS, 4=RING.
-         *  -1 = empty. Layout matches the webclient leaderboard tooltip
-         *  (loadLeaderboard / showEquipmentTooltip in main.js). */
-        public int[] equipment = new int[]{-1, -1, -1, -1, -1};
-
-        public Row(int rank, String accountName, String className, int classIdx,
-                   int level, long fame, int[] equipment) {
-            this.rank = rank;
-            this.accountName = accountName;
-            this.className = className;
-            this.classIdx = classIdx;
-            this.level = level;
-            this.fame = fame;
-            if (equipment != null && equipment.length == 5) this.equipment = equipment;
-        }
-    }
-
     /** Slot count rendered per leaderboard row. All classes use the same
      *  5-slot layout (weapon/armor/gauntlets/boots/ring). */
     private static final int EQUIP_SLOT_COUNT = 5;
 
-    private List<Row> rows = Collections.emptyList();
+    private List<LeaderboardRow> rows = Collections.emptyList();
     private long lastFetchAt = 0L;
     private static final long REFRESH_MS = 30_000L;
     private boolean failed = false;
@@ -108,7 +83,7 @@ public class LeaderboardPanel {
         if (svc == null) return;
         try {
             JsonNode body = svc.executeGet("data/stats/top?count=10", null, JsonNode.class);
-            List<Row> parsed = new ArrayList<>();
+            List<LeaderboardRow> parsed = new ArrayList<>();
             if (body != null && body.isArray()) {
                 int rank = 1;
                 for (JsonNode entry : body) {
@@ -129,7 +104,7 @@ public class LeaderboardPanel {
                             if (slot >= 0 && slot < EQUIP_SLOT_COUNT) equip[slot] = itemId;
                         }
                     }
-                    parsed.add(new Row(rank++, name, className, classIdx, level, fame, equip));
+                    parsed.add(new LeaderboardRow(rank++, name, className, classIdx, level, fame, equip));
                 }
             }
             this.rows = parsed;
@@ -218,7 +193,7 @@ public class LeaderboardPanel {
         final int fameBaselineOff = eqYOff + eqIconSize + 14;   // +86
 
         for (int visIdx = 0, i = startIdx; i < endIdx; i++, visIdx++) {
-            Row r = this.rows.get(i);
+            LeaderboardRow r = this.rows.get(i);
             int rowTop = firstRowTop + visIdx * rowH;
 
             // Subtle alternating background — keyed off VISUAL index so the
