@@ -457,6 +457,10 @@ public class TileManager {
         return block;
     }
 
+    public boolean isMapLoaded() {
+        return this.mapLayers != null && !this.mapLayers.isEmpty();
+    }
+
     public TileMap getCollisionLayer() {
         return this.mapLayers.get(this.mapLayers.size() - 1);
     }
@@ -575,7 +579,12 @@ public class TileManager {
         	return true;
         }
         final Tile currentTile = collisionLayer.getBlocks()[tileY][tileX];
-        return (currentTile != null) && !currentTile.isVoid();
+        if (currentTile == null || currentTile.isVoid()) return false;
+        // Decoration tiles (flowers, candles) sit in the collision layer with
+        // hasCollision=0. The server shoots/walks through them, so bullets must
+        // not expire on them here or they visually vanish before the target.
+        final TileData td = currentTile.getData();
+        return td != null && td.hasCollision();
     }
     
     public boolean isVoidTile(Vector2f pos, float dx, float dy) {

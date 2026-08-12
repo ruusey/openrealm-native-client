@@ -707,6 +707,10 @@ public class PlayState extends GameState {
         scratch.x = p.getPos().x + halfSize;
         scratch.y = p.getPos().y + halfSize;
         final TileManager tm = this.getRealmManager().getRealm().getTileManager();
+        // The first movement input can arrive before the initial LoadMapPacket
+        // populates the tile layers; skip the frame so collision queries don't
+        // index an empty collision layer.
+        if (!tm.isMapLoaded()) return;
         // Webclient parity (game.js simulateTick): apply the slow-tile divisor
         // to the delta FIRST, then run every collision query and commit against
         // that same reduced delta. Checking the full delta but committing a
