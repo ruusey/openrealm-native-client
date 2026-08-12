@@ -23,7 +23,6 @@ import com.openrealm.game.model.AnimationSetModel;
 import com.openrealm.game.model.SpriteModel;
 import com.openrealm.game.model.TileModel;
 import com.openrealm.net.client.ClientGameLogic;
-import com.openrealm.net.server.ServerGameLogic;
 
 import lombok.extern.slf4j.Slf4j;
 import java.util.Set;
@@ -565,9 +564,7 @@ public class GameSpriteManager {
     public static Texture loadTextureRemote(String file) {
         Texture texture = null;
         try {
-            String baseUrl = ClientGameLogic.DATA_SERVICE.getBaseUrl() == null
-                    ? ServerGameLogic.DATA_SERVICE.getBaseUrl()
-                    : ClientGameLogic.DATA_SERVICE.getBaseUrl();
+            String baseUrl = ClientGameLogic.DATA_SERVICE.getBaseUrl();
             final URL imageUrl = new URL(baseUrl + "game-data/" + file);
             InputStream is = imageUrl.openStream();
             byte[] bytes = readAllBytes(is);

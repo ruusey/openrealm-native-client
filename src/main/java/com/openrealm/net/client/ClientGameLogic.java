@@ -68,7 +68,7 @@ import com.openrealm.net.client.packet.OpenFameStorePacket;
 import com.openrealm.net.client.packet.OpenForgePacket;
 import com.openrealm.net.client.packet.OpenPotionStoragePacket;
 import com.openrealm.net.client.packet.PotionStorageUpdatePacket;
-import com.openrealm.net.server.ServerFameStoreHelper;
+import com.openrealm.game.contants.FameStoreConstants;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import com.openrealm.net.client.packet.AbilityCastStartPacket;
 import com.openrealm.net.client.packet.PartyUpdatePacket;
@@ -553,14 +553,14 @@ public class ClientGameLogic {
 			// When the server emits a catalog payload, replace this with the
 			// served list.
 			List<FameStoreEntry> entries = new ArrayList<>();
-			// Catalog mirrors ServerFameStoreHelper's accepted itemId
-			// ranges and per-tier costs:
+			// Catalog mirrors the server's accepted itemId ranges and
+			// per-tier costs:
 			//   821-828  -> 8 dyes      (500 fame each)
 			//   808-815  -> 8 crystals  (1000 fame each)
 			//   830-836  -> 7 gems      (5000 fame each — endgame power tier)
-			final long DYE_COST     = ServerFameStoreHelper.DYE_FAME_COST;
-			final long CRYSTAL_COST = ServerFameStoreHelper.CRYSTAL_FAME_COST;
-			final long GEM_COST     = ServerFameStoreHelper.GEM_FAME_COST;
+			final long DYE_COST     = FameStoreConstants.DYE_FAME_COST;
+			final long CRYSTAL_COST = FameStoreConstants.CRYSTAL_FAME_COST;
+			final long GEM_COST     = FameStoreConstants.GEM_FAME_COST;
 			entries.add(new FameStoreEntry(821, "Green Dye",  DYE_COST));
 			entries.add(new FameStoreEntry(822, "Yellow Dye", DYE_COST));
 			entries.add(new FameStoreEntry(823, "Red Dye",    DYE_COST));

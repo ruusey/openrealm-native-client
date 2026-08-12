@@ -37,8 +37,6 @@ import com.openrealm.net.client.packet.CompactMovePacket;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import com.openrealm.net.client.packet.UnloadPacket;
 import com.openrealm.net.client.packet.UpdatePacket;
-import com.openrealm.net.server.ServerGameLogic;
-import com.openrealm.net.server.ServerTradeManager;
 import com.openrealm.net.server.packet.CommandPacket;
 import com.openrealm.net.server.packet.HeartbeatPacket;
 import com.openrealm.net.server.packet.MoveItemPacket;

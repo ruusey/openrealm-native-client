@@ -14,7 +14,6 @@ import java.util.stream.Collectors;
 import com.openrealm.account.dto.ChestDto;
 import com.openrealm.account.dto.GameItemRefDto;
 import com.openrealm.account.dto.PlayerAccountDto;
-import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.contants.LootTier;
 import com.openrealm.game.data.GameDataManager;
@@ -40,25 +39,19 @@ import com.openrealm.net.client.packet.LoadPacket;
 import com.openrealm.net.client.packet.ObjectMovePacket;
 import com.openrealm.net.client.packet.UpdatePacket;
 import com.openrealm.net.entity.NetObjectMovement;
-import com.openrealm.net.server.ServerGameLogic;
+import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.util.GameObjectUtils;
 import com.openrealm.util.WorkerThread;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import com.openrealm.game.contants.EntityType;
-import com.openrealm.game.contants.StatusEffectType;
-import com.openrealm.game.contants.TextEffect;
 import com.openrealm.game.model.SetPiece;
 import com.openrealm.game.model.SetPieceModel;
 import com.openrealm.game.model.StaticSpawn;
 import com.openrealm.game.tile.Tile;
 import com.openrealm.game.tile.TileData;
-import com.openrealm.net.client.packet.CreateEffectPacket;
-import java.time.Instant;
 import java.util.HashSet;
-import java.util.Iterator;
 
 @Data
 @AllArgsConstructor
@@ -131,29 +124,6 @@ public class Realm {
     // path during 40-player nexus scenarios.
     private transient Map<Long, UpdatePacket> tickStrippedUpdateCache;
 
-    // Overseer AI for ecosystem management (enemy population, events, taunts)
-    private transient RealmOverseer overseer;
-
-    // Poison damage-over-time tracking. Each entry ticks independently (poisons stack).
-    private final List<PoisonDotState> activePoisonDots = new ArrayList<>();
-    private static final long POISON_TICK_INTERVAL_MS = 200;
-
-    // Pending poison throws — tracked per tick instead of blocking a thread pool thread.
-    private final List<PoisonThrowState> pendingPoisonThrows = new ArrayList<>();
-
-    // Active traps — Huntress trap zones that trigger when enemies walk into them.
-    private final List<TrapState> activeTraps = new ArrayList<>();
-
-    // Active decoys — lightweight tick-driven entities for Trickster prism ability.
-    private final List<DecoyState> activeDecoys = new ArrayList<>();
-
-    // Active realm events — globally announced boss encounters with terrain + minion waves.
-    private final List<ActiveRealmEvent> activeRealmEvents = new ArrayList<>();
-
-    public List<ActiveRealmEvent> getActiveRealmEvents() {
-        return this.activeRealmEvents;
-    }
-
     private boolean isServer;
     private boolean shutdown = false;
 
@@ -221,7 +191,7 @@ public class Realm {
 
     public void setupChests(final Player player) {
         try {
-            final PlayerAccountDto account = ServerGameLogic.DATA_SERVICE
+            final PlayerAccountDto account = ClientGameLogic.DATA_SERVICE
                     .executeGet("/data/account/" + player.getAccountUuid(), null, PlayerAccountDto.class);
             final List<ChestDto> vaultChests = account.getPlayerVault();
             final int count = vaultChests.size();
@@ -1410,315 +1380,6 @@ public class Realm {
 
         if (spawned > 0) {
             log.info("[REALM] Respawned {} enemies in overworld (total: {})", spawned, this.enemies.size());
-        }
-    }
-
-    /**
-     * Register a poison DoT on an enemy in this realm. Poisons stack.
-     */
-    public void registerPoisonDot(long enemyId, int totalDamage, long duration, long sourcePlayerId) {
-        this.activePoisonDots.add(new PoisonDotState(enemyId, totalDamage, duration, sourcePlayerId));
-    }
-
-    /**
-     * Remove all poison DoTs sourced by a specific player (called on disconnect).
-     */
-    public void removePlayerPoisonDots(long playerId) {
-        this.activePoisonDots.removeIf(dot -> dot.sourcePlayerId == playerId);
-    }
-
-    /**
-     * Process all active poison DoTs for this realm. Called every server tick.
-     * @param mgr the server manager, used for enemyDeath and broadcastTextEffect callbacks
-     */
-    public void processPoisonDots(RealmManagerServer mgr) {
-        if (this.activePoisonDots.isEmpty()) return;
-        final long now = Instant.now().toEpochMilli();
-        final Iterator<PoisonDotState> it = this.activePoisonDots.iterator();
-        while (it.hasNext()) {
-            final PoisonDotState dot = it.next();
-            final Enemy enemy = this.getEnemy(dot.enemyId);
-            if (enemy == null || enemy.getDeath()) { it.remove(); continue; }
-            if (dot.isExpired()) { it.remove(); continue; }
-
-            if (now - dot.lastTickTime < POISON_TICK_INTERVAL_MS) continue;
-            dot.lastTickTime = now;
-
-            int totalTicks = (int) (dot.duration / POISON_TICK_INTERVAL_MS);
-            int tickDamage = Math.max(1, dot.totalDamage / Math.max(1, totalTicks));
-
-            if (dot.damageApplied + tickDamage > dot.totalDamage) {
-                tickDamage = dot.totalDamage - dot.damageApplied;
-            }
-            if (tickDamage <= 0) continue;
-
-            dot.damageApplied += tickDamage;
-            enemy.setHealth(enemy.getHealth() - tickDamage);
-            mgr.broadcastTextEffect(EntityType.ENEMY, enemy,
-                    TextEffect.DAMAGE, "-" + tickDamage);
-
-            if (enemy.getDeath()) {
-                mgr.enemyDeath(this, enemy);
-                it.remove();
-            }
-        }
-    }
-
-    /**
-     * Register a pending poison throw. The landing effect will be applied after the delay
-     * elapses, checked each tick — no threads are blocked.
-     */
-    public void registerPoisonThrow(long delayMs, long sourcePlayerId, float landX, float landY,
-                                     float radius, int totalDamage, long poisonDuration) {
-        registerPoisonThrow(delayMs, sourcePlayerId, landX, landY, radius, totalDamage, poisonDuration, (byte) 0);
-    }
-
-    public void registerPoisonThrow(long delayMs, long sourcePlayerId, float landX, float landY,
-                                     float radius, int totalDamage, long poisonDuration, byte tier) {
-        this.pendingPoisonThrows.add(new PoisonThrowState(delayMs, sourcePlayerId, landX, landY,
-                radius, totalDamage, poisonDuration, tier));
-    }
-
-    public void registerTrap(long throwDelayMs, long sourcePlayerId, float x, float y,
-                             float triggerRadius, short effectId, long effectDuration, int damage, long lifetimeMs) {
-        registerTrap(throwDelayMs, sourcePlayerId, x, y, triggerRadius, effectId, effectDuration, damage, lifetimeMs, (byte) 0);
-    }
-
-    public void registerTrap(long throwDelayMs, long sourcePlayerId, float x, float y,
-                             float triggerRadius, short effectId, long effectDuration, int damage,
-                             long lifetimeMs, byte tier) {
-        this.activeTraps.add(new TrapState(throwDelayMs, sourcePlayerId, x, y,
-                triggerRadius, effectId, effectDuration, damage, lifetimeMs, tier));
-    }
-
-    public void processTraps(RealmManagerServer mgr) {
-        if (this.activeTraps.isEmpty()) return;
-        final Iterator<TrapState> it = this.activeTraps.iterator();
-        while (it.hasNext()) {
-            final TrapState trap = it.next();
-            if (trap.isExpired()) { it.remove(); continue; }
-            if (!trap.hasLanded()) continue;
-            if (!trap.armed) {
-                trap.armed = true;
-                // Broadcast armed trap visual ONLY to players within sight
-                // (10 tile radius — same as TextEffectPacket convention).
-                // Previously sent to every player in the realm regardless
-                // of whether the trap was on-screen for them.
-                final float armSightR = 10 * GlobalConstants.BASE_TILE_SIZE;
-                final float armSightSq = armSightR * armSightR;
-                final CreateEffectPacket armPkt =
-                        CreateEffectPacket.aoeEffect(
-                            (short) 7, trap.x, trap.y, trap.triggerRadius,
-                            (short) (trap.expireTime - Instant.now().toEpochMilli()),
-                            trap.tier);
-                for (final Player p : this.players.values()) {
-                    if (p.isHeadless()) continue;
-                    float pdx = p.getPos().x - trap.x;
-                    float pdy = p.getPos().y - trap.y;
-                    if (pdx * pdx + pdy * pdy <= armSightSq) {
-                        mgr.enqueueServerPacket(p, armPkt);
-                    }
-                }
-            }
-            // Don't allow the trap to trigger until its arm window has
-            // elapsed. Without this, an enemy already standing on the
-            // landing spot would arm + trigger the trap in the same tick
-            // and the placed-trap visual would never be visible — players
-            // saw enemies vanish without ever seeing a snare.
-            if (!trap.isArmed()) continue;
-            boolean triggered = false;
-            final float triggerSq = trap.triggerRadius * trap.triggerRadius;
-            for (final Enemy enemy : this.enemies.values()) {
-                if (enemy.getDeath()) continue;
-                float ecx = enemy.getPos().x + enemy.getSize() / 2f;
-                float ecy = enemy.getPos().y + enemy.getSize() / 2f;
-                float dx = ecx - trap.x; float dy = ecy - trap.y;
-                if (dx * dx + dy * dy <= triggerSq) { triggered = true; break; }
-            }
-            if (triggered) {
-                float blastRadius = trap.triggerRadius + 16.0f;
-                float blastSq = blastRadius * blastRadius;
-                // Broadcast trigger visual ONLY to nearby (in-sight) players.
-                final float trigSightR = 10 * GlobalConstants.BASE_TILE_SIZE;
-                final float trigSightSq = trigSightR * trigSightR;
-                final CreateEffectPacket trigPkt =
-                        CreateEffectPacket.aoeEffect(
-                            (short) 8, trap.x, trap.y, blastRadius, (short) 500, trap.tier);
-                for (final Player p : this.players.values()) {
-                    if (p.isHeadless()) continue;
-                    float pdx = p.getPos().x - trap.x;
-                    float pdy = p.getPos().y - trap.y;
-                    if (pdx * pdx + pdy * pdy <= trigSightSq) {
-                        mgr.enqueueServerPacket(p, trigPkt);
-                    }
-                }
-                final StatusEffectType effectType =
-                        StatusEffectType.valueOf(trap.effectId);
-                for (final Enemy enemy : this.enemies.values()) {
-                    if (enemy.getDeath()) continue;
-                    float ecx = enemy.getPos().x + enemy.getSize() / 2f;
-                    float ecy = enemy.getPos().y + enemy.getSize() / 2f;
-                    float dx = ecx - trap.x; float dy = ecy - trap.y;
-                    if (dx * dx + dy * dy <= blastSq) {
-                        if (effectType != null) {
-                            enemy.addEffect(effectType, trap.effectDuration);
-                            mgr.broadcastTextEffect(this, EntityType.ENEMY, enemy,
-                                    TextEffect.PLAYER_INFO, "SLOWED");
-                        }
-                        if (trap.damage > 0) {
-                            enemy.setHealth(enemy.getHealth() - trap.damage);
-                            mgr.broadcastTextEffect(this, EntityType.ENEMY, enemy,
-                                    TextEffect.DAMAGE, "-" + trap.damage);
-                        }
-                    }
-                }
-                it.remove();
-            }
-        }
-    }
-
-    public void removePlayerTraps(long playerId) {
-        this.activeTraps.removeIf(t -> t.sourcePlayerId == playerId);
-    }
-
-    /**
-     * Process pending poison throws. When a throw's travel time has elapsed, apply the
-     * splash AoE and poison DoT to enemies in range. Called every server tick.
-     */
-    public void processPoisonThrows(RealmManagerServer mgr) {
-        if (this.pendingPoisonThrows.isEmpty()) return;
-        final Iterator<PoisonThrowState> it = this.pendingPoisonThrows.iterator();
-        while (it.hasNext()) {
-            final PoisonThrowState t = it.next();
-            if (!t.hasLanded()) continue;
-            it.remove();
-
-            // Broadcast splash AoE on landing — scope to THIS realm only.
-            // The single-arg enqueueServerPacket() pushes to a global queue
-            // that fans out to every connected client across every realm,
-            // which was bloating CreateEffectPacket bandwidth on busy
-            // servers. enqueueServerPacketToRealm restricts to nearby
-            // players who can actually see the effect.
-            mgr.enqueueServerPacketToRealm(this,
-                    CreateEffectPacket.aoeEffect(
-                        CreateEffectPacket.EFFECT_POISON_SPLASH,
-                        t.landX, t.landY, t.radius, (short) 1500, t.tier));
-
-            // Apply poison to enemies in radius
-            final float radiusSq = t.radius * t.radius;
-            for (final Enemy enemy : this.enemies.values()) {
-                if (enemy.getDeath()) continue;
-                if (enemy.hasEffect(StatusEffectType.STASIS)) continue;
-                float dx = enemy.getPos().x - t.landX;
-                float dy = enemy.getPos().y - t.landY;
-                if (dx * dx + dy * dy <= radiusSq) {
-                    enemy.addEffect(StatusEffectType.POISONED, t.poisonDuration);
-                    this.registerPoisonDot(enemy.getId(), t.totalDamage, t.poisonDuration, t.sourcePlayerId);
-                    mgr.broadcastTextEffect(EntityType.ENEMY, enemy,
-                            TextEffect.DAMAGE, "POISONED");
-                }
-            }
-        }
-    }
-
-    /**
-     * Remove pending poison throws from a disconnecting player.
-     */
-    public void removePlayerPoisonThrows(long playerId) {
-        this.pendingPoisonThrows.removeIf(t -> t.sourcePlayerId == playerId);
-    }
-
-    /**
-     * Return a proxy Player positioned at the closest active decoy if it is
-     * nearer than {@code currentBestDist}. Used by enemy targeting so decoys
-     * draw aggro the same way real players do.
-     */
-    public Player getClosestDecoyTarget(final Vector2f pos, float currentBestDist) {
-        Player best = null;
-        for (final DecoyState d : this.activeDecoys) {
-            final Enemy decoy = this.enemies.get(d.enemyId);
-            if (decoy == null) continue;
-            final float dist = decoy.getPos().distanceTo(pos);
-            if (dist < currentBestDist) {
-                currentBestDist = dist;
-                best = new Player(d.enemyId, decoy.getPos().clone(),
-                        decoy.getSize(), CharacterClass.NINJA);
-            }
-        }
-        return best;
-    }
-
-    /**
-     * Register a decoy entity. The decoy walks in the given direction until it
-     * covers maxTravelDist pixels, then stands still until durationMs expires.
-     */
-    public void registerDecoy(long enemyId, long sourcePlayerId, float originX, float originY,
-                               float dx, float dy, float maxTravelDist, long durationMs) {
-        this.activeDecoys.add(new DecoyState(enemyId, sourcePlayerId, originX, originY,
-                dx, dy, maxTravelDist, durationMs));
-    }
-
-    /**
-     * Process active decoys: move them each tick, stop after travel distance,
-     * remove after duration expires. Called every server tick.
-     */
-    public void processDecoys(RealmManagerServer mgr) {
-        if (this.activeDecoys.isEmpty()) return;
-        final Iterator<DecoyState> it = this.activeDecoys.iterator();
-        while (it.hasNext()) {
-            final DecoyState d = it.next();
-            final Enemy decoy = this.enemies.get(d.enemyId);
-
-            // Decoy was killed or realm cleaned up
-            if (decoy == null || decoy.getDeath()) {
-                it.remove();
-                continue;
-            }
-
-            // Duration expired — remove decoy
-            if (d.isExpired()) {
-                it.remove();
-                this.expiredEnemies.add(d.enemyId);
-                this.removeEnemy(decoy);
-                continue;
-            }
-
-            // Move decoy if it hasn't reached travel distance
-            if (!d.stopped) {
-                float traveled_x = decoy.getPos().x - d.originX;
-                float traveled_y = decoy.getPos().y - d.originY;
-                if (traveled_x * traveled_x + traveled_y * traveled_y >= d.maxTravelDistSq) {
-                    d.stopped = true;
-                    // Stop movement and clear direction flags so walk animation stops
-                    decoy.setDx(0);
-                    decoy.setDy(0);
-                    decoy.setUp(false);
-                    decoy.setDown(false);
-                    decoy.setLeft(false);
-                    decoy.setRight(false);
-                } else {
-                    decoy.getPos().x += d.dx;
-                    decoy.getPos().y += d.dy;
-                }
-            }
-        }
-    }
-
-    /**
-     * Remove decoys spawned by a disconnecting player.
-     */
-    public void removePlayerDecoys(long playerId) {
-        final Iterator<DecoyState> it = this.activeDecoys.iterator();
-        while (it.hasNext()) {
-            final DecoyState d = it.next();
-            if (d.sourcePlayerId == playerId) {
-                final Enemy decoy = this.enemies.get(d.enemyId);
-                if (decoy != null) {
-                    this.expiredEnemies.add(d.enemyId);
-                    this.removeEnemy(decoy);
-                }
-                it.remove();
-            }
         }
     }
 
