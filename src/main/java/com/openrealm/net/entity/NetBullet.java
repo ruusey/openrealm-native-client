@@ -1,5 +1,8 @@
 package com.openrealm.net.entity;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import com.openrealm.game.data.GameDataManager;
@@ -89,6 +92,15 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 	private int overrideSpriteSize;
 	@SerializableField(order = 28, type = SerializableInt.class)
 	private int overrideSpriteHeight;
+
+	// Section-presence bits, packed into a byte after the always-present base +
+	// flags array. Order and bit values MUST match the server + webclient
+	// NetBullet serializers. Absent sections default to 0/empty.
+	private static final byte SECT_WAVY   = 0x01;
+	private static final byte SECT_ORBIT  = 0x02;
+	private static final byte SECT_HOMING = 0x04;
+	private static final byte SECT_SPRITE = 0x08;
+	private static final Short[] EMPTY_FLAGS = new Short[0];
 
 	/**
 	 * Hand-rolled construction from a server-side Bullet — bypasses
@@ -192,5 +204,136 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 			log.warn("[BULLET] no projectile group for projectileId={}", this.projectileId);
 		}
 		return bullet;
+	}
+
+	/**
+	 * Hand-coded conditional write — must byte-match the server + webclient
+	 * NetBullet serializers. Base fields + flags are always present; the
+	 * orbit/wavy/homing/sprite-override groups ride only when non-default.
+	 */
+	@Override
+	public int write(NetBullet value, DataOutputStream stream) throws Exception {
+		final NetBullet v = (value == null) ? new NetBullet() : value;
+		int bytes = 0;
+		stream.writeLong(v.id);                                  bytes += 8;
+		stream.writeInt(v.projectileId);                         bytes += 4;
+		stream.writeShort(v.size);                               bytes += 2;
+		stream.writeFloat(v.pos != null ? v.pos.x : 0f);         bytes += 4;
+		stream.writeFloat(v.pos != null ? v.pos.y : 0f);         bytes += 4;
+		stream.writeFloat(v.dX);                                 bytes += 4;
+		stream.writeFloat(v.dY);                                 bytes += 4;
+		stream.writeFloat(v.angle);                              bytes += 4;
+		stream.writeFloat(v.magnitude);                          bytes += 4;
+		stream.writeFloat(v.range);                              bytes += 4;
+		stream.writeShort(v.damage);                             bytes += 2;
+		stream.writeShort(v.length);                             bytes += 2;
+		stream.writeInt(v.lifetimeTicks);                        bytes += 4;
+		stream.writeLong(v.srcEntityId);                         bytes += 8;
+		stream.writeLong(v.createdTime);                         bytes += 8;
+		final Short[] fl = (v.flags != null) ? v.flags : EMPTY_FLAGS;
+		stream.writeInt(fl.length);                              bytes += 4;
+		for (final Short s : fl) { stream.writeShort(s != null ? s : 0); bytes += 2; }
+
+		final boolean wavy = v.amplitude != 0 || v.frequency != 0 || v.invert || v.timeStep != 0L;
+		final boolean orbit = v.orbitRadius != 0f;
+		final boolean homing = v.targetEntityId != 0L;
+		final boolean sprite = (v.overrideSpriteKey != null && !v.overrideSpriteKey.isEmpty())
+				|| v.overrideSpriteRow != 0 || v.overrideSpriteCol != 0
+				|| v.overrideSpriteSize != 0 || v.overrideSpriteHeight != 0;
+		byte mask = 0;
+		if (wavy)   mask |= SECT_WAVY;
+		if (orbit)  mask |= SECT_ORBIT;
+		if (homing) mask |= SECT_HOMING;
+		if (sprite) mask |= SECT_SPRITE;
+		stream.writeByte(mask);                                  bytes += 1;
+
+		if (wavy) {
+			stream.writeBoolean(v.invert);   bytes += 1;
+			stream.writeLong(v.timeStep);    bytes += 8;
+			stream.writeShort(v.amplitude);  bytes += 2;
+			stream.writeShort(v.frequency);  bytes += 2;
+		}
+		if (orbit) {
+			stream.writeFloat(v.orbitCenterX); bytes += 4;
+			stream.writeFloat(v.orbitCenterY); bytes += 4;
+			stream.writeFloat(v.orbitRadius);  bytes += 4;
+			stream.writeFloat(v.orbitPhase);   bytes += 4;
+		}
+		if (homing) {
+			stream.writeLong(v.targetEntityId); bytes += 8;
+		}
+		if (sprite) {
+			bytes += writeString(v.overrideSpriteKey, stream);
+			stream.writeInt(v.overrideSpriteRow);    bytes += 4;
+			stream.writeInt(v.overrideSpriteCol);    bytes += 4;
+			stream.writeInt(v.overrideSpriteSize);   bytes += 4;
+			stream.writeInt(v.overrideSpriteHeight); bytes += 4;
+		}
+		return bytes;
+	}
+
+	@Override
+	public NetBullet read(DataInputStream stream) throws Exception {
+		final NetBullet b = new NetBullet();
+		b.id = stream.readLong();
+		b.projectileId = stream.readInt();
+		b.size = stream.readShort();
+		final float px = stream.readFloat();
+		final float py = stream.readFloat();
+		b.pos = new Vector2f(px, py);
+		b.dX = stream.readFloat();
+		b.dY = stream.readFloat();
+		b.angle = stream.readFloat();
+		b.magnitude = stream.readFloat();
+		b.range = stream.readFloat();
+		b.damage = stream.readShort();
+		b.length = stream.readShort();
+		b.lifetimeTicks = stream.readInt();
+		b.srcEntityId = stream.readLong();
+		b.createdTime = stream.readLong();
+		final int flagCount = stream.readInt();
+		final Short[] fl = new Short[flagCount];
+		for (int i = 0; i < flagCount; i++) fl[i] = stream.readShort();
+		b.flags = fl;
+		b.overrideSpriteKey = "";
+
+		final byte mask = stream.readByte();
+		if ((mask & SECT_WAVY) != 0) {
+			b.invert = stream.readBoolean();
+			b.timeStep = stream.readLong();
+			b.amplitude = stream.readShort();
+			b.frequency = stream.readShort();
+		}
+		if ((mask & SECT_ORBIT) != 0) {
+			b.orbitCenterX = stream.readFloat();
+			b.orbitCenterY = stream.readFloat();
+			b.orbitRadius = stream.readFloat();
+			b.orbitPhase = stream.readFloat();
+		}
+		if ((mask & SECT_HOMING) != 0) {
+			b.targetEntityId = stream.readLong();
+		}
+		if ((mask & SECT_SPRITE) != 0) {
+			b.overrideSpriteKey = readString(stream);
+			b.overrideSpriteRow = stream.readInt();
+			b.overrideSpriteCol = stream.readInt();
+			b.overrideSpriteSize = stream.readInt();
+			b.overrideSpriteHeight = stream.readInt();
+		}
+		return b;
+	}
+
+	private static int writeString(final String value, final DataOutputStream stream) throws Exception {
+		final byte[] encoded = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
+		stream.writeInt(encoded.length);
+		stream.write(encoded);
+		return 4 + encoded.length;
+	}
+
+	private static String readString(final DataInputStream stream) throws Exception {
+		final int len = stream.readInt();
+		final byte[] buf = new byte[len];
+		stream.readFully(buf);
+		return new String(buf, StandardCharsets.UTF_8);
 	}
 }

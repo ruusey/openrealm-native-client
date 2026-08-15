@@ -1145,7 +1145,17 @@ public class ClientGameLogic {
 			final Player playerToUpdate = cli.getRealm().getPlayer(longId);
 			if (playerToUpdate != null) {
 				if (longId == cli.getCurrentPlayerId()) {
-					playerToUpdate.applyMovementLerp(movement, 0.8f);
+					// Self only arrives here on teleport (server skips self for
+					// normal movement, which reconciles via PlayerPosAckPacket).
+					// Mirror the old ObjectMove path: snap + re-anchor interp on
+					// realm transition so the flag can't stick.
+					if (cli.isAwaitingRealmTransition()) {
+						playerToUpdate.applyMovement(movement);
+						if (cli.getState() != null) {
+							cli.getState().resetInterpAnchor(movement.getPosX(), movement.getPosY());
+						}
+						cli.setAwaitingRealmTransition(false);
+					}
 				} else {
 					playerToUpdate.applyServerCorrection(movement);
 				}
