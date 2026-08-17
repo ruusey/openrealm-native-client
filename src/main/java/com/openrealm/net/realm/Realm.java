@@ -83,6 +83,9 @@ public class Realm {
     private long purificationProgress;
     private long purificationGoal;
     private float purificationDifficulty;
+    // Escalating-realm tier (>1 shows on the bar) and comma-joined active modifier names.
+    private int purificationTier;
+    private String purificationModifiers = "";
     private Map<Long, Player> players;
     private Map<Long, Bullet> bullets;
     private Map<Long, List<Long>> bulletHits;

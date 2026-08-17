@@ -49,6 +49,10 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 	private long targetPurificationProgress;
 	@SerializableField(order = 10, type = SerializableLong.class)
 	private long targetPurificationGoal;
+	@SerializableField(order = 11, type = SerializableInt.class)
+	private int targetTier;
+	@SerializableField(order = 12, type = SerializableString.class)
+	private String targetModifiers;
 
 	/** Hand-rolled construction from Portal — bypasses ModelMapper reflection. */
 	public static NetPortal fromPortal(Portal p) {
@@ -64,6 +68,8 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 		n.targetPlayerCount = p.getTargetPlayerCount();
 		n.targetPurificationProgress = p.getTargetPurificationProgress();
 		n.targetPurificationGoal = p.getTargetPurificationGoal();
+		n.targetTier = p.getTargetTier();
+		n.targetModifiers = p.getTargetModifiers() != null ? p.getTargetModifiers() : "";
 		return n;
 	}
 
@@ -80,6 +86,8 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 		p.setTargetPlayerCount(this.getTargetPlayerCount());
 		p.setTargetPurificationProgress(this.getTargetPurificationProgress());
 		p.setTargetPurificationGoal(this.getTargetPurificationGoal());
+		p.setTargetTier(this.getTargetTier());
+		p.setTargetModifiers(this.getTargetModifiers());
 		// Load sprite — Portal.render() short-circuits when sprite is null,
 		// so without this every portal stays invisible despite being in the
 		// realm. Mirrors NetEnemy / NetBullet sprite resolution.

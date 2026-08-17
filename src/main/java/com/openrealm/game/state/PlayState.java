@@ -2472,24 +2472,56 @@ public class PlayState extends GameState {
 
         Collection<Portal> portals = this.realmManager.getRealm().getPortals().values();
         final float prevPortalScale = font.getData().scaleX;
+        final Player me = this.getPlayer();
         for (Portal portal : portals) {
             portal.render(batch);
             final String portalLabel = portal.getTargetLabel();
             if (portalLabel == null || portalLabel.isEmpty()) continue;
-            // Under-portal info: target realm name, difficulty, purification %, player count.
+            // Under-portal info: minimal (name + tier/difficulty badge) by default; the portal the
+            // player stands on expands into a full card with purification + modifiers.
             font.getData().setScale(0.5f);
-            final StringBuilder info = new StringBuilder(portalLabel);
-            if (portal.getTargetDifficulty() > 0f) {
-                info.append("\nDifficulty ").append(portal.getTargetDifficulty());
+            final float diff = portal.getTargetDifficulty();
+            final int tier = portal.getTargetTier();
+            final String diffStr = (diff == Math.floor(diff)) ? Integer.toString((int) diff) : String.format("%.1f", diff);
+            final String badge = tier > 1 ? "T" + tier : (diff > 0f ? "D" + diffStr : "");
+
+            boolean focused = false;
+            if (me != null && me.getPos() != null) {
+                final float dx = (portal.getPos().x + 16f) - (me.getPos().x + 16f);
+                final float dy = (portal.getPos().y + 16f) - (me.getPos().y + 16f);
+                focused = (dx * dx + dy * dy) <= (42f * 42f);
             }
-            if (portal.getTargetPurificationGoal() > 0L) {
-                final int pct = (int) Math.max(0, Math.min(100,
-                        portal.getTargetPurificationProgress() * 100L / portal.getTargetPurificationGoal()));
-                info.append("\nPurified ").append(pct).append('%');
+
+            final StringBuilder info = new StringBuilder();
+            if (focused) {
+                info.append(badge.isEmpty() ? portalLabel : (portalLabel + "   [" + badge + "]"));
+                if (diff > 0f) info.append("\nDifficulty ").append(diffStr);
+                if (portal.getTargetPlayerCount() >= 0) {
+                    info.append("  ·  ").append(portal.getTargetPlayerCount()).append(" in realm");
+                }
+                if (portal.getTargetPurificationGoal() > 0L) {
+                    final int pct = (int) Math.max(0, Math.min(100,
+                            portal.getTargetPurificationProgress() * 100L / portal.getTargetPurificationGoal()));
+                    info.append("\nPurified ").append(pct).append('%');
+                }
+                final String mods = portal.getTargetModifiers();
+                if (mods != null && !mods.isEmpty()) {
+                    info.append('\n');
+                    final String[] parts = mods.split(",");
+                    for (int i = 0; i < parts.length; i++) {
+                        if (i > 0) info.append(' ');
+                        info.append('[').append(parts[i].trim()).append(']');
+                    }
+                } else if (tier > 1) {
+                    info.append("\nModifiers revealed on entry");
+                }
+            } else {
+                info.append(badge.isEmpty() ? portalLabel : (portalLabel + "  ·  " + badge));
             }
-            if (portal.getTargetPlayerCount() >= 0) info.append('\n').append(portal.getTargetPlayerCount()).append(" in realm");
+
             this.nameLayoutScratch.setText(font, info.toString());
-            font.setColor(0.62f, 0.90f, 0.75f, 1f);
+            if (tier > 1) font.setColor(1f, 0.60f, 0.42f, 1f);
+            else font.setColor(0.62f, 0.90f, 0.75f, 1f);
             final float bx = portal.getPos().getWorldVar().x;
             final float by = portal.getPos().getWorldVar().y;
             font.draw(batch, this.nameLayoutScratch,

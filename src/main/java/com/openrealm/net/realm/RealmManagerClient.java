@@ -161,6 +161,8 @@ public class RealmManagerClient implements Runnable {
                     realm.setPurificationProgress(p.getProgress());
                     realm.setPurificationGoal(p.getGoal());
                     realm.setPurificationDifficulty(p.getDifficulty());
+                    realm.setPurificationTier(p.getTier());
+                    realm.setPurificationModifiers(p.getModifiers() != null ? p.getModifiers() : "");
                 }
             } catch (Exception ignored) { /* never crash gameplay */ }
         });

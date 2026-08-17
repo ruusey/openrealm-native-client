@@ -37,6 +37,9 @@ public class Portal {
     private int targetPlayerCount;
     private long targetPurificationProgress;
     private long targetPurificationGoal;
+    // Escalating-realm tier and comma-joined modifier names for the under-portal card.
+    private int targetTier;
+    private String targetModifiers;
 
 
     public Portal(long id, short portalId, Vector2f pos) {

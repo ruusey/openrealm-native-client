@@ -5,7 +5,9 @@ import com.openrealm.net.Streamable;
 import com.openrealm.net.core.PacketId;
 import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.nettypes.SerializableFloat;
+import com.openrealm.net.core.nettypes.SerializableInt;
 import com.openrealm.net.core.nettypes.SerializableLong;
+import com.openrealm.net.core.nettypes.SerializableString;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -29,4 +31,8 @@ public class RealmPurificationPacket extends Packet {
 	private long goal;
 	@SerializableField(order = 3, type = SerializableFloat.class)
 	private float difficulty;
+	@SerializableField(order = 4, type = SerializableInt.class)
+	private int tier;
+	@SerializableField(order = 5, type = SerializableString.class)
+	private String modifiers = "";
 }
