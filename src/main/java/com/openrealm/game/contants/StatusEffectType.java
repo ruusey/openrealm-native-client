@@ -69,7 +69,10 @@ public enum StatusEffectType {
     /** Marker on the attacker: while active, basic-attack projectiles
      *  apply POISONED + register a poison DoT on the enemy hit. Carrier
      *  takes no damage from the marker itself. */
-    IMBUED_POISON((short) 39);
+    IMBUED_POISON((short) 39),
+    /** Active evasion buff — high chance to negate incoming hits. Applied by the
+     *  Ninja's Smokebomb ultimate. */
+    DODGE((short) 40);
 
     public static Map<Short, StatusEffectType> map = new HashMap<>();
     static {
