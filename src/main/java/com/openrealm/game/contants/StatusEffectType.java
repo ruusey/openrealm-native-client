@@ -72,7 +72,9 @@ public enum StatusEffectType {
     IMBUED_POISON((short) 39),
     /** Active evasion buff — high chance to negate incoming hits. Applied by the
      *  Ninja's Smokebomb ultimate. */
-    DODGE((short) 40);
+    DODGE((short) 40),
+    /** Admin buff: holder's projectiles instantly kill non-invincible enemies. */
+    INSTAKILL((short) 41);
 
     public static Map<Short, StatusEffectType> map = new HashMap<>();
     static {

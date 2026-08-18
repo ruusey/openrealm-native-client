@@ -19,5 +19,7 @@ public class LoginResponseMessage {
     private float spawnY;
     private String token;
     private String chatRole;
+    // Authoritative game-server version from the server, shown in the welcome line.
+    private String version;
     private PlayerAccountDto account;
 }

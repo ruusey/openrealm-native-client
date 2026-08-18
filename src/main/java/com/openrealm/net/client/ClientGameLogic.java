@@ -1267,8 +1267,10 @@ public class ClientGameLogic {
 				} catch (Exception ex) {
 					log.error("[CLIENT] Failed to send LoginAck. Reason: {}", ex.getMessage());
 				}
+				final String serverVersion = loginResponse.getVersion() != null
+						? loginResponse.getVersion() : GameLauncher.GAME_VERSION;
 				final TextPacket packet = TextPacket.create("SYSTEM", "Player",
-						"Welcome to OpenRealm Server " + GameLauncher.GAME_VERSION);
+						"Welcome to OpenRealm Server " + serverVersion);
 				cli.getState().getPui().enqueueChat(packet);
 			}
 		} catch (Exception e) {
