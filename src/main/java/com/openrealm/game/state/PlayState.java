@@ -2382,11 +2382,11 @@ public class PlayState extends GameState {
                 final String label = _statusChipLabels.get(idx);
                 this.nameLayoutScratch.setText(font, label);
                 font.setColor(Color.WHITE);
-                // libGDX uses a flipped ortho, so font.draw y argument is
-                // the top of the glyph baseline — center text vertically
-                // by aligning baseline to chip middle + half text height.
+                // Flipped world ortho: font.draw y is the TOP of the text and
+                // glyphs extend downward (+y). Center vertically by insetting
+                // the top edge half the leftover height inside the chip.
                 final float tx = r[0] + (r[2] - this.nameLayoutScratch.width) * 0.5f;
-                final float ty = r[1] + (r[3] + this.nameLayoutScratch.height) * 0.5f;
+                final float ty = r[1] + (r[3] - this.nameLayoutScratch.height) * 0.5f;
                 font.draw(batch, this.nameLayoutScratch, tx, ty);
             }
             font.getData().setScale(prevScale);

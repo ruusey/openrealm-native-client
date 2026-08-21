@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.account.dto.PlayerAccountDto;
@@ -190,6 +191,7 @@ public class GameOverState extends GameState {
         shapes.end();
         batch.begin();
         font.setColor(Color.WHITE);
-        font.draw(batch, label, x + (w / 2f) - (label.length() * 4f), y + h * 0.65f);
+        GlyphLayout layout = new GlyphLayout(font, label);
+        font.draw(batch, label, x + (w - layout.width) / 2f, y + (h - layout.height) / 2f);
     }
 }

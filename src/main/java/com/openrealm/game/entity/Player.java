@@ -738,6 +738,17 @@ public class Player extends Entity {
 		}
 	}
 
+	/**
+	 * No-op: the player draws its own dark outline halo inside
+	 * {@link #renderBody} at the lerped render position. The base
+	 * {@link Entity#renderStroke} would redraw that halo from the
+	 * tick-stepped simulation position ({@code pos}), lagging a frame
+	 * behind the body and reading as a detached black shadow.
+	 */
+	@Override
+	public void renderStroke(SpriteBatch batch) {
+	}
+
 	@Override
 	public void renderBody(SpriteBatch batch) {
 		if (this.getSpriteSheet() == null) {

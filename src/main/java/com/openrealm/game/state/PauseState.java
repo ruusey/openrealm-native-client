@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
@@ -359,7 +360,8 @@ public class PauseState extends GameState {
         batch.begin();
         font.setColor(Color.WHITE);
         String label = "Return to Character Select (B)";
-        font.draw(batch, label, btnX + (btnW / 2f) - (label.length() * 4f), btnY + btnH * 0.65f);
+        GlyphLayout btnLabelLayout = new GlyphLayout(font, label);
+        font.draw(batch, label, btnX + (btnW - btnLabelLayout.width) / 2f, btnY + (btnH - btnLabelLayout.height) / 2f);
 
         // Leaderboard — drawn under the button so it doesn't overlap.
         // Width bumped from 280 -> 360 so account-name + class + level

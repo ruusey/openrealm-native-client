@@ -3,6 +3,7 @@ package com.openrealm.game.state;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
+import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
@@ -77,15 +78,19 @@ public class RealmTransitionState {
         shapes.end();
         batch.begin();
 
+        final GlyphLayout layout = new GlyphLayout();
         font.setColor(1f, 1f, 1f, alpha);
-        font.draw(batch, "OPENREALM", w / 2f - 36, h / 2f + 30);
-        font.draw(batch, this.zoneName, w / 2f - 30, h / 2f);
+        layout.setText(font, "OPENREALM");
+        font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f + 30);
+        layout.setText(font, this.zoneName);
+        font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f);
         font.setColor(0.95f, 0.25f, 0.25f, alpha);
         StringBuilder skulls = new StringBuilder();
         int skullCount = Math.min(10, Math.max(0, Math.round(this.difficulty)));
         for (int i = 0; i < skullCount; i++) skulls.append('X');
-        font.draw(batch, "Difficulty " + String.format("%.1f  %s", this.difficulty, skulls.toString()),
-                w / 2f - 60, h / 2f - 30);
+        String difficultyLine = "Difficulty " + String.format("%.1f  %s", this.difficulty, skulls.toString());
+        layout.setText(font, difficultyLine);
+        font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f - 30);
         font.setColor(1f, 1f, 1f, 1f);
     }
 }
