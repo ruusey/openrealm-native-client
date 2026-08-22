@@ -484,7 +484,7 @@ public class ForgeWindow {
                 }
             } else {
                 if (this.crystalStatId < 0) {
-                    log.info("[FORGE] Cannot paint — no crystal selected");
+                    log.info("[FORGE] Cannot paint - no crystal selected");
                     return;
                 }
                 final int cap = currentMaxEnchantments();

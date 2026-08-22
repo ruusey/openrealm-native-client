@@ -71,7 +71,7 @@ public final class UpdateChecker {
     public static void checkAndMaybeUpdate(String currentVersion) {
         if (GraphicsEnvironment.isHeadless()) return;
         if (currentVersion == null || currentVersion.isBlank() || "dev".equals(currentVersion)) {
-            log.info("[UPDATE] Skipping update check — running from dev build (version={})", currentVersion);
+            log.info("[UPDATE] Skipping update check - running from dev build (version={})", currentVersion);
             return;
         }
         try {
@@ -132,7 +132,7 @@ public final class UpdateChecker {
             }
         }
         if (exeUrl == null) {
-            log.info("[UPDATE] Release {} has no .exe asset — nothing to install", tag);
+            log.info("[UPDATE] Release {} has no .exe asset - nothing to install", tag);
             return null;
         }
         ReleaseInfo info = new ReleaseInfo();

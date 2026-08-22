@@ -300,7 +300,7 @@ public class GameDataManager {
 			final InputStream in = GameDataManager.class.getClassLoader()
 					.getResourceAsStream("data/weapon-archetypes.json");
 			if (in == null) {
-				GameDataManager.log.warn("{} weapon-archetypes.json missing — shot prediction will fall back to baseline 1.0 multipliers", LOG_NS);
+				GameDataManager.log.warn("{} weapon-archetypes.json missing - shot prediction will fall back to baseline 1.0 multipliers", LOG_NS);
 				return;
 			}
 			text = new String(in.readAllBytes(), StandardCharsets.UTF_8);

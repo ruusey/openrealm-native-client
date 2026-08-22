@@ -158,16 +158,16 @@ public class LoginState extends GameState {
                         || msg.toLowerCase().contains("unauthor")
                         || msg.toLowerCase().contains("invalid token");
                 if (tokenRejected) {
-                    log.info("[LOGIN] persisted token rejected by server ({}) — clearing", msg);
+                    log.info("[LOGIN] persisted token rejected by server ({}) - clearing", msg);
                     store.clearSession();
                     svc.setSessionToken(null);
-                    this.loginError.set("Session expired — please sign in again.");
+                    this.loginError.set("Session expired - please sign in again.");
                 } else {
-                    log.warn("[LOGIN] auto-login transient failure ({}) — keeping saved token, falling back to manual login", msg);
+                    log.warn("[LOGIN] auto-login transient failure ({}) - keeping saved token, falling back to manual login", msg);
                     // KEEP the token. setSessionToken stays non-null so a
                     // retry from the form can use it. Just let the user
                     // sign in manually for now.
-                    this.loginError.set("Couldn't reach the server — sign in manually or retry.");
+                    this.loginError.set("Couldn't reach the server - sign in manually or retry.");
                 }
                 this.autoLoginCleared.set(true);
             }
@@ -523,7 +523,7 @@ public class LoginState extends GameState {
         String msg = e.getMessage();
         if (msg == null) return e.getClass().getSimpleName();
         // Trim verbose JSON error envelopes to the first 200 chars.
-        if (msg.length() > 200) return msg.substring(0, 200) + "…";
+        if (msg.length() > 200) return msg.substring(0, 200) + "...";
         return msg;
     }
 

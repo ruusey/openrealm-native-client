@@ -123,7 +123,7 @@ public class Settings {
     public static Settings load() {
         File f = settingsFile();
         if (!f.exists()) {
-            log.info("No settings file at {} — using defaults", f.getAbsolutePath());
+            log.info("No settings file at {} - using defaults", f.getAbsolutePath());
             return new Settings();
         }
         try {
@@ -139,7 +139,7 @@ public class Settings {
             }
             return loaded;
         } catch (IOException e) {
-            log.warn("Failed to read settings from {}: {} — using defaults", f.getAbsolutePath(), e.getMessage());
+            log.warn("Failed to read settings from {}: {} - using defaults", f.getAbsolutePath(), e.getMessage());
             return new Settings();
         }
     }

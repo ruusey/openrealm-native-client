@@ -227,7 +227,7 @@ public class PlayerChat {
                             settings.save();
                             TextPacket wallsMsg = TextPacket.create("SYSTEM", "SYSTEM",
                                     "Wall rendering: " + next.toUpperCase()
-                                            + (next.equals("simple") ? " (flat stroke — faster)" : " (shaded)"));
+                                            + (next.equals("simple") ? " (flat stroke - faster)" : " (shaded)"));
                             this.addChatMessage(wallsMsg);
                         } else {
                             ServerCommandMessage serverCommand = ServerCommandMessage.parseFromInput(messageToSend);

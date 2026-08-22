@@ -79,7 +79,7 @@ public abstract class GameObject {
         if (pos != null && pos.x == 0f && pos.y == 0f
                 && this instanceof Player) {
             // Stack trace via a throwable so we see the caller chain in logs.
-            log.warn("[POS-DEBUG] setPos(0,0) on Player id={} — likely the cause of invisible-remote-player bug",
+            log.warn("[POS-DEBUG] setPos(0,0) on Player id={} - likely the cause of invisible-remote-player bug",
                     this.id, new Throwable("setPos(0,0)"));
         }
         this.pos = pos;

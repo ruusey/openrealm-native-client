@@ -60,8 +60,8 @@ public class CharacterStatsWindow {
         this.visible = true;
         this.scrollOffset = 0;
         this.rows.clear();
-        this.status = "Loading…";
-        this.title = (className == null ? "Character" : className) + " — Lifetime Stats";
+        this.status = "Loading...";
+        this.title = (className == null ? "Character" : className) + " - Lifetime Stats";
         this.pendingData.set(null);
         this.pendingError.set(null);
 
@@ -228,14 +228,14 @@ public class CharacterStatsWindow {
 
         final long shotsTaken = m.getProjectilesHit() + m.getProjectilesMissed();
         final String accuracy = shotsTaken > 0
-                ? Math.round(m.getProjectilesHit() * 100.0 / shotsTaken) + "%" : "—";
+                ? Math.round(m.getProjectilesHit() * 100.0 / shotsTaken) + "%" : "-";
         final String kd = m.getDeaths() > 0
                 ? String.format("%.2f", m.getKillsTotal() / (double) m.getDeaths())
                 : String.format("%,d", m.getKillsTotal());
         final long playMinutes = Math.round(m.getPlayTimeSeconds() / 60.0);
         final long pvpTotal = m.getPvpMatches();
         final String pvpWinRate = pvpTotal > 0
-                ? Math.round(m.getPvpWins() * 100.0 / pvpTotal) + "%" : "—";
+                ? Math.round(m.getPvpWins() * 100.0 / pvpTotal) + "%" : "-";
 
         this.section("Combat");
         this.stat("Shots fired", m.getProjectilesFired());
@@ -278,7 +278,7 @@ public class CharacterStatsWindow {
         this.section("Dungeon completions");
         final Map<String, Long> dungeons = m.getDungeonCompletionsByDungeonId();
         if (dungeons == null || dungeons.isEmpty()) {
-            this.stat("None yet", "—");
+            this.stat("None yet", "-");
         } else {
             for (Map.Entry<String, Long> e : dungeons.entrySet()) {
                 this.stat("Dungeon " + e.getKey(), e.getValue() == null ? 0L : e.getValue());

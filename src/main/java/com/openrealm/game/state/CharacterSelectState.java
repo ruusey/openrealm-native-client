@@ -510,7 +510,7 @@ public class CharacterSelectState extends GameState {
         if (chars.isEmpty()) {
             font.setColor(0.55f, 0.50f, 0.45f, 1f);
             String empty = (this.tab == Tab.CHARACTERS)
-                    ? "No characters yet — pick a class below to create one."
+                    ? "No characters yet - pick a class below to create one."
                     : "No fallen characters.";
             font.draw(batch, empty, L.listX + 16, L.listY + 32);
         } else {
@@ -980,7 +980,7 @@ public class CharacterSelectState extends GameState {
         // crash; the user must enter a real IP or FQDN.
         String host = this.serverHostField.getText().trim();
         if (!isUsableHost(host)) {
-            this.error = "Enter a real host (e.g. 127.0.0.1 or openrealm.net) — '"
+            this.error = "Enter a real host (e.g. 127.0.0.1 or openrealm.net) - '"
                     + host + "' isn't a resolvable address.";
             return;
         }

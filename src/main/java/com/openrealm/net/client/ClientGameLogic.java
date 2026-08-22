@@ -99,7 +99,7 @@ public class ClientGameLogic {
 		cli.getState().getPui().setPendingTradeRequestStartMs(System.currentTimeMillis());
 		cli.getState().getPui().getPlayerChat().addChatMessage(TextPacket.create(fromName,
 				cli.getState().getPlayer().getName(),
-				fromName + " wants to trade — Accept / Decline"));
+				fromName + " wants to trade - Accept / Decline"));
 	}
 	
 	@PacketHandlerClient(AcceptTradeRequestPacket.class)

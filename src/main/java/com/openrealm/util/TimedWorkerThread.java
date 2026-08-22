@@ -48,7 +48,7 @@ public class TimedWorkerThread implements Runnable {
                     try {
                         this.runnable.run();
                     } catch (Exception tickEx) {
-                        log.error("TimedThread tick threw — continuing. Runnable={}. Reason: {}",
+                        log.error("TimedThread tick threw - continuing. Runnable={}. Reason: {}",
                                 this.runnable, tickEx.getMessage(), tickEx);
                     }
                     nextTickTime += nsPerTick;
@@ -72,7 +72,7 @@ public class TimedWorkerThread implements Runnable {
                 // Error (OOM, StackOverflow, etc.) — log loudly before dying so we
                 // aren't mystified by a "silently frozen server". Don't swallow
                 // Errors: they indicate the JVM is in a bad state.
-                log.error("TimedThread FATAL — thread dying. Runnable={}. Reason: {}",
+                log.error("TimedThread FATAL - thread dying. Runnable={}. Reason: {}",
                         this.runnable, t.getMessage(), t);
                 throw t;
             }

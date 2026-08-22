@@ -1469,10 +1469,10 @@ public class PlayerUI {
         batch.begin();
 
         String label = (realm.getPurificationTier() > 1)
-                ? "Tier " + realm.getPurificationTier() + " — Purification " + pct + "%"
-                : "Realm Purification — " + pct + "%";
+                ? "Tier " + realm.getPurificationTier() + " - Purification " + pct + "%"
+                : "Realm Purification - " + pct + "%";
         final String mods = realm.getPurificationModifiers();
-        if (mods != null && !mods.isEmpty()) label += "  ·  " + mods;
+        if (mods != null && !mods.isEmpty()) label += "  -  " + mods;
         font.setColor(Color.WHITE);
         final GlyphLayout layout = new GlyphLayout(font, label);
         font.draw(batch, label, barX + (barW - layout.width) / 2f, barY + (barH - layout.height) / 2f);

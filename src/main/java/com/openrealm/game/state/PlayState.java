@@ -413,7 +413,7 @@ public class PlayState extends GameState {
      *  text is also shown in the chat bar via PlayerChat. */
     public void addChatBubble(String name, String message) {
         if (name == null || name.isEmpty() || message == null || message.isEmpty()) return;
-        final String clipped = message.length() > 80 ? message.substring(0, 79) + "…" : message;
+        final String clipped = message.length() > 80 ? message.substring(0, 79) + "..." : message;
         final long now = System.currentTimeMillis();
         final long life = 3500L + Math.min(2500L, clipped.length() * 40L);
         this.chatBubbles.put(name, new ChatBubble(clipped, now, life));
@@ -2497,7 +2497,7 @@ public class PlayState extends GameState {
                 info.append(badge.isEmpty() ? portalLabel : (portalLabel + "   [" + badge + "]"));
                 if (diff > 0f) info.append("\nDifficulty ").append(diffStr);
                 if (portal.getTargetPlayerCount() >= 0) {
-                    info.append("  ·  ").append(portal.getTargetPlayerCount()).append(" in realm");
+                    info.append("  -  ").append(portal.getTargetPlayerCount()).append(" in realm");
                 }
                 if (portal.getTargetPurificationGoal() > 0L) {
                     final int pct = (int) Math.max(0, Math.min(100,
@@ -2516,7 +2516,7 @@ public class PlayState extends GameState {
                     info.append("\nModifiers revealed on entry");
                 }
             } else {
-                info.append(badge.isEmpty() ? portalLabel : (portalLabel + "  ·  " + badge));
+                info.append(badge.isEmpty() ? portalLabel : (portalLabel + "  -  " + badge));
             }
 
             this.nameLayoutScratch.setText(font, info.toString());
@@ -3223,6 +3223,13 @@ public class PlayState extends GameState {
 
     private void renderVisualEffects(ShapeRenderer shapes) {
         if (this.activeEffects.isEmpty()) return;
+
+        // The preceding nameplate/status-chip pass ends its SpriteBatch, and
+        // SpriteBatch.end() disables GL_BLEND. Without re-enabling it here the
+        // effects' alpha is ignored and every AoE disc renders fully opaque,
+        // washing out the whole screen (the caller disables blend again after).
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
         final float wx = Vector2f.worldX;
         final float wy = Vector2f.worldY;

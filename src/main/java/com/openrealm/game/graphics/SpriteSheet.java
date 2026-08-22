@@ -77,7 +77,7 @@ public class SpriteSheet {
         this(GameSpriteManager.TEXTURE_CACHE == null ? null : GameSpriteManager.TEXTURE_CACHE.get(fileName),
                 spriteWidth, spriteHeight, col, row);
         if (GameSpriteManager.TEXTURE_CACHE == null || GameSpriteManager.TEXTURE_CACHE.get(fileName) == null) {
-            log.warn("[SPRITE] Missing texture '{}' — sheet will render blank", fileName);
+            log.warn("[SPRITE] Missing texture '{}' - sheet will render blank", fileName);
         }
     }
 
@@ -90,7 +90,7 @@ public class SpriteSheet {
                 : GameSpriteManager.TEXTURE_CACHE.get(fileName);
         this.spriteSheetTexture = texture;
         if (texture == null) {
-            log.warn("[SPRITE] Missing texture '{}' — sheet will render blank", fileName);
+            log.warn("[SPRITE] Missing texture '{}' - sheet will render blank", fileName);
             this.spriteSheetRegions = new TextureRegion[0][0];
             return;
         }

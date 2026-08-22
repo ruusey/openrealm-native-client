@@ -207,7 +207,7 @@ public class GameLauncher {
             SocketClient.PLAYER_EMAIL = args[1];
             SocketClient.PLAYER_PASSWORD = args[2];
             SocketClient.CHARACTER_UUID = args[3];
-            log.info("[CLIENT] CLI-supplied credentials detected — skipping login UI");
+            log.info("[CLIENT] CLI-supplied credentials detected - skipping login UI");
         }
 
         log.info("[CLIENT] Starting LibGDX game client...");

@@ -313,7 +313,7 @@ public class GameSpriteManager {
             TILE_FEATHERS.put(e.getKey(), variants);
         }
 
-        log.info("{} Baked tile feathers — {} tiles × 4 = {} variants in {}x{} atlas",
+        log.info("{} Baked tile feathers - {} tiles x 4 = {} variants in {}x{} atlas",
                 LOG_NS, tileIds.size(), tileIds.size() * 4, atlasW, atlasH);
     }
 

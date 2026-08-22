@@ -252,7 +252,7 @@ public class ItemTooltip {
         if (this.targetClass >= 0) subtitleBits.add(getClassName());
         if (!subtitleBits.isEmpty()) {
             final Color rarityColor = argbToColor(Rarity.fromOrdinal(this.rarity).color);
-            lines.add(new TooltipLine(String.join(" · ", subtitleBits), rarityColor));
+            lines.add(new TooltipLine(String.join(" - ", subtitleBits), rarityColor));
         }
 
         // Class-compatibility row — shown when a viewer is set AND the item
@@ -308,7 +308,7 @@ public class ItemTooltip {
             if (dps != null) {
                 final String shotLabel = dps[1] == 1 ? "1 shot" : dps[1] + " shots";
                 lines.add(new TooltipLine(
-                        "DPS: " + dps[0] + "  (" + shotLabel + " · " + (dps[2] / 100f) + "/s)",
+                        "DPS: " + dps[0] + "  (" + shotLabel + " - " + (dps[2] / 100f) + "/s)",
                         GEM_COLOR));
             }
         }

@@ -95,7 +95,7 @@ public class SessionStore {
         try {
             return MAPPER.readValue(f, SessionStore.class);
         } catch (IOException e) {
-            log.warn("Failed to read session from {}: {} — starting fresh", f.getAbsolutePath(), e.getMessage());
+            log.warn("Failed to read session from {}: {} - starting fresh", f.getAbsolutePath(), e.getMessage());
             return new SessionStore();
         }
     }

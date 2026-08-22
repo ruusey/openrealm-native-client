@@ -472,9 +472,10 @@ public final class AbilityEffectRenderer {
         default:                                          r = 1.00f; g = 1.00f; b = 1.00f; break;
         }
 
-        // Filled translucent disc - much more visible
+        // Filled translucent disc. Kept light (web parity) so a large AoE tints
+        // the area instead of washing out everything behind it.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(r, g, b, alpha * 0.35f);
+        shapes.setColor(r, g, b, alpha * 0.20f);
         drawCircle(shapes, cx, cy, currentRadius, 48);
         shapes.end();
 

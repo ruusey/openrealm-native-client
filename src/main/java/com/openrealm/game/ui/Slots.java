@@ -132,7 +132,7 @@ public class Slots {
         // sprites (essences, potions). Fake an outline by drawing the
         // string four times offset 1px in each diagonal, then the gold
         // text on top.
-        final String text = "×" + count;
+        final String text = "x" + count;
         final float x = pos.x + SLOT_PX - 18;
         final float y = pos.y + SLOT_PX - 4;
         font.setColor(Color.BLACK);
