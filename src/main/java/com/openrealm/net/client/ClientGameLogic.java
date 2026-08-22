@@ -72,6 +72,7 @@ import com.openrealm.game.contants.FameStoreConstants;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import com.openrealm.net.client.packet.AbilityCastStartPacket;
 import com.openrealm.net.client.packet.PartyUpdatePacket;
+import com.openrealm.net.client.packet.SkillsPacket;
 import com.openrealm.net.entity.NetGameItem;
 import com.openrealm.net.entity.NetPartyMember;
 import com.openrealm.game.entity.item.GameItem;
@@ -515,6 +516,17 @@ public class ClientGameLogic {
 			win.open(open.getItems());
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenPotionStorage Packet. Reason: {}", e);
+		}
+	}
+
+	@PacketHandlerClient(SkillsPacket.class)
+	public static void handleSkillsClient(RealmManagerClient cli, Packet packet) {
+		try {
+			if (cli.getState() == null) return;
+			final SkillsPacket skills = (SkillsPacket) packet;
+			cli.getState().setSkillXp(skills.asArray());
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed to handle Skills Packet. Reason: {}", e);
 		}
 	}
 

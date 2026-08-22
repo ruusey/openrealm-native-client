@@ -169,6 +169,8 @@ public class PlayState extends GameState {
     /** Data-driven projectile FX particles (trails, muzzle/impact bursts). */
     private final ProjectileFxManager projectileFx = new ProjectileFxManager();
     public long playerId = -1l;
+    /** Account-wide skill XP (PlayerSkill ordinal -> XP), synced by SkillsPacket. */
+    private long[] skillXp = new long[9];
     /** Local player's privilege role (sysadmin/admin/mod/editor/demo), captured
      *  at login. STATIC so it survives a PlayState re-created on a realm
      *  transition, then re-applied to the local Player each frame so the name
@@ -1481,7 +1483,9 @@ public class PlayState extends GameState {
             }
 
             if (this.pui != null) {
-                if (key.m.clicked) this.pui.getMinimap().toggle();
+                // M opens the account-wide skills grid; minimap moved to N.
+                if (key.m.clicked) this.pui.getSkillsWindow().toggle();
+                if (Gdx.input.isKeyJustPressed(Input.Keys.N)) this.pui.getMinimap().toggle();
                 // Zoom is driven by the minimap's own mouse-wheel handler now
                 // (see Minimap input pass) — the +/- keyboard fallback was
                 // removed alongside the textured-quad rewrite. Keep this
@@ -2807,6 +2811,16 @@ public class PlayState extends GameState {
 
     public Player getPlayer() {
         return this.realmManager.getRealm().getPlayer(this.playerId);
+    }
+
+    public long[] getSkillXp() {
+        return this.skillXp;
+    }
+
+    public void setSkillXp(final long[] skillXp) {
+        if (skillXp != null && skillXp.length == this.skillXp.length) {
+            this.skillXp = skillXp;
+        }
     }
 
     /** Horde name-cull: label all enemies below the threshold, else only those

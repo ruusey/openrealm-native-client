@@ -461,6 +461,8 @@ public class PlayerUI {
     // Potion-storage UI: 32-slot dialog opened by F-key on tile 328 in the
     // vault. See PotionStorageWindow for layout + drag-drop wiring.
     private final PotionStorageWindow potionStorageWindow = new PotionStorageWindow();
+    // Account-wide skills grid, toggled with M.
+    private final SkillsWindow skillsWindow = new SkillsWindow();
 
     // Reusable position vectors for slot rendering to avoid per-frame
     // allocations: 5 equipment (0..4) + 20 inventory page cells (5..24).
@@ -1844,6 +1846,9 @@ public class PlayerUI {
         this.optionsWindow.render(batch, shapes, font);
         this.potionStorageWindow.update();
         this.potionStorageWindow.render(batch, shapes, font);
+        this.skillsWindow.update();
+        this.skillsWindow.render(batch, shapes, font,
+                this.playState != null ? this.playState.getSkillXp() : null);
 
         // Dev-stats overlay removed — the top-left corner now hosts the
         // minimap panel. PerfMetrics still ticks for any other consumers
