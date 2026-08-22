@@ -155,6 +155,9 @@ public class CreateEffectPacket extends Packet {
 	/** Melee basic-attack swing — small ring at the swing point (renders via the
 	 *  generic AoE-ring fallback in renderAoeEffect). */
 	public static final short EFFECT_MELEE_SWING = 62;
+	/** Spawn protection — white/gold purifying circle played when a player first
+	 *  enters an overworld realm, marking the viewport whose enemies were cleared. */
+	public static final short EFFECT_PURIFY_CIRCLE = 63;
 
 	public static CreateEffectPacket aoeEffect(short type, float x, float y, float radius, short duration) {
 		return aoeEffect(type, x, y, radius, duration, (byte) 0);

@@ -145,6 +145,13 @@ public final class AbilityEffectRenderer {
             return;
         }
 
+        // Spawn-protection purify circle — white/gold expanding ring, cleansing
+        // core flash, and gold sparkle motes orbiting the rim.
+        if (type == CreateEffectPacket.EFFECT_PURIFY_CIRCLE) {
+            renderPurifyCircle(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+
         // Boss-grenade warning / impact (Enemy 26). Tier >= 10 is the
         // sentinel the boss script uses to ask for a *much* more visible
         // ring than the default CURSE_RADIUS — the standard renderer's
@@ -3559,6 +3566,59 @@ public final class AbilityEffectRenderer {
         drawCircle(shapes, cx, cy, 4f, 16);
         shapes.end();
         Gdx.gl.glLineWidth(1f);
+    }
+
+    /**
+     * Spawn-protection purify circle. White/gold themed: a soft golden fill, a
+     * bright cleansing core flash on cast, concentric gold + white rings, an outer
+     * shockwave that races ahead and fades, and gold sparkle motes orbiting the rim.
+     * {@code t} is normalized effect progress [0..1].
+     */
+    public static void renderPurifyCircle(ShapeRenderer shapes, float cx, float cy, float maxRadius, float t) {
+        if (maxRadius <= 0) return;
+        // Expand quickly to full, then hold; fade over the final third.
+        final float radius = maxRadius * Math.min(t * 2.2f, 1f);
+        final float alpha = t < 0.65f ? 1f : Math.max(0f, 1f - (t - 0.65f) * 2.86f);
+
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        // Soft golden fill.
+        shapes.setColor(1.0f, 0.92f, 0.55f, alpha * 0.18f);
+        drawCircle(shapes, cx, cy, radius, 56);
+        // Cleansing white core — punchiest on cast, then eased.
+        final float coreAlpha = alpha * (t < 0.3f ? (0.5f + (0.3f - t) * 1.5f) : 0.35f);
+        shapes.setColor(1.0f, 1.0f, 0.9f, Math.max(0f, coreAlpha) * 0.5f);
+        drawCircle(shapes, cx, cy, radius * 0.45f, 40);
+        shapes.end();
+
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(1.0f, 0.85f, 0.35f, alpha);          // gold rim
+        drawCircleOutline(shapes, cx, cy, radius, 64);
+        drawCircleOutline(shapes, cx, cy, radius * 0.97f, 64);
+        Gdx.gl.glLineWidth(2.5f);
+        shapes.setColor(1.0f, 1.0f, 0.85f, alpha * 0.9f);    // inner white-gold
+        drawCircleOutline(shapes, cx, cy, radius * 0.88f, 64);
+        // Outer shockwave ring that races ahead and fades.
+        final float shock = maxRadius * Math.min(t * 1.6f, 1.15f);
+        shapes.setColor(1.0f, 0.95f, 0.6f, alpha * 0.5f * (1f - Math.min(t * 1.4f, 1f)));
+        drawCircleOutline(shapes, cx, cy, shock, 64);
+        shapes.end();
+
+        // Gold sparkle motes orbiting the rim.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int motes = 20;
+        final float spin = t * 3.2f;
+        for (int i = 0; i < motes; i++) {
+            final float ang = (float) (i * Math.PI * 2 / motes) + spin;
+            final float mr = radius * (0.98f + 0.05f * (float) Math.sin(t * 10f + i));
+            final float mx = cx + (float) Math.cos(ang) * mr;
+            final float my = cy + (float) Math.sin(ang) * mr;
+            final float twinkle = 0.6f + 0.4f * (float) Math.sin(t * 14f + i * 1.7f);
+            shapes.setColor(1.0f, 0.9f, 0.5f, alpha * twinkle);
+            final float s = 2.4f;
+            shapes.rect(mx - s * 0.5f, my - s * 0.5f, s, s);
+        }
+        shapes.end();
     }
 
     /**
