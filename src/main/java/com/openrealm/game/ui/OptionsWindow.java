@@ -240,7 +240,7 @@ public class OptionsWindow {
             String key = GRAPHICS_ROWS[i];
             font.draw(batch, "[" + (graphicsValue(s, key) ? "x" : " ") + "]  " + graphicsLabel(key), x, y - lineH * i);
         }
-        font.draw(batch, "Wall detail: " + s.getWallRenderMode() + "  (simple = faster)",
+        font.draw(batch, "Wall detail: " + s.getWallRenderMode(),
                 x, y - lineH * GRAPHICS_ROWS.length);
     }
 
@@ -264,8 +264,6 @@ public class OptionsWindow {
         font.draw(batch, String.format("Master:  %.0f%%", s.getMasterVolume() * 100), x, y);
         font.draw(batch, String.format("SFX:     %.0f%%", s.getSfxVolume() * 100),    x, y - lineH);
         font.draw(batch, String.format("Music:   %.0f%%", s.getMusicVolume() * 100),  x, y - lineH * 2);
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "(audio engine not yet wired; values persist for future use)", x, y - lineH * 4);
     }
 
     private void handleClick(int x, int y, int dialogW, int dialogH, int tabW, int tabH, int tabY,
