@@ -387,7 +387,11 @@ public class ClientGameLogic {
 					final Player local = cli.getRealm().getPlayer(cli.getCurrentPlayerId());
 					final MapModel mapModel = GameDataManager.MAPS.get((int) loadPacket.getMapId());
 					if (local != null && local.getPos() != null && mapModel != null) {
-						final Vector2f spawn = mapModel.getCenter();
+						// Placeholder until the server's authoritative pos arrives. Use a real
+						// spawn point (falls back to center when none defined) — map center is
+						// void on large maps like Oryx's Castle whose spawns sit at the edge,
+						// which stranded the player at the wrong spot / minimap origin.
+						final Vector2f spawn = mapModel.getRandomSpawnPoint();
 						local.getPos().x = spawn.x;
 						local.getPos().y = spawn.y;
 						// CRITICAL: also reset the LERPED render position.
