@@ -1,5 +1,8 @@
 package com.openrealm.game.ui;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
@@ -27,6 +30,40 @@ public class SkillsWindow {
         "Ranged Combat", "Melee Combat", "Magic Combat",
         "Heavy Armor", "Light Armor", "Cloak Armor",
         "Support Caster", "Impairment Caster", "DPS Caster"
+    };
+    // Description, passive effect, and XP rule per skill (mirrors server PlayerSkillHelper).
+    private static final String[] SKILL_DESC = {
+        "Damage with ranged (light) weapons.",
+        "Damage with melee (heavy) weapons.",
+        "Damage with magic weapons.",
+        "Toughness while wearing heavy armor.",
+        "Toughness while wearing light armor.",
+        "Toughness while wearing cloak armor.",
+        "Buffing allies with abilities.",
+        "Debuffing enemies with abilities.",
+        "Dealing ability damage."
+    };
+    private static final String[] SKILL_EFFECT = {
+        "+0.1% ranged damage / level",
+        "+0.1% melee damage / level",
+        "+0.1% magic damage / level",
+        "+0.1% damage reduction / level",
+        "+0.1% damage reduction / level",
+        "+0.1% damage reduction / level",
+        "+0.15% ally buff duration / level",
+        "+0.15% enemy debuff duration / level",
+        "+0.1% ability damage / level"
+    };
+    private static final String[] SKILL_XP_RULE = {
+        "0.5 XP per ranged damage dealt",
+        "0.5 XP per melee damage dealt",
+        "0.5 XP per magic damage dealt",
+        "1 XP per damage taken (heavy armor)",
+        "1 XP per damage taken (light armor)",
+        "1 XP per damage taken (cloak armor)",
+        "25 XP per buff applied to an ally",
+        "15 XP per debuff applied to an enemy",
+        "0.5 XP per ability damage dealt"
     };
 
     private final GlyphLayout layout = new GlyphLayout();
@@ -149,12 +186,19 @@ public class SkillsWindow {
             final long xp = skillXp != null && hoverIdx < skillXp.length ? skillXp[hoverIdx] : 0L;
             final int level = levelForXp(xp);
             final long next = totalXpForLevel(level + 1);
-            final String[] lines = level >= MAX_LEVEL
-                    ? new String[] { "Current XP: " + String.format("%,d", xp), "Max level reached" }
-                    : new String[] {
-                        "Current XP: " + String.format("%,d", xp),
-                        "Next level: " + String.format("%,d", next) + " XP",
-                        "Remaining: " + String.format("%,d", next - xp) + " XP" };
+            final List<String> lineList = new ArrayList<>();
+            lineList.add(SKILL_NAMES[hoverIdx]);
+            lineList.add(SKILL_DESC[hoverIdx]);
+            lineList.add("Effect: " + SKILL_EFFECT[hoverIdx]);
+            lineList.add("XP: " + SKILL_XP_RULE[hoverIdx]);
+            lineList.add("Current XP: " + String.format("%,d", xp));
+            if (level >= MAX_LEVEL) {
+                lineList.add("Max level reached");
+            } else {
+                lineList.add("Next level: " + String.format("%,d", next) + " XP");
+                lineList.add("Remaining: " + String.format("%,d", next - xp) + " XP");
+            }
+            final String[] lines = lineList.toArray(new String[0]);
 
             final float lineH = font.getLineHeight();
             float maxLineW = 0f;

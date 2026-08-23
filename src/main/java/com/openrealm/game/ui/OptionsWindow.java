@@ -39,7 +39,8 @@ public class OptionsWindow {
     private static final String[] BINDABLE_ACTIONS = {
         "moveUp", "moveDown", "moveLeft", "moveRight",
         "rotateLeft", "rotateRight", "resetCamera",
-        "lootPickup", "usePortal", "goNexus", "chat"
+        "lootPickup", "usePortal", "goNexus", "chat",
+        "skillsMenu", "metricsMenu"
     };
 
     public boolean isVisible() {
@@ -229,6 +230,8 @@ public class OptionsWindow {
             case "usePortal":   return "Use Nearest Portal";
             case "goNexus":     return "Return to Nexus";
             case "chat":        return "Open Chat";
+            case "skillsMenu":  return "Skills Menu";
+            case "metricsMenu": return "Character Stats";
             default:            return action;
         }
     }

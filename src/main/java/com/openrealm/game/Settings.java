@@ -97,6 +97,8 @@ public class Settings {
         m.put("usePortal", Input.Keys.SPACE);
         m.put("chat", Input.Keys.ENTER);
         m.put("menu", Input.Keys.ESCAPE);
+        m.put("skillsMenu", Input.Keys.M);
+        m.put("metricsMenu", Input.Keys.PERIOD);
         return m;
     }
 

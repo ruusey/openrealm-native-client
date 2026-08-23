@@ -463,6 +463,8 @@ public class PlayerUI {
     private final PotionStorageWindow potionStorageWindow = new PotionStorageWindow();
     // Account-wide skills grid, toggled with M.
     private final SkillsWindow skillsWindow = new SkillsWindow();
+    // Lifetime character stats grid, toggled with the period key.
+    private final MetricsWindow metricsWindow = new MetricsWindow();
 
     // Reusable position vectors for slot rendering to avoid per-frame
     // allocations: 5 equipment (0..4) + 20 inventory page cells (5..24).
@@ -1849,6 +1851,8 @@ public class PlayerUI {
         this.skillsWindow.update();
         this.skillsWindow.render(batch, shapes, font,
                 this.playState != null ? this.playState.getSkillXp() : null);
+        this.metricsWindow.update();
+        this.metricsWindow.render(batch, shapes, font);
 
         // Dev-stats overlay removed — the top-left corner now hosts the
         // minimap panel. PerfMetrics still ticks for any other consumers

@@ -1483,8 +1483,12 @@ public class PlayState extends GameState {
             }
 
             if (this.pui != null) {
-                // M opens the account-wide skills grid; minimap moved to N.
-                if (key.m.clicked) this.pui.getSkillsWindow().toggle();
+                // Rebindable (Options > Controls): skillsMenu (default M), metricsMenu (default .).
+                if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("skillsMenu")))
+                    this.pui.getSkillsWindow().toggle();
+                if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("metricsMenu")))
+                    this.pui.getMetricsWindow().toggleFor(SocketClient.CHARACTER_UUID);
+                // Minimap moved off M to N.
                 if (Gdx.input.isKeyJustPressed(Input.Keys.N)) this.pui.getMinimap().toggle();
                 // Zoom is driven by the minimap's own mouse-wheel handler now
                 // (see Minimap input pass) — the +/- keyboard fallback was
