@@ -3807,14 +3807,26 @@ public class PlayerUI {
         }
         if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) return null;
         final AnimationFrameModel f = set.getFrames().get(0);
-        final String key = classId + ":" + f.getRow() + ":" + f.getCol();
+        final int dyeId = p.getDyeId();
+        // Dye id is part of the cache key so a re-dye refreshes the avatar.
+        final String key = classId + ":" + f.getRow() + ":" + f.getCol() + ":" + dyeId;
         TextureRegion cached = _hudIdleCache.get(key);
         if (cached != null) return cached;
+        final int spW = anim.getSpriteSize();
+        final int spH = anim.getEffectiveSpriteHeight();
+        // Apply the equipped dye (web parity) so the preview matches the in-world
+        // sprite. getDyedRegion returns an already-flipped region.
+        if (dyeId > 0) {
+            final TextureRegion dyed = SpriteRecolorCache.getDyedRegion(
+                    anim.getSpriteKey(), classId, f.getRow(), f.getCol(), spW, spH, spW, spH, dyeId);
+            if (dyed != null) {
+                _hudIdleCache.put(key, dyed);
+                return dyed;
+            }
+        }
         final Texture tex = (GameSpriteManager.TEXTURE_CACHE != null)
                 ? GameSpriteManager.TEXTURE_CACHE.get(anim.getSpriteKey()) : null;
         if (tex == null) return null;
-        final int spW = anim.getSpriteSize();
-        final int spH = anim.getEffectiveSpriteHeight();
         final TextureRegion region =
                 new TextureRegion(
                         tex, f.getCol() * spW, f.getRow() * spH, spW, spH);

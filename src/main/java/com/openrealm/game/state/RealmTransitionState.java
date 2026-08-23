@@ -23,23 +23,56 @@ import com.openrealm.game.Settings;
  */
 public class RealmTransitionState {
 
+    // Web parity (main.js): min 2s visible, dismiss once map data lands, hard
+    // cap at 6s if it never does; 400ms fade-out.
     private static final long FADE_IN_MS = 200L;
-    private static final long HOLD_MS = 400L;
-    private static final long FADE_OUT_MS = 200L;
-    private static final long TOTAL_MS = FADE_IN_MS + HOLD_MS + FADE_OUT_MS;
+    private static final long MIN_HOLD_MS = 2000L;
+    private static final long MAX_MS = 6000L;
+    private static final long FADE_OUT_MS = 400L;
 
     private long startTime = 0L;
+    private long fadeOutStart = 0L; // 0 = not yet fading out
     private String zoneName = "";
     private float difficulty = 0f;
     private boolean active = false;
+    private boolean dataReady = false;
 
-    /** Triggered by ClientGameLogic when a new realm map is loaded. */
-    public void trigger(String zoneName, float difficulty) {
+    /**
+     * Show the loading overlay at the START of a load-in / transition, before the
+     * new realm's map data has arrived. Held until {@link #onDataReady} + the
+     * minimum hold, or the hard timeout. No-op if already showing.
+     */
+    public void begin(String zoneName) {
         if (!Settings.get().isShowRealmTransition()) return;
-        this.zoneName = zoneName == null ? "Realm" : zoneName;
-        this.difficulty = difficulty;
+        if (this.active) return; // don't restart an in-progress transition
+        this.zoneName = zoneName == null ? "Loading..." : zoneName;
+        this.difficulty = 0f;
+        this.dataReady = false;
+        this.fadeOutStart = 0L;
         this.startTime = System.currentTimeMillis();
         this.active = true;
+    }
+
+    /**
+     * The new realm's map data has arrived — fill in the zone name/difficulty and
+     * let the overlay dismiss once the minimum hold elapses. Starts the overlay
+     * itself if {@link #begin} was never called for this transition.
+     */
+    public void onDataReady(String zoneName, float difficulty) {
+        if (!Settings.get().isShowRealmTransition()) return;
+        if (!this.active) {
+            this.startTime = System.currentTimeMillis();
+            this.fadeOutStart = 0L;
+            this.active = true;
+        }
+        if (zoneName != null) this.zoneName = zoneName;
+        this.difficulty = difficulty;
+        this.dataReady = true;
+    }
+
+    /** Back-compat alias used by ClientGameLogic on LoadMap. */
+    public void trigger(String zoneName, float difficulty) {
+        onDataReady(zoneName, difficulty);
     }
 
     public boolean isActive() {
@@ -48,7 +81,13 @@ public class RealmTransitionState {
 
     public void update() {
         if (!this.active) return;
-        if (System.currentTimeMillis() - this.startTime >= TOTAL_MS) {
+        final long now = System.currentTimeMillis();
+        if (this.fadeOutStart == 0L) {
+            final long elapsed = now - this.startTime;
+            if ((this.dataReady && elapsed >= MIN_HOLD_MS) || elapsed >= MAX_MS) {
+                this.fadeOutStart = now;
+            }
+        } else if (now - this.fadeOutStart >= FADE_OUT_MS) {
             this.active = false;
         }
     }
@@ -56,14 +95,13 @@ public class RealmTransitionState {
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (!this.active) return;
 
-        long elapsed = System.currentTimeMillis() - this.startTime;
+        final long now = System.currentTimeMillis();
         float alpha;
-        if (elapsed < FADE_IN_MS) {
-            alpha = elapsed / (float) FADE_IN_MS;
-        } else if (elapsed < FADE_IN_MS + HOLD_MS) {
-            alpha = 1f;
+        if (this.fadeOutStart != 0L) {
+            alpha = Math.max(0f, 1f - (now - this.fadeOutStart) / (float) FADE_OUT_MS);
         } else {
-            alpha = Math.max(0f, 1f - (elapsed - FADE_IN_MS - HOLD_MS) / (float) FADE_OUT_MS);
+            final long elapsed = now - this.startTime;
+            alpha = elapsed < FADE_IN_MS ? (elapsed / (float) FADE_IN_MS) : 1f;
         }
 
         int w = OpenRealmGame.width;
@@ -84,13 +122,17 @@ public class RealmTransitionState {
         font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f + 30);
         layout.setText(font, this.zoneName);
         font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f);
-        font.setColor(0.95f, 0.25f, 0.25f, alpha);
-        StringBuilder skulls = new StringBuilder();
-        int skullCount = Math.min(10, Math.max(0, Math.round(this.difficulty)));
-        for (int i = 0; i < skullCount; i++) skulls.append('X');
-        String difficultyLine = "Difficulty " + String.format("%.1f  %s", this.difficulty, skulls.toString());
-        layout.setText(font, difficultyLine);
-        font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f - 30);
+        // Difficulty line only once the map data has landed (avoids "Difficulty 0.0"
+        // during the pre-data loading phase).
+        if (this.dataReady && this.difficulty > 0f) {
+            font.setColor(0.95f, 0.25f, 0.25f, alpha);
+            StringBuilder skulls = new StringBuilder();
+            int skullCount = Math.min(10, Math.max(0, Math.round(this.difficulty)));
+            for (int i = 0; i < skullCount; i++) skulls.append('X');
+            String difficultyLine = "Difficulty " + String.format("%.1f  %s", this.difficulty, skulls.toString());
+            layout.setText(font, difficultyLine);
+            font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f - 30);
+        }
         font.setColor(1f, 1f, 1f, 1f);
     }
 }

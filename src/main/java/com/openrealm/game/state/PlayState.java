@@ -375,6 +375,9 @@ public class PlayState extends GameState {
         this.playerId = this.realmManager.getRealm().addPlayer(player);
         this.realmManager.setCurrentPlayerId(this.playerId);
         this.pui = new PlayerUI(this);
+        // Show the loading overlay from the moment the HUD exists (initial load-in);
+        // the first LoadMap marks it data-ready and it dismisses after the min hold.
+        this.pui.getRealmTransition().begin(null);
 
         this.getPui().setEquipment(player.getInventory());
     }
@@ -1363,6 +1366,7 @@ public class PlayState extends GameState {
                         }
                         // Flag that we're transitioning realms - next ObjectMovePacket should snap position
                         this.realmManager.setAwaitingRealmTransition(true);
+                        if (this.pui != null) this.pui.getRealmTransition().begin(null);
                         // Tell server we're ready for tiles after map rebuild
                         this.realmManager.getClient().sendRemote(LoginAckPacket.from());
                         this.lastPortalTick = System.currentTimeMillis();
@@ -1385,6 +1389,7 @@ public class PlayState extends GameState {
                     this.realmManager.getClient().sendRemote(usePortal);
                     this.realmManager.getRealm().loadMap(29);
                     this.realmManager.setAwaitingRealmTransition(true);
+                    if (this.pui != null) this.pui.getRealmTransition().begin(null);
                     this.realmManager.getClient().sendRemote(LoginAckPacket.from());
                     this.lastPortalTick = System.currentTimeMillis();
                 } catch (Exception e) {
@@ -1398,6 +1403,7 @@ public class PlayState extends GameState {
                         this.realmManager.getClient().sendRemote(usePortal);
                         this.realmManager.getRealm().loadMap(1);
                         this.realmManager.setAwaitingRealmTransition(true);
+                        if (this.pui != null) this.pui.getRealmTransition().begin(null);
                         this.realmManager.getClient().sendRemote(LoginAckPacket.from());
                         this.lastPortalTick = System.currentTimeMillis();
                     }
