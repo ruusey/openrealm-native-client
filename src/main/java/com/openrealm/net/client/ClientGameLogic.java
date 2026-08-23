@@ -390,7 +390,7 @@ public class ClientGameLogic {
 					if (local != null && local.getPos() != null && mapModel != null) {
 						// Placeholder until the server's authoritative pos arrives. Use a real
 						// spawn point (falls back to center when none defined) — map center is
-						// void on large maps like Oryx's Castle whose spawns sit at the edge,
+						// void on large maps like Corrupted Lord's Castle whose spawns sit at the edge,
 						// which stranded the player at the wrong spot / minimap origin.
 						final Vector2f spawn = mapModel.getRandomSpawnPoint();
 						local.getPos().x = spawn.x;
