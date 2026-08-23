@@ -149,23 +149,34 @@ public class SkillsWindow {
             final long xp = skillXp != null && hoverIdx < skillXp.length ? skillXp[hoverIdx] : 0L;
             final int level = levelForXp(xp);
             final long next = totalXpForLevel(level + 1);
-            final String line = level >= MAX_LEVEL
-                    ? ("XP " + xp + "  (max level)")
-                    : ("XP " + xp + " / " + next + "  (" + (next - xp) + " to go)");
-            this.layout.setText(font, line);
-            final float tipW = this.layout.width + 16;
-            final float tipH = this.layout.height + 12;
+            final String[] lines = level >= MAX_LEVEL
+                    ? new String[] { "Current XP: " + String.format("%,d", xp), "Max level reached" }
+                    : new String[] {
+                        "Current XP: " + String.format("%,d", xp),
+                        "Next level: " + String.format("%,d", next) + " XP",
+                        "Remaining: " + String.format("%,d", next - xp) + " XP" };
+
+            final float lineH = font.getLineHeight();
+            float maxLineW = 0f;
+            for (final String l : lines) {
+                this.layout.setText(font, l);
+                if (this.layout.width > maxLineW) maxLineW = this.layout.width;
+            }
+            final float tipW = maxLineW + 16;
+            final float tipH = lineH * lines.length + 12;
             final float tipX = hoverBarX;
             final float tipY = hoverBarY - tipH - 4;
 
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0.04f, 0.04f, 0.06f, 0.96f);
+            shapes.setColor(0.04f, 0.04f, 0.06f, 0.98f);
             shapes.rect(tipX, tipY, tipW, tipH);
             shapes.end();
             batch.begin();
             font.setColor(Color.WHITE);
-            font.draw(batch, line, tipX + 8, tipY + tipH - 8);
+            for (int li = 0; li < lines.length; li++) {
+                font.draw(batch, lines[li], tipX + 8, tipY + tipH - 8 - li * lineH);
+            }
         }
     }
 }
