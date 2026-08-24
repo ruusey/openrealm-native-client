@@ -130,6 +130,22 @@ public final class AbilityEffectRenderer {
         final float cy = vfx.getPosY() - wy;
         final float maxRadius = vfx.getRadius();
 
+        // Boss beam telegraph — opaque red flashing rectangle from the boss to the
+        // beam's end. Handled before the tier>=10 grenade-ring branch below since
+        // this warning is a beam (rectLine), not a circle.
+        if (type == CreateEffectPacket.EFFECT_BEAM_WARNING) {
+            final float tx = vfx.getTargetPosX() - wx;
+            final float ty = vfx.getTargetPosY() - wy;
+            final float width = Math.max(3f, vfx.getRadius() * 2f);
+            final float pulse = 0.55f + 0.45f * (float) Math.abs(Math.sin(t * Math.PI * 5.0));
+            Gdx.gl.glEnable(GL20.GL_BLEND);
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.9f, 0.06f, 0.06f, pulse);
+            shapes.rectLine(cx, cy, tx, ty, width);
+            shapes.end();
+            return;
+        }
+
         // Per-archetype melee swing (tier = weapon: 1 Sword, 2 Axe, 3 Hammer,
         // 10 Dagger). Procedural here; the sprite override (if authored) is drawn
         // in renderMeleeSwings() during the batch pass, and this skips those.

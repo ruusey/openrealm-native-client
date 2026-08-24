@@ -158,6 +158,7 @@ public class CreateEffectPacket extends Packet {
 	/** Spawn protection — white/gold purifying circle played when a player first
 	 *  enters an overworld realm, marking the viewport whose enemies were cleared. */
 	public static final short EFFECT_PURIFY_CIRCLE = 63;
+	public static final short EFFECT_BEAM_WARNING = 64;
 
 	public static CreateEffectPacket aoeEffect(short type, float x, float y, float radius, short duration) {
 		return aoeEffect(type, x, y, radius, duration, (byte) 0);

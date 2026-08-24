@@ -316,6 +316,7 @@ public class PlayState extends GameState {
         new StatusEffectIconDef(StatusEffectType.BLIND.effectId,        "Blind",  0x1A1A1A),
         new StatusEffectIconDef(StatusEffectType.WARDED.effectId,       "Ward",   0xC8C0FF),
         new StatusEffectIconDef(StatusEffectType.MANA_FOUNT.effectId,   "MP+",    0x4080FF),
+        new StatusEffectIconDef(StatusEffectType.INSTAKILL.effectId,    "DEATH",  0xFF0000),
         new StatusEffectIconDef(StatusEffectType.VULNERABLE.effectId,   "Vuln",   0xCC4080),
         new StatusEffectIconDef(StatusEffectType.GROUNDED.effectId,     "Grnd",   0x806040),
         new StatusEffectIconDef(StatusEffectType.MARKED_FOR_LOOT.effectId, "Mark", 0xFFD840),
