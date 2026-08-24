@@ -1026,6 +1026,10 @@ public class ClientGameLogic {
 					final String inviter = msg.substring(0, idx).trim();
 					cli.getState().getPui().showPartyInvitePrompt(inviter);
 				}
+				// Admin /hop toggle result — flip local minimap click behavior.
+				if (msg.startsWith("Hop mode: ")) {
+					cli.getState().getPui().getMinimap().setHopMode(msg.endsWith("ON"));
+				}
 			}
 			cli.getState().getPui().enqueueChat(textPacket.clone());
 			// Float the line over the sender's head too. Skip SYSTEM / event

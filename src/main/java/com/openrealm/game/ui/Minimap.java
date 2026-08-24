@@ -91,6 +91,12 @@ public class Minimap {
 
     private boolean visible = true;
 
+    /** Admin /hop: while on, a minimap click teleports to those world coords.
+     *  Driven by the server's "Hop mode: ON/OFF" message. */
+    private boolean hopMode = false;
+    public void setHopMode(final boolean on) { this.hopMode = on; }
+    public boolean isHopMode() { return this.hopMode; }
+
     // Hover state: index of the nearby player under the cursor (or -1).
     private int hoveredOtherIdx = -1;
     private String hoveredOtherName = null;
@@ -328,14 +334,15 @@ public class Minimap {
         final boolean justClicked = down && !this.prevMouseDown;
         this.prevMouseDown = down;
         if (justClicked && inside) {
-            if (this.hoveredOtherName != null) {
-                this.sendTpCommand("/tp " + this.hoveredOtherName);
-            } else {
+            if (this.hopMode) {
+                // Admin hop mode: click anywhere teleports to those world coords.
                 final int worldX = (int) (this.cursorOnMapTile[0] * GlobalConstants.BASE_TILE_SIZE);
                 final int worldY = (int) (this.cursorOnMapTile[1] * GlobalConstants.BASE_TILE_SIZE);
                 if (worldX > 0 && worldY > 0) {
-                    this.sendTpCommand("/tp " + worldX + " " + worldY);
+                    this.sendTpCommand("/hop " + worldX + " " + worldY);
                 }
+            } else if (this.hoveredOtherName != null) {
+                this.sendTpCommand("/tp " + this.hoveredOtherName);
             }
         }
     }
@@ -508,6 +515,12 @@ public class Minimap {
             final float sy = this.drawY + (pt[1] - srcY) * scaleY;
             shapes.setColor(LOCAL_COLOR);
             shapes.circle(sx, sy, 4f);
+        }
+
+        // Admin hop-mode badge — a cyan corner square so it's obvious clicks teleport.
+        if (this.hopMode) {
+            shapes.setColor(0.30f, 0.82f, 1.0f, 1f);
+            shapes.rect(this.drawX + 3, this.drawY + 3, 10, 10);
         }
 
         // Close the Filled pass before switching to Line — ShapeRenderer.set()
