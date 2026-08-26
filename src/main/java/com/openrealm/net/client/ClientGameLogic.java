@@ -68,7 +68,6 @@ import com.openrealm.net.client.packet.OpenFameStorePacket;
 import com.openrealm.net.client.packet.OpenForgePacket;
 import com.openrealm.net.client.packet.OpenPotionStoragePacket;
 import com.openrealm.net.client.packet.PotionStorageUpdatePacket;
-import com.openrealm.game.contants.FameStoreConstants;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import com.openrealm.net.client.packet.AbilityCastStartPacket;
 import com.openrealm.net.client.packet.PartyUpdatePacket;
@@ -563,49 +562,25 @@ public class ClientGameLogic {
 			final FameStoreWindow store = cli.getState().getPui().getFameStoreWindow();
 			store.setRealmManager(cli);
 			store.setAccountFame(open.getAccountFame());
-			// The native client doesn't yet receive the catalog over the wire;
-			// for now show a small hard-coded list mirroring the web client's
-			// initial fame-store stock so the UI is interactive end-to-end.
-			// When the server emits a catalog payload, replace this with the
-			// served list.
+			// Catalog + prices are data-driven from fame-store.json (itemId -> cost);
+			// names/descriptions resolve from GAME_ITEMS. Sorted cheapest-first.
 			List<FameStoreEntry> entries = new ArrayList<>();
-			// Catalog mirrors the server's accepted itemId ranges and
-			// per-tier costs:
-			//   821-828  -> 8 dyes      (500 fame each)
-			//   808-815  -> 8 crystals  (1000 fame each)
-			//   830-836  -> 7 gems      (5000 fame each — endgame power tier)
-			final long DYE_COST     = FameStoreConstants.DYE_FAME_COST;
-			final long CRYSTAL_COST = FameStoreConstants.CRYSTAL_FAME_COST;
-			final long GEM_COST     = FameStoreConstants.GEM_FAME_COST;
-			entries.add(new FameStoreEntry(821, "Green Dye",  DYE_COST));
-			entries.add(new FameStoreEntry(822, "Yellow Dye", DYE_COST));
-			entries.add(new FameStoreEntry(823, "Red Dye",    DYE_COST));
-			entries.add(new FameStoreEntry(824, "Blue Dye",   DYE_COST));
-			entries.add(new FameStoreEntry(825, "Purple Dye", DYE_COST));
-			entries.add(new FameStoreEntry(826, "Orange Dye", DYE_COST));
-			entries.add(new FameStoreEntry(827, "White Dye",  DYE_COST));
-			entries.add(new FameStoreEntry(828, "Black Dye",  DYE_COST));
-			entries.add(new FameStoreEntry(808, "Vit Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreEntry(809, "Wis Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreEntry(810, "HP Crystal",  CRYSTAL_COST));
-			entries.add(new FameStoreEntry(811, "MP Crystal",  CRYSTAL_COST));
-			entries.add(new FameStoreEntry(812, "Att Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreEntry(813, "Def Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreEntry(814, "Spd Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreEntry(815, "Dex Crystal", CRYSTAL_COST));
-			entries.add(new FameStoreEntry(830, "Wisdom Scaling Gem", GEM_COST));
-			entries.add(new FameStoreEntry(831, "Swift Scaling Gem",  GEM_COST));
-			entries.add(new FameStoreEntry(832, "Multishot Gem",      GEM_COST));
-			entries.add(new FameStoreEntry(833, "Crushing Gem",       GEM_COST));
-			entries.add(new FameStoreEntry(834, "Slowing Gem",        GEM_COST));
-			entries.add(new FameStoreEntry(835, "Vampiric Gem",       GEM_COST));
-			entries.add(new FameStoreEntry(836, "Brutal Gem",         GEM_COST));
-			entries.add(new FameStoreEntry(854, "Attack Scaling Gem",    GEM_COST));
-			entries.add(new FameStoreEntry(855, "Defense Scaling Gem",   GEM_COST));
-			entries.add(new FameStoreEntry(856, "Dexterity Scaling Gem", GEM_COST));
-			entries.add(new FameStoreEntry(857, "Vitality Scaling Gem",  GEM_COST));
-			entries.add(new FameStoreEntry(858, "Health Scaling Gem",    GEM_COST));
-			entries.add(new FameStoreEntry(859, "Mana Scaling Gem",      GEM_COST));
+			final Map<Integer, Long> catalog = GameDataManager.FAME_STORE;
+			if (catalog != null) {
+				final List<Map.Entry<Integer, Long>> sorted = new ArrayList<>(catalog.entrySet());
+				sorted.sort((a, b) -> {
+					final int c = Long.compare(a.getValue(), b.getValue());
+					return c != 0 ? c : Integer.compare(a.getKey(), b.getKey());
+				});
+				for (Map.Entry<Integer, Long> ce : sorted) {
+					final GameItem item = GameDataManager.GAME_ITEMS != null
+							? GameDataManager.GAME_ITEMS.get(ce.getKey()) : null;
+					final String name = (item != null && item.getName() != null)
+							? item.getName() : ("Item " + ce.getKey());
+					final String desc = (item != null) ? item.getDescription() : null;
+					entries.add(new FameStoreEntry(ce.getKey(), name, ce.getValue(), desc));
+				}
+			}
 			store.setEntries(entries);
 			store.show();
 		} catch (Exception e) {

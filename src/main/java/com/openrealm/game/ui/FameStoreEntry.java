@@ -5,9 +5,11 @@ public class FameStoreEntry {
     public int itemId;
     public String name;
     public long cost;
-    public FameStoreEntry(int itemId, String name, long cost) {
+    public String description;
+    public FameStoreEntry(int itemId, String name, long cost, String description) {
         this.itemId = itemId;
         this.name = name;
         this.cost = cost;
+        this.description = description;
     }
 }

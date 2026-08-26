@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openrealm.game.contants.CharacterClass;
@@ -58,6 +59,8 @@ public class GameDataManager {
 	public static Map<Integer, ProjectileGroup>               PROJECTILE_GROUPS = null;
 	public static Map<Byte, WeaponArchetypeModel>             WEAPON_ARCHETYPES = null;
 	public static Map<Integer, GameItem>                      GAME_ITEMS = null;
+	/** Fame-store catalog: itemId -> fame cost. Presence = sold in the fame store. */
+	public static Map<Integer, Long>                          FAME_STORE = null;
 	public static Map<Integer, EnemyModel>                    ENEMIES = null;
 	public static Map<Integer, TileModel>                     TILES = null;
 	public static Map<Integer, MapModel>                      MAPS = null;
@@ -84,6 +87,26 @@ public class GameDataManager {
 	public static Map<Integer, DyeAssetModel>                 DYE_ASSETS = null;
 	public static Map<Integer, ClassMaskModel>                CLASS_MASKS = null;
 	public static Map<String, ClassMaskFrame>                 CLASS_MASK_FRAMES = null;
+
+	private static void loadFameStore(final boolean remote) throws Exception {
+		GameDataManager.log.info("{} Loading Fame Store...", LOG_NS);
+		GameDataManager.FAME_STORE = new HashMap<>();
+		String text = null;
+		if (remote) {
+			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/fame-store.json", null);
+		} else {
+			InputStream inputStream = GameDataManager.class.getClassLoader()
+					.getResourceAsStream("data/fame-store.json");
+			if (inputStream == null) {
+				GameDataManager.log.info("{} No fame-store.json found, skipping fame store load", LOG_NS);
+				return;
+			}
+			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+		}
+		GameDataManager.FAME_STORE = GameDataManager.JSON_MAPPER.readValue(text,
+				new TypeReference<Map<Integer, Long>>() {});
+		GameDataManager.log.info("{} Loading Fame Store... DONE ({} items)", LOG_NS, GameDataManager.FAME_STORE.size());
+	}
 
 	private static void loadLootGroups(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Loot Groups...", LOG_NS);
@@ -673,6 +696,7 @@ public class GameDataManager {
 			() -> { try { GameDataManager.loadProjectileGroups(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load projectile groups: {}", LOG_NS, e.getMessage()); } },
 			() -> { try { GameDataManager.loadWeaponArchetypes(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load weapon archetypes: {}", LOG_NS, e.getMessage()); } },
 			() -> { try { GameDataManager.loadGameItems(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load game items: {}", LOG_NS, e.getMessage()); } },
+			() -> { try { GameDataManager.loadFameStore(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load fame store: {}", LOG_NS, e.getMessage()); } },
 			() -> { try { GameDataManager.loadEnemies(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load enemies: {}", LOG_NS, e.getMessage()); } },
 			() -> { try { GameDataManager.loadTiles(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load tiles: {}", LOG_NS, e.getMessage()); } },
 			() -> { try { GameDataManager.loadMaps(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load maps: {}", LOG_NS, e.getMessage()); } },

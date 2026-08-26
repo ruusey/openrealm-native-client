@@ -166,6 +166,21 @@ public class FameStoreWindow {
             font.draw(batch, "Buy", x + dialogW - 78, rowY + rowH - 14);
         }
 
+        // Hovered-row item description, shown in the band under the header.
+        final int hmx = Gdx.input.getX();
+        final int hmy = Gdx.input.getY();
+        for (int i = firstIdx; i < lastIdx; i++) {
+            int rowY = rowsTop + (i - firstIdx) * rowH;
+            if (hmx >= x + 12 && hmx <= x + dialogW - 12 && hmy >= rowY && hmy <= rowY + rowH - 4) {
+                FameStoreEntry he = this.entries.get(i);
+                if (he.description != null && !he.description.isEmpty()) {
+                    font.setColor(Color.LIGHT_GRAY);
+                    font.draw(batch, he.description, x + 16, y + headerH + 18);
+                }
+                break;
+            }
+        }
+
         // Scroll indicator if the catalog is taller than the visible area.
         if (total > visibleRows) {
             font.setColor(Color.LIGHT_GRAY);
