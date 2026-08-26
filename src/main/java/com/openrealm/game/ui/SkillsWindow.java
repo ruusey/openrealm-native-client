@@ -61,9 +61,18 @@ public class SkillsWindow {
         "1 XP per damage taken (heavy armor)",
         "1 XP per damage taken (light armor)",
         "1 XP per damage taken (cloak armor)",
-        "25 XP per buff applied to an ally",
-        "15 XP per debuff applied to an enemy",
+        "25 XP/sec of buff applied to an ally",
+        "15 XP/sec of debuff applied to an enemy",
         "0.5 XP per ability damage dealt"
+    };
+    // Per-level bonus rate (percent) + the stat it boosts, for the "current bonus" hover line.
+    private static final float[] SKILL_EFFECT_PCT = {
+        0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.15f, 0.15f, 0.1f
+    };
+    private static final String[] SKILL_EFFECT_LABEL = {
+        "ranged damage", "melee damage", "magic damage",
+        "damage reduction", "damage reduction", "damage reduction",
+        "ally buff duration", "enemy debuff duration", "ability damage"
     };
 
     private final GlyphLayout layout = new GlyphLayout();
@@ -190,6 +199,7 @@ public class SkillsWindow {
             lineList.add(SKILL_NAMES[hoverIdx]);
             lineList.add(SKILL_DESC[hoverIdx]);
             lineList.add("Effect: " + SKILL_EFFECT[hoverIdx]);
+            lineList.add(String.format("Now: +%.1f%% %s", level * SKILL_EFFECT_PCT[hoverIdx], SKILL_EFFECT_LABEL[hoverIdx]));
             lineList.add("XP: " + SKILL_XP_RULE[hoverIdx]);
             lineList.add("Current XP: " + String.format("%,d", xp));
             if (level >= MAX_LEVEL) {
