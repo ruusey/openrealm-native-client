@@ -648,34 +648,38 @@ public class TileManager {
     }
 
     public boolean collidesSlowTile(Entity e) {
-        // Simple center-cell lookup. The previous AABB-based check used a 28x28
-        // hitbox which mismatched the client's check, causing slow-tile detection
-        // to disagree near tile boundaries and produce position desync / snapping.
-        final Vector2f centerPos = e.getCenteredPosition();
-        final int ts = this.getBaseLayer().getTileSize();
-        final int tx = (int) (centerPos.x / (float) ts);
-        final int ty = (int) (centerPos.y / (float) ts);
-        if (ty < 0 || ty >= this.getBaseLayer().getBlocks().length
-                || tx < 0 || tx >= this.getBaseLayer().getBlocks()[0].length) {
-            return false;
-        }
-        final Tile currentTile = this.getBaseLayer().getBlocks()[ty][tx];
-        if (currentTile == null || currentTile.getData() == null) return false;
-        return currentTile.getData().slows();
+        // Must match the server's collidesSlowTile EXACTLY or local slow prediction (and the
+        // wading sprite cutoff, which reads this) desyncs against the authoritative check.
+        return this.fullyOnFlaggedTile(e, true);
     }
-    
+
     public boolean collidesDamagingTile(Entity e) {
-        final Vector2f centerPos = e.getCenteredPosition();
-        final int startX = (int) (centerPos.x / (float) this.getBaseLayer().getTileSize());
-        final int startY = (int) (centerPos.y / (float) this.getBaseLayer().getTileSize());
+        return this.fullyOnFlaggedTile(e, false);
+    }
 
-        final Tile currentTile = this.getBaseLayer().getBlocks()[startY][startX];
+    // An entity counts as "on" a slow/hazard tile only when it is FULLY inside such tiles:
+    // all four corners of a hitbox inset 1px from the sprite bounds must land on tiles with
+    // the flag. So lava/water slow + damage trigger only once you're fully on the tile, not
+    // when your center clips it (which sank you into lava-above while your feet were on sand).
+    // Keep this IDENTICAL to the server's copy so slow prediction agrees with it.
+    private boolean fullyOnFlaggedTile(final Entity e, final boolean slow) {
+        final Tile[][] blocks = this.getBaseLayer().getBlocks();
+        final int ts = this.getBaseLayer().getTileSize();
+        final Vector2f c = e.getCenteredPosition();
+        final float r = e.getSize() * 0.5f - 1.0f;
+        return this.flaggedTileAt(blocks, ts, c.x - r, c.y - r, slow)
+                && this.flaggedTileAt(blocks, ts, c.x + r, c.y - r, slow)
+                && this.flaggedTileAt(blocks, ts, c.x - r, c.y + r, slow)
+                && this.flaggedTileAt(blocks, ts, c.x + r, c.y + r, slow);
+    }
 
-        final Rectangle tileBounds = new Rectangle(currentTile.getPos(), currentTile.getWidth(),
-                currentTile.getHeight());
-        final Rectangle futurePosBounds = new Rectangle(e.getPos(), (e.getSize() / 2), e.getSize() / 2);
-
-        return currentTile.getData().damaging() && tileBounds.intersect(futurePosBounds);
+    private boolean flaggedTileAt(final Tile[][] blocks, final int ts, final float x, final float y, final boolean slow) {
+        final int tx = (int) (x / (float) ts);
+        final int ty = (int) (y / (float) ts);
+        if (ty < 0 || ty >= blocks.length || tx < 0 || tx >= blocks[0].length) return false;
+        final Tile t = blocks[ty][tx];
+        if (t == null || t.getData() == null) return false;
+        return slow ? t.getData().slows() : t.getData().damaging();
     }
 
     public boolean collisionTile(Entity e, float ax, float ay) {
