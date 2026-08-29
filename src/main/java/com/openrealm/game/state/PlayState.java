@@ -261,6 +261,14 @@ public class PlayState extends GameState {
      * the client to predict 2.4× faster than the server simulates.
      */
     private float moveAccumulator = 0f;
+    // Movement send-gating (mirrors webclient main.js): only ship a PlayerMovePacket
+    // when the input vector is non-zero, on the stop-edge (one final 0,0 so the
+    // server halts prediction), or as a ~4Hz idle keepalive — instead of blasting
+    // 64Hz of (0,0) while standing still. lastSentVx/Vy track the last SENT vector.
+    private float lastSentVx = 0f;
+    private float lastSentVy = 0f;
+    private int idleSendCounter = 0;
+    private static final int IDLE_KEEPALIVE_TICKS = 16;
     /**
      * Sub-tick interpolation state. Mirrors the web client's
      * {@code _interpFromX/_interpToX/_renderX} system in main.js. Visual
@@ -1227,18 +1235,32 @@ public class PlayState extends GameState {
                         }
                     }
 
-                    // Send the input to the server every tick (was: only on
-                    // direction change). Per-tick send + per-tick seq is
-                    // what makes rollback prediction work — the server's
-                    // ack carries the seq it last processed, and the client
-                    // matches that to its buffer to replay only the inputs
-                    // the server hasn't seen yet. ~64 packets/sec × 21 bytes
-                    // = ~1.3 KB/s per player, same as the webclient.
-                    try {
-                        PlayerMovePacket packet = PlayerMovePacket.from(player, seq, vx, vy);
-                        this.realmManager.getClient().sendRemote(packet);
-                    } catch (Exception e) {
-                        PlayState.log.error("{} failed to create player move packet", LOG_NS, e);
+                    // Ship the input at the 64Hz tick rate WHILE ACTIVE, gated so a
+                    // standing-still player doesn't blast 64Hz of (0,0) noise. Every
+                    // tick still buffers a seq above (replay integrity); we just skip
+                    // the redundant idle sends. Matches webclient main.js exactly:
+                    //   - any non-zero vector -> send
+                    //   - stop-edge (last sent was non-zero, now zero) -> one 0,0
+                    //   - idle keepalive every 16 ticks (~4Hz) so reconciliation stays anchored
+                    final boolean moving = (vx != 0f || vy != 0f);
+                    final boolean wasMoving = (this.lastSentVx != 0f || this.lastSentVy != 0f);
+                    boolean shouldSend = false;
+                    if (moving || wasMoving) {
+                        shouldSend = true;
+                        this.idleSendCounter = 0;
+                    } else if (++this.idleSendCounter >= IDLE_KEEPALIVE_TICKS) {
+                        shouldSend = true;
+                        this.idleSendCounter = 0;
+                    }
+                    if (shouldSend) {
+                        try {
+                            PlayerMovePacket packet = PlayerMovePacket.from(player, seq, vx, vy);
+                            this.realmManager.getClient().sendRemote(packet);
+                        } catch (Exception e) {
+                            PlayState.log.error("{} failed to create player move packet", LOG_NS, e);
+                        }
+                        this.lastSentVx = vx;
+                        this.lastSentVy = vy;
                     }
 
                     ticks++;
