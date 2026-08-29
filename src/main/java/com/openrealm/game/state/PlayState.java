@@ -1489,7 +1489,9 @@ public class PlayState extends GameState {
                 if (used) this.lastQuickUseTick = System.currentTimeMillis();
             }
 
-            if (this.pui != null) {
+            // Suppressed while chat input is capturing keys so typing m/./n in a
+            // message doesn't toggle these menus (web-client parity).
+            if (this.pui != null && !key.captureMode) {
                 // Rebindable (Options > Controls): skillsMenu (default M), metricsMenu (default .).
                 if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("skillsMenu")))
                     this.pui.getSkillsWindow().toggle();
