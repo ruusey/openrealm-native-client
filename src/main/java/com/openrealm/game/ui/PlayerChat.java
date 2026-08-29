@@ -61,6 +61,7 @@ public class PlayerChat {
      *  all CHAT_SIZE. Defaults to collapsed so chat is unobtrusive. */
     private boolean collapsed = false;
     private boolean lastTildeDown = false;
+    private boolean lastChatToggleDown = false;
     /** Edge-detect mouse-left for the toggle-button click handler. Webclient
      *  ships a click-target on the chat panel (style.css #chat-toggle); user
      *  reported the native client had only the BACKTICK key, which was easy
@@ -130,6 +131,16 @@ public class PlayerChat {
             this.collapsed = !this.collapsed;
         }
         this.lastTildeDown = tildeDown;
+
+        // Rebindable open/close key (default C) — same collapse toggle as the
+        // backtick, edge-detected. Suppressed while typing so the key can be
+        // entered into a message.
+        boolean chatToggleDown = !key.captureMode
+                && Gdx.input.isKeyPressed(Settings.get().getKeybind("toggleChat"));
+        if (chatToggleDown && !this.lastChatToggleDown) {
+            this.collapsed = !this.collapsed;
+        }
+        this.lastChatToggleDown = chatToggleDown;
 
         // Mouse click on the toggle button — same toggle as backtick. Bounds
         // must mirror the rect drawn in render(); kept in sync via the

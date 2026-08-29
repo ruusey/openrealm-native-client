@@ -38,7 +38,7 @@ public class OptionsWindow {
     /** Action list shown in the Controls tab. Order matches display order. */
     private static final String[] BINDABLE_ACTIONS = {
         "moveUp", "moveDown", "moveLeft", "moveRight",
-        "rotateLeft", "rotateRight", "resetCamera",
+        "rotateLeft", "rotateRight", "toggleChat",
         "lootPickup", "usePortal", "goNexus", "chat",
         "skillsMenu", "metricsMenu"
     };
@@ -225,7 +225,7 @@ public class OptionsWindow {
             case "moveRight":   return "Move Right";
             case "rotateLeft":  return "Rotate Camera Left";
             case "rotateRight": return "Rotate Camera Right";
-            case "resetCamera": return "Reset Camera";
+            case "toggleChat":  return "Toggle Chat Window";
             case "lootPickup":  return "Pick Up / Interact";
             case "usePortal":   return "Use Nearest Portal";
             case "goNexus":     return "Return to Nexus";

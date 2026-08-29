@@ -85,6 +85,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ClientGameLogic {
 	public static OpenRealmClientDataService DATA_SERVICE = null;
 	public static boolean GAME_OVER = false;
+	// Floating combat text lanes: status labels (PLAYER_INFO) render one lane
+	// above the damage numbers so a projectile's damage and the status it
+	// applies never cover each other. Same-lane bursts stack by STACK_STEP.
+	private static final float TEXT_INFO_LANE_OFFSET = 20.0f;
+	private static final float TEXT_STACK_STEP = 14.0f;
+	private static final int TEXT_MAX_STACK = 4;
+	private static final float TEXT_STACK_FRESH_DISTANCE = 25.0f;
 	
 	
 	@PacketHandlerClient(RequestTradePacket.class)
@@ -274,8 +281,23 @@ public class ClientGameLogic {
 					break;
 				}
 
+				final TextEffect fx = TextEffect.from(textEffect.getTextEffectId());
+				final boolean infoLane = fx == TextEffect.PLAYER_INFO;
+				// Status labels sit in a lane above the damage numbers; same-lane
+				// texts on the same entity stack so a burst isn't one blob. Same
+				// entity == same Vector2f instance (getPos()), so compare by reference.
+				int stack = 0;
+				for (final EffectText t : cli.getState().getDamageText()) {
+					if (t.getSourcePos() == targetPos
+							&& ((t.getEffect() == TextEffect.PLAYER_INFO) == infoLane)
+							&& t.getAnimationDistance() > TEXT_STACK_FRESH_DISTANCE) {
+						stack++;
+					}
+				}
+				final float laneOffset = (infoLane ? TEXT_INFO_LANE_OFFSET : 0f)
+						+ Math.min(stack, TEXT_MAX_STACK) * TEXT_STACK_STEP;
 				final EffectText hitText = EffectText.builder().damage(textEffect.getText())
-						.effect(TextEffect.from(textEffect.getTextEffectId())).sourcePos(targetPos).build();
+						.effect(fx).sourcePos(targetPos).laneOffset(laneOffset).build();
 				cli.getState().getDamageText().add(hitText);
 			} catch (Exception e) {
 				ClientGameLogic.log.error("[CLIENT] Failed to create client TextEffect. Reason: {}", e);

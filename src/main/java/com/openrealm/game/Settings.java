@@ -91,7 +91,7 @@ public class Settings {
         m.put("mpPotion", Input.Keys.X);
         m.put("rotateLeft", Input.Keys.Q);
         m.put("rotateRight", Input.Keys.E);
-        m.put("resetCamera", Input.Keys.C);
+        m.put("toggleChat", Input.Keys.C);
         m.put("lootPickup", Input.Keys.F);
         m.put("goNexus", Input.Keys.R);
         m.put("usePortal", Input.Keys.SPACE);

@@ -145,7 +145,7 @@ public class KeyHandler implements InputProcessor {
 
         this.q.toggle(Gdx.input.isKeyPressed(kb("rotateLeft", Input.Keys.Q)));
         this.e.toggle(Gdx.input.isKeyPressed(kb("rotateRight", Input.Keys.E)));
-        this.c.toggle(Gdx.input.isKeyPressed(kb("resetCamera", Input.Keys.C)));
+        this.c.toggle(Gdx.input.isKeyPressed(kb("toggleChat", Input.Keys.C)));
         this.t.toggle(Gdx.input.isKeyPressed(Input.Keys.T));
         this.m.toggle(Gdx.input.isKeyPressed(Input.Keys.M));
         this.plus.toggle(Gdx.input.isKeyPressed(Input.Keys.PLUS) || Gdx.input.isKeyPressed(Input.Keys.EQUALS));

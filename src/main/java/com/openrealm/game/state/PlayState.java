@@ -1530,7 +1530,9 @@ public class PlayState extends GameState {
                     this.pui.getForgeWindow().isVisible()
                  || this.pui.getFameStoreWindow().isVisible()
                  || this.pui.getOptionsWindow().isVisible()
-                 || this.pui.getPotionStorageWindow().isVisible());
+                 || this.pui.getPotionStorageWindow().isVisible()
+                 || this.pui.getSkillsWindow().isVisible()
+                 || this.pui.getMetricsWindow().isVisible());
             if (anyModal) {
                 // Each modal already closes itself on ESC in its update().
                 // Just don't toggle pause this frame.

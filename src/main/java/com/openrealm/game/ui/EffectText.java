@@ -19,8 +19,9 @@ public class EffectText {
     // Both the float-up speed AND the lifetime are driven by this single
     // constant — animationDistance starts at 45 and counts down by velY/tick,
     // so a smaller magnitude buys longer read time without changing the visual
-    // range. -1.00f (was -1.20f) is +20% read time.
-    private static final float velY = -1.00f;
+    // range. -0.72f (was -1.00f) is another ~40% read time so damage + the
+    // status it applied can both be read before they fade.
+    private static final float velY = -0.72f;
 
     private Vector2f sourcePos;
     private TextEffect effect;
@@ -29,6 +30,12 @@ public class EffectText {
     private boolean remove = false;
     @Builder.Default
     private float animationDistance = 45.0f;
+    // Vertical separation (world px, float-up direction) applied on top of the
+    // float animation. Status labels get a lane above the damage numbers so a
+    // projectile's damage and the status it applies never overlap; same-lane
+    // bursts also stack via this offset. Set at spawn in ClientGameLogic.
+    @Builder.Default
+    private float laneOffset = 0.0f;
 
     public void update() {
         this.animationDistance += EffectText.velY;
@@ -65,7 +72,7 @@ public class EffectText {
         Color oldColor = font.getColor();
         font.setColor(color);
         font.draw(batch, this.damage, this.sourcePos.x - Vector2f.worldX,
-                this.sourcePos.y - Vector2f.worldY - (64 - this.animationDistance));
+                this.sourcePos.y - Vector2f.worldY - (64 - this.animationDistance) - this.laneOffset);
         font.setColor(oldColor);
     }
 
