@@ -17,7 +17,7 @@ import com.openrealm.game.ui.atlas.UiAtlas;
 import com.openrealm.game.ui.atlas.UiComponent;
 import com.openrealm.net.entity.NetGameItem;
 import com.openrealm.net.realm.RealmManagerClient;
-import com.openrealm.net.server.packet.PotionStorageMovePacket;
+import com.openrealm.net.server.packet.ItemStoreMovePacket;
 
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -38,10 +38,10 @@ import lombok.extern.slf4j.Slf4j;
  *
  * Server flow (unchanged from initial draft):
  *   - F-key on tile 328 in vault -> InteractTilePacket -> server replies
- *     with OpenPotionStoragePacket carrying the 32-slot snapshot.
- *   - Drag-drop sends PotionStorageMovePacket; server validates whitelist
+ *     with OpenItemStorePacket carrying the 32-slot snapshot.
+ *   - Drag-drop sends ItemStoreMovePacket; server validates whitelist
  *     (item.stackable || category=="gem"), bounds, and stack semantics.
- *   - PotionStorageUpdatePacket from server triggers refresh().
+ *   - ItemStoreUpdatePacket from server triggers refresh().
  */
 @Slf4j
 public class PotionStorageWindow {
@@ -52,6 +52,8 @@ public class PotionStorageWindow {
 
     private boolean visible = false;
     private final GameItem[] items = new GameItem[SIZE];
+    /** Which store this window is showing; echoed in every move (ItemStoreKind.POTION = 0). */
+    private byte storeKind = 0;
 
     @Setter private RealmManagerClient realmManager;
     @Setter private PlayState playState;
@@ -63,7 +65,8 @@ public class PotionStorageWindow {
 
     public boolean isVisible() { return this.visible; }
 
-    public void open(NetGameItem[] netItems) {
+    public void open(byte storeKind, NetGameItem[] netItems) {
+        this.storeKind = storeKind;
         this.refresh(netItems);
         this.visible = true;
     }
@@ -80,6 +83,8 @@ public class PotionStorageWindow {
     }
 
     public GameItem[] getItems() { return this.items; }
+
+    public byte getStoreKind() { return this.storeKind; }
 
     private static GameItem fromNet(NetGameItem net) {
         // Empty slots arrive as `new NetGameItem()` with default fields:
@@ -142,13 +147,13 @@ public class PotionStorageWindow {
             final int my = Gdx.input.getY();
             final int storageHit = hitTestStorage(mx, my);
             if (storageHit >= 0 && storageHit != this.dragStorageIdx) {
-                sendMove(PotionStorageMovePacket.SIDE_STORAGE, this.dragStorageIdx,
-                        PotionStorageMovePacket.SIDE_STORAGE, storageHit);
+                sendMove(ItemStoreMovePacket.SIDE_STORAGE, this.dragStorageIdx,
+                        ItemStoreMovePacket.SIDE_STORAGE, storageHit);
             } else if (storageHit < 0) {
                 final int invHit = hitTestInventory(mx, my);
                 if (invHit >= 0) {
-                    sendMove(PotionStorageMovePacket.SIDE_STORAGE, this.dragStorageIdx,
-                            PotionStorageMovePacket.SIDE_INV, invHit);
+                    sendMove(ItemStoreMovePacket.SIDE_STORAGE, this.dragStorageIdx,
+                            ItemStoreMovePacket.SIDE_INV, invHit);
                 }
             }
             this.dragStorageIdx = -1;
@@ -161,18 +166,18 @@ public class PotionStorageWindow {
         if (!this.visible) return false;
         final int hit = hitTestStorage(mx, my);
         if (hit < 0) return false;
-        sendMove(PotionStorageMovePacket.SIDE_INV, fromIndex,
-                PotionStorageMovePacket.SIDE_STORAGE, hit);
+        sendMove(ItemStoreMovePacket.SIDE_INV, fromIndex,
+                ItemStoreMovePacket.SIDE_STORAGE, hit);
         return true;
     }
 
     private void sendMove(byte fromSide, int fromIdx, byte toSide, int toIdx) {
         if (this.realmManager == null || this.playState == null || this.playState.getPlayer() == null) return;
         try {
-            final PotionStorageMovePacket p = new PotionStorageMovePacket(fromSide, fromIdx, toSide, toIdx);
+            final ItemStoreMovePacket p = new ItemStoreMovePacket(this.storeKind, fromSide, fromIdx, toSide, toIdx);
             this.realmManager.getClient().getOutboundPacketQueue().add(p);
         } catch (Exception e) {
-            log.error("[PotionStorage] Failed to send move: {}", e.getMessage());
+            log.error("[ItemStore] Failed to send move: {}", e.getMessage());
         }
     }
 

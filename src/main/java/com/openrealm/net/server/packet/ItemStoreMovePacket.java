@@ -18,16 +18,18 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @PacketId(packetId = (byte) 36)
-public class PotionStorageMovePacket extends Packet {
+public class ItemStoreMovePacket extends Packet {
     public static final byte SIDE_INV = (byte) 0;
     public static final byte SIDE_STORAGE = (byte) 1;
 
     @SerializableField(order = 0, type = SerializableByte.class)
+    private byte storeKind;
+    @SerializableField(order = 1, type = SerializableByte.class)
     private byte fromSide;
-    @SerializableField(order = 1, type = SerializableInt.class)
+    @SerializableField(order = 2, type = SerializableInt.class)
     private int fromIdx;
-    @SerializableField(order = 2, type = SerializableByte.class)
+    @SerializableField(order = 3, type = SerializableByte.class)
     private byte toSide;
-    @SerializableField(order = 3, type = SerializableInt.class)
+    @SerializableField(order = 4, type = SerializableInt.class)
     private int toIdx;
 }

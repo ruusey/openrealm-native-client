@@ -4,6 +4,7 @@ import com.openrealm.net.Packet;
 import com.openrealm.net.Streamable;
 import com.openrealm.net.core.PacketId;
 import com.openrealm.net.core.SerializableField;
+import com.openrealm.net.core.nettypes.SerializableByte;
 import com.openrealm.net.core.nettypes.SerializableLong;
 import com.openrealm.net.entity.NetGameItem;
 
@@ -18,9 +19,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @PacketId(packetId = (byte) 35)
-public class PotionStorageUpdatePacket extends Packet {
-    @SerializableField(order = 0, type = SerializableLong.class)
+public class ItemStoreUpdatePacket extends Packet {
+    @SerializableField(order = 0, type = SerializableByte.class)
+    private byte storeKind;
+    @SerializableField(order = 1, type = SerializableLong.class)
     private long playerId;
-    @SerializableField(order = 1, type = NetGameItem.class, isCollection = true)
+    @SerializableField(order = 2, type = NetGameItem.class, isCollection = true)
     private NetGameItem[] items;
 }

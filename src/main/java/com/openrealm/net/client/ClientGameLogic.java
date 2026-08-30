@@ -66,8 +66,8 @@ import com.openrealm.game.ui.ForgeWindow;
 import com.openrealm.game.ui.PotionStorageWindow;
 import com.openrealm.net.client.packet.OpenFameStorePacket;
 import com.openrealm.net.client.packet.OpenForgePacket;
-import com.openrealm.net.client.packet.OpenPotionStoragePacket;
-import com.openrealm.net.client.packet.PotionStorageUpdatePacket;
+import com.openrealm.net.client.packet.OpenItemStorePacket;
+import com.openrealm.net.client.packet.ItemStoreUpdatePacket;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import com.openrealm.net.client.packet.AbilityCastStartPacket;
 import com.openrealm.net.client.packet.PartyUpdatePacket;
@@ -526,17 +526,17 @@ public class ClientGameLogic {
 		}
 	}
 
-	@PacketHandlerClient(OpenPotionStoragePacket.class)
-	public static void handleOpenPotionStorageClient(RealmManagerClient cli, Packet packet) {
+	@PacketHandlerClient(OpenItemStorePacket.class)
+	public static void handleOpenItemStoreClient(RealmManagerClient cli, Packet packet) {
 		try {
 			if (cli.getState() == null || cli.getState().getPui() == null) return;
-			final OpenPotionStoragePacket open = (OpenPotionStoragePacket) packet;
+			final OpenItemStorePacket open = (OpenItemStorePacket) packet;
 			final PotionStorageWindow win = cli.getState().getPui().getPotionStorageWindow();
 			win.setRealmManager(cli);
 			win.setPlayState(cli.getState());
-			win.open(open.getItems());
+			win.open(open.getStoreKind(), open.getItems());
 		} catch (Exception e) {
-			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenPotionStorage Packet. Reason: {}", e);
+			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenItemStore Packet. Reason: {}", e);
 		}
 	}
 
@@ -565,14 +565,14 @@ public class ClientGameLogic {
 		}
 	}
 
-	@PacketHandlerClient(PotionStorageUpdatePacket.class)
-	public static void handlePotionStorageUpdateClient(RealmManagerClient cli, Packet packet) {
+	@PacketHandlerClient(ItemStoreUpdatePacket.class)
+	public static void handleItemStoreUpdateClient(RealmManagerClient cli, Packet packet) {
 		try {
 			if (cli.getState() == null || cli.getState().getPui() == null) return;
-			final PotionStorageUpdatePacket upd = (PotionStorageUpdatePacket) packet;
+			final ItemStoreUpdatePacket upd = (ItemStoreUpdatePacket) packet;
 			cli.getState().getPui().getPotionStorageWindow().refresh(upd.getItems());
 		} catch (Exception e) {
-			ClientGameLogic.log.error("[CLIENT] Failed to handle PotionStorageUpdate Packet. Reason: {}", e);
+			ClientGameLogic.log.error("[CLIENT] Failed to handle ItemStoreUpdate Packet. Reason: {}", e);
 		}
 	}
 

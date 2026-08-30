@@ -46,7 +46,7 @@ import com.openrealm.net.entity.NetTradeSelection;
 import com.openrealm.net.messaging.CommandType;
 import com.openrealm.net.messaging.ServerCommandMessage;
 import com.openrealm.net.server.packet.MoveItemPacket;
-import com.openrealm.net.server.packet.PotionStorageMovePacket;
+import com.openrealm.net.server.packet.ItemStoreMovePacket;
 import com.openrealm.net.server.packet.SplitStackPacket;
 import com.openrealm.net.server.packet.CommandPacket;
 import com.openrealm.net.server.packet.TextPacket;
@@ -963,9 +963,10 @@ public class PlayerUI {
                         try {
                             // toIdx=-1 = auto-place sentinel; server picks
                             // first mergeable stack, else first empty slot.
-                            final PotionStorageMovePacket pkt = new PotionStorageMovePacket(
-                                    PotionStorageMovePacket.SIDE_INV, actualIdx,
-                                    PotionStorageMovePacket.SIDE_STORAGE, -1);
+                            final ItemStoreMovePacket pkt = new ItemStoreMovePacket(
+                                    this.potionStorageWindow.getStoreKind(),
+                                    ItemStoreMovePacket.SIDE_INV, actualIdx,
+                                    ItemStoreMovePacket.SIDE_STORAGE, -1);
                             this.playState.getRealmManager().getClient().getOutboundPacketQueue().add(pkt);
                             log.info("{} inv-rclick-quickstore slot={} itemId={}",
                                     LOG_NS, actualIdx, item.getItemId());
@@ -2997,7 +2998,7 @@ public class PlayerUI {
         }
 
         // Potion-storage drop-zone takes priority when its window is up.
-        // Inventory→storage moves go through PotionStorageMovePacket, not
+        // Inventory→storage moves go through ItemStoreMovePacket, not
         // the normal MoveItemPacket pipeline, because the storage state
         // lives off-inventory on the server.
         if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex < this.inventory.length) {
