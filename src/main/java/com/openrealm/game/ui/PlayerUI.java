@@ -3875,8 +3875,15 @@ public class PlayerUI {
     private void drawAbilityHudIcon(SpriteBatch batch, BitmapFont font, Ability ab,
                                      int number, float x, float y, float w, float h) {
         if (ab == null) return;
-        // Placeholder: the ability's per-class number (1..N), scaled to fill the
-        // cell, until custom ability icons exist.
+        // Real icon from the class ability sheet (openrealm-ability-icons.png),
+        // resolved via spriteKey/row/col. Falls back to the per-class number if the
+        // sheet sprite isn't available (sheet missing, or ability has no spriteKey).
+        final TextureRegion icon = (GameSpriteManager.ABILITY_SPRITES != null)
+                ? GameSpriteManager.ABILITY_SPRITES.get(ab.getId()) : null;
+        if (icon != null) {
+            batch.draw(icon, x, y, w, h);
+            return;
+        }
         final String str = number > 0 ? String.valueOf(number) : "?";
         final float origScale = font.getData().scaleX;
         font.getData().setScale(1f);

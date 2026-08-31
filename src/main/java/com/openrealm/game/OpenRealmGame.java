@@ -109,6 +109,7 @@ public class OpenRealmGame implements ApplicationListener {
         GameSpriteManager.loadSpriteImages(true);
         GameSpriteManager.loadTileSprites();
         GameSpriteManager.loadItemSprites();
+        GameSpriteManager.loadAbilitySprites();
         // One-time bake of seam-feather TextureRegions for tile blending.
         // Must run AFTER loadTileSprites so TILE_SPRITES is populated.
         // Uses PIXMAP_CACHE for source pixels — those were stashed by

@@ -15,6 +15,7 @@ import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.contants.GlobalConstants;
 import com.openrealm.game.entity.item.GameItem;
+import com.openrealm.game.model.ability.Ability;
 import com.openrealm.game.graphics.Sprite;
 import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.model.AnimationFrameModel;
@@ -66,6 +67,7 @@ public class GameSpriteManager {
     public static Map<String, Texture> TEXTURE_CACHE;
     public static Map<Integer, TextureRegion> TILE_SPRITES;
     public static Map<Integer, TextureRegion> ITEM_SPRITES;
+    public static Map<Integer, TextureRegion> ABILITY_SPRITES;
     /** Pre-baked seam-feather TextureRegions, indexed by tileId. Each
      *  entry is a 4-element array [N, S, W, E] — the neighbor's pixels
      *  with a linear-alpha gradient applied so when blitted as a seam
@@ -115,6 +117,30 @@ public class GameSpriteManager {
                     sw, sh);
             subRegion.flip(false, true);
             GameSpriteManager.ITEM_SPRITES.put(gameItemId, subRegion);
+        }
+    }
+
+    /** Bake ability-icon TextureRegions from abilities.json (spriteKey/row/col/
+     *  spriteSize) — same convention as items. Keyed by ability id; rebuilt on
+     *  every sprite reload so a cached region never points at a disposed texture. */
+    public static void loadAbilitySprites() {
+        if (GameSpriteManager.TEXTURE_CACHE == null || GameDataManager.ABILITIES == null) return;
+        GameSpriteManager.ABILITY_SPRITES = new HashMap<>();
+        for (final Ability model : GameDataManager.ABILITIES.values()) {
+            if (model == null || model.getSpriteKey() == null || model.getSpriteKey().isEmpty()) continue;
+            if (model.getSpriteSize() == 0) {
+                model.setSpriteSize(GlobalConstants.BASE_SPRITE_SIZE);
+            }
+            final Texture spriteTexture = GameSpriteManager.TEXTURE_CACHE.get(model.getSpriteKey());
+            if (spriteTexture == null) continue;
+            int sw = model.getSpriteSize();
+            int sh = model.getSpriteHeight() > 0 ? model.getSpriteHeight() : sw;
+            TextureRegion subRegion = new TextureRegion(spriteTexture,
+                    model.getCol() * sw,
+                    model.getRow() * sh,
+                    sw, sh);
+            subRegion.flip(false, true);
+            GameSpriteManager.ABILITY_SPRITES.put(model.getId(), subRegion);
         }
     }
 
@@ -471,6 +497,11 @@ public class GameSpriteManager {
                     if (anim.getSpriteKey() != null && !anim.getSpriteKey().isEmpty()) {
                         keys.add(anim.getSpriteKey());
                     }
+                }
+            }
+            if (GameDataManager.ABILITIES != null) {
+                for (Object v : GameDataManager.ABILITIES.values()) {
+                    addSpriteKeyReflective(v, keys);
                 }
             }
         } catch (Exception e) {
