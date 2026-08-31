@@ -2834,8 +2834,15 @@ public class PlayerUI {
             }
         }
 
-        // On mouse release while dragging
-        if (!mouse.isPressed(1) && this.isDragging) {
+        // On mouse release while a drag source is armed — whether or not the
+        // >8px DRAG_THRESHOLD was ever crossed. Gating this on isDragging broke
+        // drag-to-drop: dragStartPos is sampled a frame late (the source is only
+        // seen one frame after the press), so a quick drag off the panel never
+        // moved 8px from it, isDragging stayed false, and the release silently
+        // reset without dropping. Releasing over a DIFFERENT slot/area is the
+        // move/drop; releasing over the source slot stays a no-op (executeDrop
+        // early-returns when from == target), matching plain-click semantics.
+        if (!mouse.isPressed(1) && this.dragSourceIndex != -1) {
             // Drag onto the OTHER page's tab → relocate to that page's first
             // empty slot (webclient parity). Falls through to normal slot
             // hit-testing when the release isn't over a tab.
@@ -2844,18 +2851,16 @@ public class PlayerUI {
             if (targetIndex < 0) {
                 targetIndex = this.findSlotAtPositionByLayout(mouseX, mouseY);
             }
-            this.executeDrop(this.dragSourceIndex, targetIndex);
-            // Relocating onto a page tab: switch to that page so the moved
-            // item is visible where it landed instead of silently jumping to
-            // the hidden page.
-            if (dropPage >= 0 && targetIndex >= 0) {
-                this.activeBag = dropPage;
+            if (targetIndex != this.dragSourceIndex) {
+                this.executeDrop(this.dragSourceIndex, targetIndex);
+                // Relocating onto a page tab: switch to that page so the moved
+                // item is visible where it landed instead of silently jumping
+                // to the hidden page.
+                if (dropPage >= 0 && targetIndex >= 0) {
+                    this.activeBag = dropPage;
+                }
             }
             this.isDragging = false;
-            this.dragSourceIndex = -1;
-            this.dragStartPos = null;
-        } else if (!mouse.isPressed(1)) {
-            // Reset if released without dragging
             this.dragSourceIndex = -1;
             this.dragStartPos = null;
         }
