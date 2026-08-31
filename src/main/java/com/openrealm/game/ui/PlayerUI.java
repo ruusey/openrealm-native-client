@@ -3883,8 +3883,7 @@ public class PlayerUI {
         // Real icon from the class ability sheet (openrealm-ability-icons.png),
         // resolved via spriteKey/row/col. Falls back to the per-class number if the
         // sheet sprite isn't available (sheet missing, or ability has no spriteKey).
-        final TextureRegion icon = (GameSpriteManager.ABILITY_SPRITES != null)
-                ? GameSpriteManager.ABILITY_SPRITES.get(ab.getId()) : null;
+        final TextureRegion icon = GameSpriteManager.getAbilityIconRegion(ab);
         if (icon != null) {
             batch.draw(icon, x, y, w, h);
             return;

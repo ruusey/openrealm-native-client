@@ -62,7 +62,7 @@ public class GameSpriteManager {
             "lofiBosses16x16.png",
             "lofiCharacter10x10.png", "lofiProjectiles.png",
             "battleOryxObjects8x8.png",
-            "openrealm-items.png", "openrealm-classes.png" };
+            "openrealm-items.png", "openrealm-classes.png", "openrealm-ability-icons.png" };
 
     public static Map<String, Texture> TEXTURE_CACHE;
     public static Map<Integer, TextureRegion> TILE_SPRITES;
@@ -142,6 +142,26 @@ public class GameSpriteManager {
             subRegion.flip(false, true);
             GameSpriteManager.ABILITY_SPRITES.put(model.getId(), subRegion);
         }
+    }
+
+    /** Ability-icon region for a single ability, built + cached on demand. Order-
+     *  independent: the HUD calls this at draw time (ability is always loaded by
+     *  then) so it works even if loadAbilitySprites ran before the sheet texture
+     *  or the ability data was ready. Returns null if the sheet isn't loaded. */
+    public static TextureRegion getAbilityIconRegion(final Ability ability) {
+        if (ability == null || ability.getSpriteKey() == null || ability.getSpriteKey().isEmpty()) return null;
+        if (GameSpriteManager.TEXTURE_CACHE == null) return null;
+        if (GameSpriteManager.ABILITY_SPRITES == null) GameSpriteManager.ABILITY_SPRITES = new HashMap<>();
+        final TextureRegion cached = GameSpriteManager.ABILITY_SPRITES.get(ability.getId());
+        if (cached != null) return cached;
+        final Texture tex = GameSpriteManager.TEXTURE_CACHE.get(ability.getSpriteKey());
+        if (tex == null) return null;
+        final int sw = ability.getSpriteSize() > 0 ? ability.getSpriteSize() : GlobalConstants.BASE_SPRITE_SIZE;
+        final int sh = ability.getSpriteHeight() > 0 ? ability.getSpriteHeight() : sw;
+        final TextureRegion region = new TextureRegion(tex, ability.getCol() * sw, ability.getRow() * sh, sw, sh);
+        region.flip(false, true);
+        GameSpriteManager.ABILITY_SPRITES.put(ability.getId(), region);
+        return region;
     }
 
     public static void loadTileSprites() {
