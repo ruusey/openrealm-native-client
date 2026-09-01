@@ -3703,7 +3703,7 @@ public class PlayerUI {
             }
         }
         if (icon != null) {
-            batch.draw(icon, x + 4, y + (h - iconSize) / 2f, iconSize, iconSize);
+            drawIconOutlined(batch, icon, x + 4, y + (h - iconSize) / 2f, iconSize, iconSize);
         }
 
         // Count text on the right half of the slot.
@@ -3872,6 +3872,24 @@ public class PlayerUI {
         batch.draw(icon, x + (w - iconSize) / 2f, y + (h - iconSize) / 2f, iconSize, iconSize);
     }
 
+    /** Draw a HUD icon with a 1px black silhouette outline (8 tinted offset copies
+     *  behind the sprite), matching the webclient's drop-shadow stroke on potion +
+     *  ability icons. Leaves the batch color WHITE. */
+    private void drawIconOutlined(SpriteBatch batch, TextureRegion region, float x, float y, float w, float h) {
+        final float o = 1f;
+        batch.setColor(0f, 0f, 0f, 0.85f);
+        batch.draw(region, x + o, y,     w, h);
+        batch.draw(region, x - o, y,     w, h);
+        batch.draw(region, x,     y + o, w, h);
+        batch.draw(region, x,     y - o, w, h);
+        batch.draw(region, x + o, y + o, w, h);
+        batch.draw(region, x + o, y - o, w, h);
+        batch.draw(region, x - o, y + o, w, h);
+        batch.draw(region, x - o, y - o, w, h);
+        batch.setColor(Color.WHITE);
+        batch.draw(region, x, y, w, h);
+    }
+
     /**
      * Draw an ability icon using the standard {@code spriteKey} / {@code row} /
      * {@code col} fields on {@link Ability} — same convention as every other
@@ -3885,7 +3903,7 @@ public class PlayerUI {
         // sheet sprite isn't available (sheet missing, or ability has no spriteKey).
         final TextureRegion icon = GameSpriteManager.getAbilityIconRegion(ab);
         if (icon != null) {
-            batch.draw(icon, x, y, w, h);
+            drawIconOutlined(batch, icon, x, y, w, h);
             return;
         }
         final String str = number > 0 ? String.valueOf(number) : "?";
