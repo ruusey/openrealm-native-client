@@ -2,6 +2,7 @@ package com.openrealm.net.client;
 
 import com.openrealm.account.service.OpenRealmClientDataService;
 import com.openrealm.game.GameLauncher;
+import com.openrealm.game.Settings;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.contants.EntityType;
 import com.openrealm.game.contants.GlobalConstants;
@@ -202,6 +203,12 @@ public class ClientGameLogic {
 		final CreateEffectPacket effectPacket = (CreateEffectPacket) packet;
 		try {
 			if (cli.getState() == null) return;
+			// "Hide ally effects" option: drop effects cast by OTHER players
+			// (ownerId != 0 and != self). Own casts + enemy telegraphs (ownerId 0) stay.
+			if (Settings.get().isHideAllyEffects() && effectPacket.getOwnerId() != 0
+					&& effectPacket.getOwnerId() != cli.getCurrentPlayerId()) {
+				return;
+			}
 			cli.getState().getActiveEffects().add(ActiveVisualEffect.from(effectPacket));
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle CreateEffect Packet. Reason: {}", e);

@@ -43,6 +43,7 @@ public class Settings {
     /** Graphics settings. Field names mirror the web client where possible.
      *  Every flag below is read live by PlayState's render pass. */
     private boolean hideOtherPlayerBullets = false;
+    private boolean hideAllyEffects = false;
     private boolean renderOtherPlayers = true;
     private boolean showPlayerNames = true;
     private boolean showStatusBubbles = true;

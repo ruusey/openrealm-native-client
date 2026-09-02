@@ -53,6 +53,10 @@ public class CreateEffectPacket extends Packet {
 	// players can read the power level of a teammate's ability at a glance.
 	@SerializableField(order = 7, type = SerializableByte.class)
 	private byte tier;
+	// Caster entity id: the player's id for player-cast effects, 0 for
+	// enemy/environmental. Drives the "hide ally effects" option.
+	@SerializableField(order = 8, type = SerializableLong.class)
+	private long ownerId;
 
 	// Visual effect type constants
 	public static final short EFFECT_HEAL_RADIUS = 0;

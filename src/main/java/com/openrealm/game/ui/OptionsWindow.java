@@ -165,7 +165,7 @@ public class OptionsWindow {
     private static final String[] GRAPHICS_ROWS = {
         "renderOtherPlayers", "showPlayerNames", "showStatusBubbles", "showChatBubbles",
         "showDamageNumbers", "playAbilityAnimations", "spriteStroke", "lootBagPreview",
-        "hideOtherPlayerBullets", "showRealmTransition"
+        "hideOtherPlayerBullets", "hideAllyEffects", "showRealmTransition"
     };
 
     private static String graphicsLabel(String key) {
@@ -179,6 +179,7 @@ public class OptionsWindow {
             case "spriteStroke":           return "Sprite outlines";
             case "lootBagPreview":         return "Loot bag preview";
             case "hideOtherPlayerBullets": return "Hide other players' projectiles";
+            case "hideAllyEffects":        return "Hide ally ability effects";
             case "showRealmTransition":    return "Show realm transition screen";
             default:                       return key;
         }
@@ -195,6 +196,7 @@ public class OptionsWindow {
             case "spriteStroke":           return s.isSpriteStroke();
             case "lootBagPreview":         return s.isLootBagPreview();
             case "hideOtherPlayerBullets": return s.isHideOtherPlayerBullets();
+            case "hideAllyEffects":        return s.isHideAllyEffects();
             case "showRealmTransition":    return s.isShowRealmTransition();
             default:                       return false;
         }
@@ -211,6 +213,7 @@ public class OptionsWindow {
             case "spriteStroke":           s.setSpriteStroke(!s.isSpriteStroke()); break;
             case "lootBagPreview":         s.setLootBagPreview(!s.isLootBagPreview()); break;
             case "hideOtherPlayerBullets": s.setHideOtherPlayerBullets(!s.isHideOtherPlayerBullets()); break;
+            case "hideAllyEffects":        s.setHideAllyEffects(!s.isHideAllyEffects()); break;
             case "showRealmTransition":    s.setShowRealmTransition(!s.isShowRealmTransition()); break;
             default: break;
         }
