@@ -332,6 +332,7 @@ public class PlayState extends GameState {
         // and DEX each show as their own pip above the player's head.
         new StatusEffectIconDef(StatusEffectType.EMPOWERED_STR.effectId, "Atk+",  0xFFAA44),
         new StatusEffectIconDef(StatusEffectType.EMPOWERED_DEX.effectId, "Dex+",  0xFFD060),
+        new StatusEffectIconDef(StatusEffectType.SACRIFICE.effectId,    "Sac",    0xB03060),
     };
 
     /**

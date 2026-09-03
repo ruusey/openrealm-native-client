@@ -74,7 +74,11 @@ public enum StatusEffectType {
      *  Ninja's Smokebomb ultimate. */
     DODGE((short) 40),
     /** Admin buff: holder's projectiles instantly kill non-invincible enemies. */
-    INSTAKILL((short) 41);
+    INSTAKILL((short) 41),
+    /** Necromancer Soul Drain self-buff — bi-directional HP<->MP transfer at the
+     *  HEALING rate, draining the higher pool (percentage-wise) into the lower.
+     *  Server-authoritative; caster-only. */
+    SACRIFICE((short) 42);
 
     public static Map<Short, StatusEffectType> map = new HashMap<>();
     static {
