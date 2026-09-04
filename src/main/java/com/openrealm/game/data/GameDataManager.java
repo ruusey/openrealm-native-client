@@ -2,7 +2,9 @@ package com.openrealm.game.data;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,6 +40,7 @@ import com.openrealm.game.model.DungeonRoomModel;
 import com.openrealm.game.model.SetPieceModel;
 import com.openrealm.game.model.TerrainGenerationParameters;
 import com.openrealm.game.model.TileModel;
+import com.openrealm.game.ui.atlas.UiAtlas;
 import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.net.core.IOService;
 
@@ -689,52 +692,86 @@ public class GameDataManager {
 		return text;
 	}
 
-	public static void loadGameData(final boolean loadRemote) {
-		GameDataManager.log.info("{} Loading Game Data from remote={}", LOG_NS, loadRemote);
-		// Load each data type independently so one failure doesn't prevent loading the rest
-		Runnable[] loaders = {
-			() -> { try { GameDataManager.loadProjectileGroups(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load projectile groups: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadWeaponArchetypes(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load weapon archetypes: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadGameItems(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load game items: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadFameStore(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load fame store: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadEnemies(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load enemies: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadTiles(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load tiles: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadMaps(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load maps: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadTerrains(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load terrains: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadPortals(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load portals: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadDungeonGraph(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load dungeon graph: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadExperienceModel(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load experience model: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadCharacterClasses(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load character classes: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadLootTables(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load loot tables: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadLootGroups(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load loot groups: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadLootContainers(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load loot containers: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadAnimations(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load animations: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadSetPieces(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load set pieces: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadDungeonRooms(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load dungeon rooms: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadDungeons(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load dungeons: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadRealmEvents(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load realm events: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadAbilities(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load abilities: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadPassives(loadRemote); } catch (Exception e) { GameDataManager.log.error("{} Failed to load passives: {}", LOG_NS, e.getMessage()); } },
-			() -> { try { GameDataManager.loadDyeAssets(loadRemote); } catch (Exception e) {
-				GameDataManager.log.error("{} Failed to load dye assets remotely ({}); trying local fallback", LOG_NS, e.getMessage());
-				try { GameDataManager.loadDyeAssets(false); } catch (Exception e2) { GameDataManager.log.error("{} Local dye-assets fallback failed: {}", LOG_NS, e2.getMessage()); }
-			} },
-			() -> { try { GameDataManager.loadClassMasks(loadRemote); } catch (Exception e) {
-				GameDataManager.log.error("{} Failed to load class masks remotely ({}); trying local fallback", LOG_NS, e.getMessage());
-				try { GameDataManager.loadClassMasks(false); } catch (Exception e2) { GameDataManager.log.error("{} Local class-masks fallback failed: {}", LOG_NS, e2.getMessage()); }
-			} },
-			() -> { try { com.openrealm.game.ui.atlas.UiAtlas.load(loadRemote); } catch (Exception e) {
-				GameDataManager.log.error("{} Failed to load UI atlas remotely ({}); trying local fallback", LOG_NS, e.getMessage());
-				try { com.openrealm.game.ui.atlas.UiAtlas.load(false); } catch (Exception e2) { GameDataManager.log.error("{} Local UI atlas fallback failed: {}", LOG_NS, e2.getMessage()); }
-			} },
-		};
-		for (Runnable loader : loaders) {
-			loader.run();
-		}
+	@FunctionalInterface
+	private interface ThrowingLoader {
+		void load() throws Exception;
+	}
+
+	// Run a required loader; on failure record its name (so the caller can refuse to
+	// launch on partial data) and log with the stack trace. Keeps going so one launch
+	// surfaces every broken asset at once.
+	private static void runLoader(final String name, final ThrowingLoader loader, final List<String> failures) {
 		try {
-			IOService.mapSerializableData();
+			loader.load();
 		} catch (Exception e) {
-			GameDataManager.log.error("{} Failed to map serializable data: {}", LOG_NS, e.getMessage());
+			failures.add(name);
+			GameDataManager.log.error("{} Failed to load {}: {}", LOG_NS, name, e.getMessage(), e);
 		}
+	}
+
+	// Cosmetic/UI loader with a bundled local fallback — only a failure of BOTH
+	// remote AND local counts against the launch (a missing dye/atlas shouldn't
+	// brick the client the way missing abilities/enemies would).
+	private static void runLoaderWithFallback(final String name, final ThrowingLoader remote,
+			final ThrowingLoader local, final List<String> failures) {
+		try {
+			remote.load();
+		} catch (Exception e) {
+			GameDataManager.log.error("{} Failed to load {} remotely ({}); trying local fallback", LOG_NS, name, e.getMessage());
+			try {
+				local.load();
+			} catch (Exception e2) {
+				failures.add(name);
+				GameDataManager.log.error("{} Local {} fallback failed: {}", LOG_NS, name, e2.getMessage(), e2);
+			}
+		}
+	}
+
+	/**
+	 * Load every game-data asset group. Returns the names of the groups that failed
+	 * (empty = full success). {@link com.openrealm.game.GameLauncher} refuses to
+	 * launch on a non-empty list — a client must not run on partial/corrupt data
+	 * (that path renders empty realms / missing abilities).
+	 */
+	public static List<String> loadGameData(final boolean loadRemote) {
+		GameDataManager.log.info("{} Loading Game Data from remote={}", LOG_NS, loadRemote);
+		final List<String> failures = new ArrayList<>();
+		runLoader("projectile groups", () -> GameDataManager.loadProjectileGroups(loadRemote), failures);
+		runLoader("weapon archetypes", () -> GameDataManager.loadWeaponArchetypes(loadRemote), failures);
+		runLoader("game items", () -> GameDataManager.loadGameItems(loadRemote), failures);
+		runLoader("fame store", () -> GameDataManager.loadFameStore(loadRemote), failures);
+		runLoader("enemies", () -> GameDataManager.loadEnemies(loadRemote), failures);
+		runLoader("tiles", () -> GameDataManager.loadTiles(loadRemote), failures);
+		runLoader("maps", () -> GameDataManager.loadMaps(loadRemote), failures);
+		runLoader("terrains", () -> GameDataManager.loadTerrains(loadRemote), failures);
+		runLoader("portals", () -> GameDataManager.loadPortals(loadRemote), failures);
+		runLoader("dungeon graph", () -> GameDataManager.loadDungeonGraph(loadRemote), failures);
+		runLoader("experience model", () -> GameDataManager.loadExperienceModel(loadRemote), failures);
+		runLoader("character classes", () -> GameDataManager.loadCharacterClasses(loadRemote), failures);
+		runLoader("loot tables", () -> GameDataManager.loadLootTables(loadRemote), failures);
+		runLoader("loot groups", () -> GameDataManager.loadLootGroups(loadRemote), failures);
+		runLoader("loot containers", () -> GameDataManager.loadLootContainers(loadRemote), failures);
+		runLoader("animations", () -> GameDataManager.loadAnimations(loadRemote), failures);
+		runLoader("set pieces", () -> GameDataManager.loadSetPieces(loadRemote), failures);
+		runLoader("dungeon rooms", () -> GameDataManager.loadDungeonRooms(loadRemote), failures);
+		runLoader("dungeons", () -> GameDataManager.loadDungeons(loadRemote), failures);
+		runLoader("realm events", () -> GameDataManager.loadRealmEvents(loadRemote), failures);
+		runLoader("abilities", () -> GameDataManager.loadAbilities(loadRemote), failures);
+		runLoader("passives", () -> GameDataManager.loadPassives(loadRemote), failures);
+		runLoaderWithFallback("dye assets", () -> GameDataManager.loadDyeAssets(loadRemote),
+				() -> GameDataManager.loadDyeAssets(false), failures);
+		runLoaderWithFallback("class masks", () -> GameDataManager.loadClassMasks(loadRemote),
+				() -> GameDataManager.loadClassMasks(false), failures);
+		runLoaderWithFallback("UI atlas", () -> UiAtlas.load(loadRemote),
+				() -> UiAtlas.load(false), failures);
+		// Wire (de)serializer registration — a failure here silently EOFs packets
+		// mid-stream (the "empty realm" bug), so it's a hard failure too.
+		runLoader("serializable data mapping", IOService::mapSerializableData, failures);
+		if (failures.isEmpty()) {
+			GameDataManager.log.info("{} Game data loaded successfully.", LOG_NS);
+		} else {
+			GameDataManager.log.error("{} Game data load FAILED for {} group(s): {}", LOG_NS, failures.size(), failures);
+		}
+		return failures;
 	}
 }

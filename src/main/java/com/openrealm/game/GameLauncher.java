@@ -23,6 +23,8 @@ import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Application;
 import com.badlogic.gdx.backends.lwjgl3.Lwjgl3ApplicationConfiguration;
 import com.openrealm.account.dto.PingResponseDto;
 import com.openrealm.account.service.OpenRealmClientDataService;
+import java.util.List;
+
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.update.UpdateChecker;
 import com.openrealm.net.client.ClientGameLogic;
@@ -194,7 +196,12 @@ public class GameLauncher {
         ClientGameLogic.DATA_SERVICE = new OpenRealmClientDataService(httpClient,
                 dataServiceUrl, null);
         pingClient();
-        GameDataManager.loadGameData(true);
+        final List<String> dataFailures = GameDataManager.loadGameData(true);
+        if (!dataFailures.isEmpty()) {
+            System.err.println("FATAL: game data failed to load: " + dataFailures
+                    + " - cannot launch on partial/corrupt data. Check the data service and retry.");
+            System.exit(-1);
+        }
 
         // SocketClient.SERVER_ADDR is the GAME-server host (TCP target on
         // port 2222), NOT the data-service host. They're different
