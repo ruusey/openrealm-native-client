@@ -650,27 +650,23 @@ public class TileManager {
     public boolean collidesSlowTile(Entity e) {
         // Must match the server's collidesSlowTile EXACTLY or local slow prediction (and the
         // wading sprite cutoff, which reads this) desyncs against the authoritative check.
-        return this.fullyOnFlaggedTile(e, true);
+        return this.centerOnFlaggedTile(e, true);
     }
 
     public boolean collidesDamagingTile(Entity e) {
-        return this.fullyOnFlaggedTile(e, false);
+        return this.centerOnFlaggedTile(e, false);
     }
 
-    // An entity counts as "on" a slow/hazard tile only when it is FULLY inside such tiles:
-    // all four corners of a hitbox inset 1px from the sprite bounds must land on tiles with
-    // the flag. So lava/water slow + damage trigger only once you're fully on the tile, not
-    // when your center clips it (which sank you into lava-above while your feet were on sand).
-    // Keep this IDENTICAL to the server's copy so slow prediction agrees with it.
-    private boolean fullyOnFlaggedTile(final Entity e, final boolean slow) {
+    // Center-based: an entity is "on" a slow/hazard tile when its CENTER is over one,
+    // matching the wading/sink visual. The old rule required the whole 28px hitbox inside
+    // the flag (all four corners), which never fired on single scattered lava tiles (e.g.
+    // highlands Lava_0) -- you'd sink in and take no damage / no slow. Keep IDENTICAL to
+    // the server's centerOnFlaggedTile + webclient _isOnSlowTile.
+    private boolean centerOnFlaggedTile(final Entity e, final boolean slow) {
         final Tile[][] blocks = this.getBaseLayer().getBlocks();
         final int ts = this.getBaseLayer().getTileSize();
         final Vector2f c = e.getCenteredPosition();
-        final float r = e.getSize() * 0.5f - 1.0f;
-        return this.flaggedTileAt(blocks, ts, c.x - r, c.y - r, slow)
-                && this.flaggedTileAt(blocks, ts, c.x + r, c.y - r, slow)
-                && this.flaggedTileAt(blocks, ts, c.x - r, c.y + r, slow)
-                && this.flaggedTileAt(blocks, ts, c.x + r, c.y + r, slow);
+        return this.flaggedTileAt(blocks, ts, c.x, c.y, slow);
     }
 
     private boolean flaggedTileAt(final Tile[][] blocks, final int ts, final float x, final float y, final boolean slow) {
