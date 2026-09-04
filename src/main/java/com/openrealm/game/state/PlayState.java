@@ -2185,8 +2185,15 @@ public class PlayState extends GameState {
         this.projectileFx.emitAndUpdate(visibleBullets,
                 this.realmManager.getRealm().getBullets(), Gdx.graphics.getDeltaTime());
         this.projectileFx.render(batch);
+        final Realm poisonRealm = this.realmManager.getRealm();
         for (int i = 0; i < visibleBullets.size(); i++) {
-            visibleBullets.get(i).render(batch);
+            final Bullet b = visibleBullets.get(i);
+            // Venom-coat a player's shots while they carry Imbue Poison.
+            if (!b.isEnemy() && poisonRealm != null) {
+                final Player owner = poisonRealm.getPlayer(b.getSrcEntityId());
+                b.setPoisonTrail(owner != null && owner.hasEffect(StatusEffectType.IMBUED_POISON));
+            }
+            b.render(batch);
         }
 
         // Pass 4: Enemy health bars + Player HP/MP bars (overhead).
@@ -3115,7 +3122,15 @@ public class PlayState extends GameState {
             final float dcx = ox + (float) Math.cos(ang) * off;
             final float dcy = oy + (float) Math.sin(ang) * off;
             final float swingAlpha = progress < 0.8f ? 1f : Math.max(0f, (1f - progress) * 5f);
-            batch.setColor(1f, 1f, 1f, swingAlpha);
+            // Imbue Poison tints the swing venom-green while the swinger holds it.
+            final Realm swingRealm = this.realmManager.getRealm();
+            final Player swingOwner = (swingRealm == null || vfx.getOwnerId() == 0L)
+                    ? null : swingRealm.getPlayer(vfx.getOwnerId());
+            if (swingOwner != null && swingOwner.hasEffect(StatusEffectType.IMBUED_POISON)) {
+                batch.setColor(0.45f, 1f, 0.35f, swingAlpha);
+            } else {
+                batch.setColor(1f, 1f, 1f, swingAlpha);
+            }
             batch.draw(region, dcx - sprSize / 2f, dcy - sprSize / 2f,
                     sprSize / 2f, sprSize / 2f, sprSize, sprSize, 1f, 1f,
                     (float) Math.toDegrees(ang));
@@ -3291,7 +3306,14 @@ public class PlayState extends GameState {
             final short type = vfx.getEffectType();
 
             if (vfx.isAoe()) {
-                AbilityEffectRenderer.renderAoeEffect(shapes, vfx, type, t, wx, wy, hasSwingSprite(vfx.getTier()));
+                boolean meleePoison = false;
+                if (type == CreateEffectPacket.EFFECT_MELEE_SWING && vfx.getOwnerId() != 0L) {
+                    final Realm r = this.realmManager.getRealm();
+                    final Player owner = r == null ? null : r.getPlayer(vfx.getOwnerId());
+                    meleePoison = owner != null && owner.hasEffect(StatusEffectType.IMBUED_POISON);
+                }
+                AbilityEffectRenderer.renderAoeEffect(shapes, vfx, type, t, wx, wy,
+                        hasSwingSprite(vfx.getTier()), meleePoison);
             } else {
                 AbilityEffectRenderer.renderLineEffect(shapes, vfx, t, wx, wy);
             }

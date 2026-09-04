@@ -195,9 +195,15 @@ public class Bullet extends GameObject  {
     /** Fractional particle-emission accumulator for the projectile FX trail
      *  (ProjectileFxManager), so trail spawn rate is frame-rate independent. */
     private transient float fxTrailAcc = 0f;
+    /** Set per-frame by PlayState when this bullet's owner has IMBUED_POISON —
+     *  the Assassin's venom coats their shots with a green trail. Owner-status
+     *  driven (not a group property) so it toggles with the buff. */
+    private transient boolean poisonTrail = false;
 
     public boolean isConsumedClient() { return this.consumedClient; }
     public void setConsumedClient(boolean v) { this.consumedClient = v; }
+    public boolean isPoisonTrail() { return this.poisonTrail; }
+    public void setPoisonTrail(boolean v) { this.poisonTrail = v; }
 
     // WHY: Locally-spawned (client-predicted) player bullets bypass the
     // server LoadPacket round-trip so the firing player sees their stream
@@ -520,6 +526,25 @@ public class Bullet extends GameObject  {
                 final float tx = wx - this.sinAngle * spacing * i;
                 final float ty = wy - this.cosAngle * spacing * i;
                 batch.setColor(rgb[0], rgb[1], rgb[2], a);
+                batch.draw(frame, tx + off, ty + off, seg / 2f, seg / 2f,
+                        seg, seg, 1f, 1f, rotationDeg);
+            }
+            batch.setPackedColor(prev);
+        }
+
+        // Venom trail — Assassin Imbue Poison. Green afterimage behind the shot,
+        // same geometry as the group trail but keyed off the owner's buff.
+        if (this.poisonTrail) {
+            final float prev = batch.getPackedColor();
+            final float spacing = this.size * 0.34f;
+            for (int i = TRAIL_SEGMENTS; i >= 1; i--) {
+                final float f = i / (float) TRAIL_SEGMENTS;
+                final float a = 0.5f * (1f - f);
+                final float seg = this.size * (1f - 0.12f * i);
+                final float off = (this.size - seg) * 0.5f;
+                final float tx = wx - this.sinAngle * spacing * i;
+                final float ty = wy - this.cosAngle * spacing * i;
+                batch.setColor(0.30f, 0.85f, 0.20f, a);
                 batch.draw(frame, tx + off, ty + off, seg / 2f, seg / 2f,
                         seg, seg, 1f, 1f, rotationDeg);
             }

@@ -26,7 +26,8 @@ public final class AbilityEffectRenderer {
      *  Hammer: overhead smash then shockwave ring + ground cracks. Dagger: quick
      *  lunging thrust. tier = weapon archetype (1/2/3/10). Coords are world-camera
      *  space (matches the other ShapeRenderer effects); manages its own begin/end. */
-    public static void drawMeleeSwing(ShapeRenderer shapes, ActiveVisualEffect vfx, float wx, float wy, float t) {
+    public static void drawMeleeSwing(ShapeRenderer shapes, ActiveVisualEffect vfx, float wx, float wy, float t,
+                                      boolean poison) {
         final float ox = vfx.getTargetPosX() - wx;   // origin (player)
         final float oy = vfx.getTargetPosY() - wy;
         final float cx = vfx.getPosX() - wx;          // center (aim)
@@ -122,10 +123,28 @@ public final class AbilityEffectRenderer {
                 Gdx.gl.glLineWidth(1f);
             }
         }
+
+        // Imbue Poison: coat the weapon in venom-green for the buff duration — a
+        // green film along the blade line, a glowing tip, and a couple of drips.
+        if (poison) {
+            final float tipR = reach * 0.95f;
+            final float bx = ox + cos * tipR, by = oy + sin * tipR;
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0.30f, 0.85f, 0.20f, 0.45f * a);
+            shapes.rectLine(ox + cos * reach * 0.20f, oy + sin * reach * 0.20f, bx, by, 5f);
+            shapes.setColor(0.55f, 1.00f, 0.30f, 0.65f * a);
+            shapes.circle(bx, by, 4f);
+            for (int k = 0; k < 3; k++) {
+                final float dp = ((t * 2f) + k * 0.33f) % 1f;
+                shapes.setColor(0.30f, 0.85f, 0.20f, (1f - dp) * 0.5f * a);
+                shapes.circle(bx, by - dp * 8f, 1.6f);
+            }
+            shapes.end();
+        }
     }
 
     public static void renderAoeEffect(ShapeRenderer shapes, ActiveVisualEffect vfx, short type, float t, float wx, float wy,
-                                       boolean swingSpriteAvailable) {
+                                       boolean swingSpriteAvailable, boolean meleePoison) {
         final float cx = vfx.getPosX() - wx;
         final float cy = vfx.getPosY() - wy;
         final float maxRadius = vfx.getRadius();
@@ -150,7 +169,7 @@ public final class AbilityEffectRenderer {
         // 10 Dagger). Procedural here; the sprite override (if authored) is drawn
         // in renderMeleeSwings() during the batch pass, and this skips those.
         if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
-            if (!swingSpriteAvailable) drawMeleeSwing(shapes, vfx, wx, wy, t);
+            if (!swingSpriteAvailable) drawMeleeSwing(shapes, vfx, wx, wy, t, meleePoison);
             return;
         }
 
@@ -165,6 +184,13 @@ public final class AbilityEffectRenderer {
         // core flash, and gold sparkle motes orbiting the rim.
         if (type == CreateEffectPacket.EFFECT_PURIFY_CIRCLE) {
             renderPurifyCircle(shapes, cx, cy, maxRadius, t);
+            return;
+        }
+
+        // Priest Healing Word — holy radiance that snaps outward and leaves a
+        // glowing gold ring at the exact heal radius.
+        if (type == CreateEffectPacket.EFFECT_HEAL_RADIUS) {
+            renderHealRadius(shapes, cx, cy, maxRadius, t);
             return;
         }
 
@@ -1516,73 +1542,58 @@ public final class AbilityEffectRenderer {
      * hexagram (two interlocking triangles), pulsing rising sparkles.
      * Procedural port of renderer.js case 57.
      */
+    /**
+     * Bulwark aura (Knight Hold Your Ground / Paladin Fortify) — a radiating
+     * gradient that fills from a vital green core out to a steadfast blue rim,
+     * with rings pulsing outward to the aura's edge. No sigil, no stars.
+     */
     public static void renderFortifyAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
-        final float alpha = t < 0.90f ? 1.0f : 1.0f - (t - 0.90f) * 10f;
+        final float alpha = t < 0.90f ? 1.0f : Math.max(0f, 1.0f - (t - 0.90f) * 10f);
         final long now = System.currentTimeMillis();
-        final float pulse = 0.65f + 0.35f * (float) Math.sin(now * 0.005);
 
-        // Outer ring (dark base + blue overlay).
+        // Radial gradient built from overlapping translucent bands: green at the
+        // core, blue at the rim. Drawn rim-inward so the bright green core lands
+        // on top.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        final int bands = 14;
+        for (int i = bands; i >= 1; i--) {
+            final float f = i / (float) bands;                 // 1 at rim, ~0 at core
+            final float rr = radius * f;
+            final float cr = 0.15f * f + 0.22f * (1f - f);
+            final float cg = 0.45f * f + 1.00f * (1f - f);
+            final float cb = 1.00f * f + 0.40f * (1f - f);
+            shapes.setColor(cr, cg, cb, alpha * 0.16f);
+            drawCircle(shapes, cx, cy, rr, 40);
+        }
+        shapes.end();
+
+        // Rings radiating outward to the aura edge, green -> blue as they travel.
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        Gdx.gl.glLineWidth(4f);
-        shapes.setColor(0.06f, 0.22f, 0.28f, alpha * 0.85f);
-        drawCircleOutline(shapes, cx, cy, radius, 48);
+        for (int i = 0; i < 3; i++) {
+            final float ph = ((now * 0.0009f) + i / 3f) % 1.0f;
+            final float rr = radius * (0.18f + ph * 0.85f);
+            final float ra = (1f - ph) * alpha;
+            if (ra <= 0.02f) continue;
+            Gdx.gl.glLineWidth(3f);
+            shapes.setColor(0.22f * (1f - ph) + 0.15f * ph,
+                            1.00f * (1f - ph) + 0.45f * ph,
+                            0.40f * (1f - ph) + 1.00f * ph, ra * 0.9f);
+            drawCircleOutline(shapes, cx, cy, rr, 48);
+        }
+        // Steadfast blue boundary at full range.
         Gdx.gl.glLineWidth(2f);
-        shapes.setColor(0.25f, 0.66f, 1.00f, alpha * 0.9f * pulse);
-        drawCircleOutline(shapes, cx, cy, radius, 48);
-
-        // Hexagram — two interlocking equilateral triangles.
-        final float innerR = radius * 0.62f;
-        Gdx.gl.glLineWidth(3f);
-        // Triangle A — green, pointing up (rotation = -PI/2 in math convention).
-        shapes.setColor(0.38f, 1.00f, 0.53f, alpha * pulse);
-        {
-            float[] tx = new float[3], ty = new float[3];
-            for (int i = 0; i < 3; i++) {
-                final float a = (-(float) Math.PI / 2f) + (i / 3f) * (float) Math.PI * 2f;
-                tx[i] = cx + (float) Math.cos(a) * innerR;
-                ty[i] = cy + (float) Math.sin(a) * innerR;
-            }
-            shapes.line(tx[0], ty[0], tx[1], ty[1]);
-            shapes.line(tx[1], ty[1], tx[2], ty[2]);
-            shapes.line(tx[2], ty[2], tx[0], ty[0]);
-        }
-        // Triangle B — blue, pointing down (rotation = PI/2).
-        shapes.setColor(0.25f, 0.66f, 1.00f, alpha * pulse);
-        {
-            float[] tx = new float[3], ty = new float[3];
-            for (int i = 0; i < 3; i++) {
-                final float a = ((float) Math.PI / 2f) + (i / 3f) * (float) Math.PI * 2f;
-                tx[i] = cx + (float) Math.cos(a) * innerR;
-                ty[i] = cy + (float) Math.sin(a) * innerR;
-            }
-            shapes.line(tx[0], ty[0], tx[1], ty[1]);
-            shapes.line(tx[1], ty[1], tx[2], ty[2]);
-            shapes.line(tx[2], ty[2], tx[0], ty[0]);
-        }
+        shapes.setColor(0.30f, 0.60f, 1.00f, alpha * 0.7f);
+        drawCircleOutline(shapes, cx, cy, radius, 56);
         Gdx.gl.glLineWidth(1f);
         shapes.end();
 
-        // Rising sparkles — alternating green/blue. Y-up: rise +y.
+        // Bright green core glow.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        final int sparkles = 14;
-        for (int i = 0; i < sparkles; i++) {
-            final float seed = i * 0.451f;
-            final float cycle = ((now * 0.0006f) + seed) % 1.0f;
-            final float angle = (i / (float) sparkles) * (float) Math.PI * 2f + now * 0.0005f;
-            final float dist = radius * (0.3f + 0.55f * ((seed * 23f) % 1f));
-            final float px = cx + (float) Math.cos(angle) * dist;
-            final float py = cy + (float) Math.sin(angle) * dist + cycle * radius * 0.65f;
-            final float sA = (1f - cycle) * 0.9f;
-            if ((i & 1) == 0) shapes.setColor(0.25f, 0.66f, 1.00f, alpha * sA);
-            else              shapes.setColor(0.38f, 1.00f, 0.53f, alpha * sA);
-            drawCircle(shapes, px, py, 2.5f, 8);
-            shapes.setColor(1f, 1f, 1f, alpha * sA * 0.7f);
-            drawCircle(shapes, px, py, 1.2f, 6);
-        }
-        // Central glint.
-        shapes.setColor(1f, 1f, 1f, alpha * pulse * 0.7f);
-        drawCircle(shapes, cx, cy, 4f, 12);
+        shapes.setColor(0.35f, 1.00f, 0.55f, alpha * 0.5f);
+        drawCircle(shapes, cx, cy, radius * 0.16f, 16);
+        shapes.setColor(0.85f, 1.00f, 0.90f, alpha * 0.7f);
+        drawCircle(shapes, cx, cy, radius * 0.07f, 10);
         shapes.end();
     }
 
@@ -2644,29 +2655,111 @@ public final class AbilityEffectRenderer {
      * progress offsets to evoke a roaring shockwave. Procedural port of
      * renderer.js case 36.
      */
-    public static void renderWarCryWave(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+    /**
+     * Priest Healing Word — a fast holy burst: golden-green light snaps out to
+     * full radius, sweeping light beams, rising healing motes, and a persistent
+     * glowing gold "holy ring" pinned at the exact heal radius so allies can read
+     * the effect's reach at a glance.
+     */
+    public static void renderHealRadius(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
-        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
+        final float alpha = t < 0.7f ? 1.0f : Math.max(0f, 1.0f - (t - 0.7f) / 0.3f);
+        final long now = System.currentTimeMillis();
+        // Snap outward: full radius by ~25% of the effect.
+        final float burstR = radius * (float) Math.sqrt(Math.min(1f, t * 4f));
+        // Soft holy fill.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.85f, 1.00f, 0.70f, alpha * 0.16f);
+        drawCircle(shapes, cx, cy, burstR, 44);
+        shapes.setColor(0.55f, 1.00f, 0.55f, alpha * 0.12f);
+        drawCircle(shapes, cx, cy, burstR * 0.6f, 36);
+        shapes.end();
+        // Glowing holy ring fixed at the heal radius + sweeping light beams.
         shapes.begin(ShapeRenderer.ShapeType.Line);
-        for (int i = 0; i < 4; i++) {
-            final float phase = (t * 1.5f + i * 0.18f) % 1.0f;
-            final float ringR = radius * (0.2f + phase * 1.0f);
-            final float ringA = (1f - phase) * alpha;
-            if (ringA <= 0.02f) continue;
-            Gdx.gl.glLineWidth(4f);
-            shapes.setColor(0.50f, 0.00f, 0.13f, ringA * 0.85f);
-            drawCircleOutline(shapes, cx, cy, ringR, 48);
-            Gdx.gl.glLineWidth(2f);
-            shapes.setColor(1.00f, 0.19f, 0.31f, ringA);
-            drawCircleOutline(shapes, cx, cy, ringR - 3f, 48);
+        final float ringPulse = 0.8f + 0.2f * (float) Math.sin(now * 0.006);
+        Gdx.gl.glLineWidth(5f);
+        shapes.setColor(1.00f, 0.95f, 0.55f, alpha * 0.9f * ringPulse);
+        drawCircleOutline(shapes, cx, cy, radius, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(0.75f, 1.00f, 0.75f, alpha * 0.8f);
+        drawCircleOutline(shapes, cx, cy, radius * 0.97f, 64);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1.00f, 1.00f, 0.80f, alpha * 0.6f);
+        for (int i = 0; i < 8; i++) {
+            final float a = (i / 8f) * (float) Math.PI * 2f + now * 0.0012f;
+            shapes.line(cx + (float) Math.cos(a) * burstR * 0.2f, cy + (float) Math.sin(a) * burstR * 0.2f,
+                        cx + (float) Math.cos(a) * burstR * 0.95f, cy + (float) Math.sin(a) * burstR * 0.95f);
         }
         Gdx.gl.glLineWidth(1f);
         shapes.end();
+        // Rising healing motes + cast flash.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(1.00f, 0.19f, 0.31f, alpha * 0.45f);
-        drawCircle(shapes, cx, cy, radius * 0.18f, 16);
-        shapes.setColor(1f, 1f, 1f, alpha);
-        drawCircle(shapes, cx, cy, radius * 0.08f, 12);
+        final int motes = 12;
+        for (int i = 0; i < motes; i++) {
+            final float seed = i * 0.53f;
+            final float ph = ((now * 0.0009f) + seed) % 1.0f;
+            final float a = (i / (float) motes) * (float) Math.PI * 2f;
+            final float d = radius * (0.2f + 0.6f * ((seed * 17f) % 1f));
+            final float mx = cx + (float) Math.cos(a) * d;
+            final float my = cy + (float) Math.sin(a) * d + ph * radius * 0.5f;
+            final float ma = (1f - ph) * alpha;
+            shapes.setColor(0.70f, 1.00f, 0.70f, ma * 0.9f);
+            drawCircle(shapes, mx, my, 2.2f, 8);
+            shapes.setColor(1f, 1f, 1f, ma * 0.7f);
+            drawCircle(shapes, mx, my, 1.1f, 6);
+        }
+        if (t < 0.3f) {
+            final float fa = (0.3f - t) / 0.3f;
+            shapes.setColor(1f, 1f, 1f, fa * 0.8f);
+            drawCircle(shapes, cx, cy, radius * 0.22f * (1f - t), 18);
+        }
+        shapes.end();
+    }
+
+    /**
+     * Knight Shield Bash impact — the concussive shockwave that lands where the
+     * hurled shield connects. A hard steel-and-gold ring punches out to full
+     * radius fast, over a settling dust disc, with radial concussion cracks and
+     * a white slam flash. Punchy (server sends ~650ms) so it reads as a "bash".
+     */
+    public static void renderWarCryWave(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
+        if (radius <= 0) return;
+        final float alpha = t < 0.65f ? 1.0f : Math.max(0f, 1.0f - (t - 0.65f) / 0.35f);
+        // Shock front snaps out fast (sqrt curve), slightly overshooting the rim.
+        final float ringR = radius * (float) Math.min(1.12, Math.sqrt(t) * 1.15);
+        // Settling dust disc.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.60f, 0.58f, 0.52f, alpha * 0.18f);
+        drawCircle(shapes, cx, cy, ringR * 0.92f, 40);
+        shapes.end();
+        // Steel/gold shock rings.
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(6f);
+        shapes.setColor(0.86f, 0.79f, 0.48f, alpha);              // gold leading edge
+        drawCircleOutline(shapes, cx, cy, ringR, 56);
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.90f, 0.93f, 1.00f, alpha * 0.9f);       // bright steel inner
+        drawCircleOutline(shapes, cx, cy, ringR * 0.85f, 56);
+        // Radial concussion cracks.
+        Gdx.gl.glLineWidth(3f);
+        shapes.setColor(0.80f, 0.82f, 0.90f, alpha * 0.8f);
+        for (int i = 0; i < 8; i++) {
+            final float a = (i / 8f) * (float) Math.PI * 2f;
+            final float i0 = ringR * 0.14f, i1 = ringR * 0.95f;
+            shapes.line(cx + (float) Math.cos(a) * i0, cy + (float) Math.sin(a) * i0,
+                        cx + (float) Math.cos(a) * i1, cy + (float) Math.sin(a) * i1);
+        }
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
+        // Slam flash core.
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        if (t < 0.30f) {
+            final float fa = (0.30f - t) / 0.30f;
+            shapes.setColor(1f, 1f, 1f, fa * 0.85f);
+            drawCircle(shapes, cx, cy, radius * 0.30f * (1f - t), 20);
+        }
+        shapes.setColor(0.95f, 0.85f, 0.45f, alpha * 0.5f);
+        drawCircle(shapes, cx, cy, radius * 0.12f, 12);
         shapes.end();
     }
 
@@ -3110,74 +3203,50 @@ public final class AbilityEffectRenderer {
      * ripples, edge sparks, plus a bright cast-moment flash on the first
      * 15% of life. Procedural port of renderer.js case 16.
      */
+    /**
+     * Knight Parry bulwark dome — a steady brushed-steel shield bubble. Re-emitted
+     * every ~240ms while PHALANX_DOME holds, so it is deliberately static: no
+     * pulse, flicker, rotation or cast flash (any t/clock-driven motion would
+     * strobe on each refresh). Silver, like a raised shield.
+     */
     public static void renderShieldDome(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
-        final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
-        final long now = System.currentTimeMillis();
-        // 1. Translucent BLUE interior
+        // Envelope only — full through most of the packet, brief fade for a clean
+        // handoff to the next refresh. No sinusoidal pulse.
+        final float alpha = t < 0.85f ? 1.0f : Math.max(0f, 1.0f - (t - 0.85f) * 6.67f);
+        // Translucent silver interior.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.06f, 0.50f, 1.00f, alpha * 0.42f);
+        shapes.setColor(0.72f, 0.76f, 0.82f, alpha * 0.30f);
         drawCircle(shapes, cx, cy, radius, 48);
-        shapes.setColor(0.63f, 0.86f, 1.00f, alpha * 0.22f);
-        drawCircle(shapes, cx, cy, radius * 0.85f, 48);
-        shapes.setColor(1f, 1f, 1f, alpha * 0.10f);
-        drawCircle(shapes, cx, cy, radius * 0.55f, 48);
+        shapes.setColor(0.88f, 0.91f, 0.96f, alpha * 0.16f);
+        drawCircle(shapes, cx, cy, radius * 0.70f, 40);
         shapes.end();
-        // 2. Heavy multi-layer rim
+        // Heavy brushed-steel rim (static multi-layer).
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(10f);
-        shapes.setColor(0.23f, 0.66f, 1.00f, alpha);
+        shapes.setColor(0.55f, 0.58f, 0.64f, alpha);          // dark steel
         drawCircleOutline(shapes, cx, cy, radius, 64);
         Gdx.gl.glLineWidth(5f);
-        shapes.setColor(0.63f, 0.86f, 1.00f, alpha);
+        shapes.setColor(0.82f, 0.85f, 0.90f, alpha);          // bright steel
         drawCircleOutline(shapes, cx, cy, radius - 7f, 64);
         Gdx.gl.glLineWidth(2f);
-        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);           // highlight
         drawCircleOutline(shapes, cx, cy, radius - 12f, 64);
-        // 3. Rotating energy ripples — 4 short white arcs
-        final int ripples = 4;
-        final float ripPhase = now * 0.003f;
-        Gdx.gl.glLineWidth(3f);
-        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
-        for (int i = 0; i < ripples; i++) {
-            final float a0 = ripPhase + (i / (float) ripples) * (float) Math.PI * 2f;
-            final float a1 = a0 + 0.32f;
-            final int seg = 8;
-            for (int s = 0; s < seg; s++) {
-                final float aa = a0 + (a1 - a0) * (s / (float) seg);
-                final float ab = a0 + (a1 - a0) * ((s + 1) / (float) seg);
-                shapes.line(cx + (float) Math.cos(aa) * radius, cy + (float) Math.sin(aa) * radius,
-                            cx + (float) Math.cos(ab) * radius, cy + (float) Math.sin(ab) * radius);
-            }
-        }
         Gdx.gl.glLineWidth(1f);
         shapes.end();
-        // 4. Edge sparks — fixed seeded positions, flicker independently
+        // Fixed rivets around the rim (shield studs) — no motion.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        final int sparks = 10;
-        for (int i = 0; i < sparks; i++) {
-            final float seed = i * 0.371f;
-            final float angle = seed * (float) Math.PI * 2f + now * 0.0008f;
-            final float flicker = 0.5f + 0.5f * (float) Math.sin(now * 0.012f + seed * 11f);
-            if (flicker < 0.55f) continue;
-            final float ex = cx + (float) Math.cos(angle) * radius;
-            final float ey = cy + (float) Math.sin(angle) * radius;
-            shapes.setColor(0.23f, 0.66f, 1.00f, alpha * 0.85f * flicker);
-            drawCircle(shapes, ex, ey, 5f, 12);
-            shapes.setColor(1f, 1f, 1f, alpha * flicker);
-            drawCircle(shapes, ex, ey, 2f, 8);
+        final int studs = 12;
+        for (int i = 0; i < studs; i++) {
+            final float a = (i / (float) studs) * (float) Math.PI * 2f;
+            final float ex = cx + (float) Math.cos(a) * (radius - 6f);
+            final float ey = cy + (float) Math.sin(a) * (radius - 6f);
+            shapes.setColor(0.60f, 0.63f, 0.70f, alpha * 0.9f);
+            drawCircle(shapes, ex, ey, 3.2f, 8);
+            shapes.setColor(1f, 1f, 1f, alpha * 0.8f);
+            drawCircle(shapes, ex, ey, 1.4f, 6);
         }
         shapes.end();
-        // 5. Cast-moment punch
-        if (t < 0.15f) {
-            final float flashA = 1.0f - t / 0.15f;
-            shapes.begin(ShapeRenderer.ShapeType.Line);
-            Gdx.gl.glLineWidth(8f);
-            shapes.setColor(1f, 1f, 1f, flashA * 0.9f);
-            drawCircleOutline(shapes, cx, cy, radius, 64);
-            Gdx.gl.glLineWidth(1f);
-            shapes.end();
-        }
     }
 
     /**
@@ -3309,9 +3378,21 @@ public final class AbilityEffectRenderer {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final long now = System.currentTimeMillis();
-        final float baseR = radius * (0.55f + 0.45f * t);
+        final float baseR = radius * (0.70f + 0.30f * Math.min(1f, t * 3f));
         final float pillarH = baseR * 2.4f;
         final float pillarW = baseR * 0.55f;
+        // Initial cast AoE: a gold ring snaps out to the effect range so the
+        // blessed area reads immediately, with a steady rim at full radius.
+        final float castRingR = radius * (float) Math.sqrt(Math.min(1f, t * 4f));
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(1.00f, 0.90f, 0.45f, alpha * 0.85f * (1f - t));
+        drawCircleOutline(shapes, cx, cy, castRingR, 56);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.55f);
+        drawCircleOutline(shapes, cx, cy, radius, 56);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
         // Pillar (Y-up: pillar rises upward = positive Y above caster)
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(1.00f, 0.85f, 0.35f, alpha * 0.18f);
@@ -3654,7 +3735,7 @@ public final class AbilityEffectRenderer {
         // overlapping heal-tick packets read as one stream rather than
         // resetting on each tick.
         final float elapsedSec = vfx.getElapsed() / 1000f;
-        final float dropPeriod = 0.85f;     // seconds per droplet (launch -> land)
+        final float dropPeriod = 0.60f;     // seconds per droplet (launch -> land) — snappy
         final int streams = 14;             // number of staggered launchers around the ring
 
         // Overall fade so the visual eases out at the end of the packet's
@@ -3662,6 +3743,19 @@ public final class AbilityEffectRenderer {
         // overlapping packets, the visible stream stays continuous.
         final float t = vfx.getProgress();
         final float globalAlpha = t < 0.85f ? 1.0f : Math.max(0f, 1.0f - (t - 0.85f) * 6.7f);
+
+        // Initial cast AoE: a holy cleanse ring snaps out to the effect range so
+        // the purified area reads immediately at cast.
+        final float castRingR = radius * (float) Math.sqrt(Math.min(1f, t * 4f));
+        shapes.begin(ShapeRenderer.ShapeType.Line);
+        Gdx.gl.glLineWidth(4f);
+        shapes.setColor(0.75f, 0.95f, 1.00f, globalAlpha * 0.85f * (1f - t));
+        drawCircleOutline(shapes, cx, cy, castRingR, 56);
+        Gdx.gl.glLineWidth(2f);
+        shapes.setColor(1f, 1f, 1f, globalAlpha * 0.5f);
+        drawCircleOutline(shapes, cx, cy, radius, 56);
+        Gdx.gl.glLineWidth(1f);
+        shapes.end();
 
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 

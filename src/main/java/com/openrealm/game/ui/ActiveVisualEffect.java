@@ -25,6 +25,10 @@ public class ActiveVisualEffect {
     private float targetPosY;
     /** Total duration in milliseconds */
     private short duration;
+    /** Casting entity id (mirrors CreateEffectPacket.ownerId). Lets renderers
+     *  attribute an effect to its caster — e.g. tinting a melee swing green while
+     *  the swinger has IMBUED_POISON. */
+    private long ownerId;
     /** Mirrors CreateEffectPacket.tier — recolor sentinel for renderers that
      *  reuse one effect type across multiple palettes (e.g. assassin tiers
      *  0-6 stay green, boss-grenade tier=10 paints red). */
@@ -45,6 +49,7 @@ public class ActiveVisualEffect {
                 .targetPosY(packet.getTargetPosY())
                 .duration(packet.getDuration())
                 .tier(packet.getTier())
+                .ownerId(packet.getOwnerId())
                 .build();
     }
 
