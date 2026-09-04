@@ -41,7 +41,11 @@ public enum ProjectileFlag {
     HOMING((short) 34),
     /** Melee swing: invisible instant cleaving AoE at the cursor. The client skips
      *  its sprite but still plays the wielder's swing animation off the bullet. */
-    MELEE_SWING((short) 40);
+    MELEE_SWING((short) 40),
+    /** Critical: the server doubles the projectile's final damage on hit.
+     *  Client-side it is inert (damage is server-authoritative) — defined for
+     *  parity and any future crit visuals. */
+    CRITICAL((short) 50);
 
     public static final Map<Short, ProjectileFlag> map = new HashMap<>();
     static {
