@@ -633,6 +633,16 @@ public class LoginState extends GameState {
         drawCenteredText(batch, font, "Join our Discord Community!",
                 cardX + cardW / 2f, cardY + cardH - 36);
 
+        // Legal notice (ASCII-only for the bitmap font). Full Terms/Privacy live on the web client.
+        final float legalCx = OpenRealmGame.width / 2f;
+        font.setColor(0.45f, 0.42f, 0.40f, 1f);
+        drawCenteredText(batch, font, "(c) 2024-2026 Robert Usey - All Rights Reserved. Proprietary client.",
+                legalCx, OpenRealmGame.height - 52);
+        drawCenteredText(batch, font, "No reverse engineering, network interception/tampering, asset ripping, or modified clients/bots.",
+                legalCx, OpenRealmGame.height - 36);
+        drawCenteredText(batch, font, "Full Terms of Use & Privacy Policy are available on the OpenRealm web client.",
+                legalCx, OpenRealmGame.height - 20);
+
         font.setColor(Color.WHITE);
     }
 
