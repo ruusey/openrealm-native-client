@@ -262,7 +262,7 @@ public class LoginState extends GameState {
         // single-form layout: title block at the top of the card, then the
         // form fields, then primary/secondary buttons, then a "Register"
         // text link, then the server cycler, then the Discord footer.
-        int cardW = 460;
+        int cardW = 575;
         // Card grew by ~110 px to fit the logo + spacing above the title.
         int cardH = this.mode == Mode.REGISTER ? 720 : 660;
         int cardX = (OpenRealmGame.width - cardW) / 2;
@@ -541,7 +541,7 @@ public class LoginState extends GameState {
         batch.begin();
 
         // Card geometry — must match input() exactly.
-        int cardW = 460;
+        int cardW = 575;
         // Card grew by ~110 px to fit the logo + spacing above the title.
         int cardH = this.mode == Mode.REGISTER ? 720 : 660;
         int cardX = (OpenRealmGame.width - cardW) / 2;
