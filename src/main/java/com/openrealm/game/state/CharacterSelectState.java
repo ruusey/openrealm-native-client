@@ -857,7 +857,7 @@ public class CharacterSelectState extends GameState {
         // class + level on one line without colliding with the equipment row
         // beneath. 340 was too tight at 1.8x font; names truncated to a
         // single character.
-        int rightW = 420;
+        int rightW = 525;
         int leftW = width - rightW - leftPad - 24; // 24 = gap between cols
         L.tabsY = 64;
         L.tabH = 40;
