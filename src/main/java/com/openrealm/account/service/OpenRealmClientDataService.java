@@ -187,6 +187,17 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         return this.executeGet("/data/account/" + accountGuid, null, PlayerAccountDto.class);
     }
 
+    /** GET /admin/account/terms — true when the auth'd account must (re)accept the current Terms version. */
+    public boolean needsTermsAcceptance() throws Exception {
+        final Map<?, ?> body = this.executeGet("/admin/account/terms", null, Map.class);
+        return Boolean.TRUE.equals(body.get("needsAcceptance"));
+    }
+
+    /** POST /admin/account/terms/accept — stamp the auth'd account as accepting the current Terms version. */
+    public void acceptTerms() throws Exception {
+        this.executePost("/admin/account/terms/accept", Collections.emptyMap(), Map.class);
+    }
+
     /** POST /admin/account/register — guest creates DEMO account; otherwise standard PLAYER. */
     public AccountDto register(String email, String password, String accountName, boolean guest) throws Exception {
         AccountDto body = AccountDto.builder()

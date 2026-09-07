@@ -29,6 +29,8 @@ public class GameStateManager {
     // a PlayState once the user actually clicks "Play".
     public static final int LOGIN = 4;
     public static final int CHARSELECT = 5;
+    // One-time Terms-of-Use acceptance gate; sits between LOGIN and CHARSELECT.
+    public static final int TERMS = 6;
 
     public static SpriteSheet ui;
     public static SpriteSheet button;

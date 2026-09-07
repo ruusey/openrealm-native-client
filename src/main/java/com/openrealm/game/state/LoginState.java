@@ -204,8 +204,9 @@ public class LoginState extends GameState {
             KeyHandler.textSink = null;
             applyServerSelection(SERVERS[this.serverIdx]);
             this.gsm.pop(GameStateManager.LOGIN);
-            CharacterSelectState charSelect = new CharacterSelectState(this.gsm, acct);
-            this.gsm.add(GameStateManager.CHARSELECT, charSelect);
+            // Terms-of-Use acceptance gate. It passes straight through to character
+            // select if this account has already accepted the current Terms version.
+            this.gsm.add(GameStateManager.TERMS, new TermsAcceptState(this.gsm, acct));
             return;
         }
 
