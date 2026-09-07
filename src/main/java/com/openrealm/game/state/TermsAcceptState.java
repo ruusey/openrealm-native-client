@@ -63,10 +63,14 @@ public class TermsAcceptState extends GameState {
     private final transient PlayerAccountDto account;
     private final transient OpenRealmClientDataService svc;
 
-    // null = still checking; TRUE = must accept (show gate); FALSE = already
-    // accepted or the check failed (fail-open -> pass straight through).
+    // null = still checking; TRUE = must accept (show gate); FALSE = already accepted.
     private final AtomicReference<Boolean> checkResult = new AtomicReference<>(null);
+    // Fail CLOSED: if the status check errors we block (never pass through) and show
+    // an error with a Back-to-Login button.
+    private final AtomicBoolean checkFailed = new AtomicBoolean(false);
     private final AtomicBoolean acceptFinished = new AtomicBoolean(false);
+    private volatile boolean acceptOk = false;   // did the accept POST succeed?
+    private String error = null;                 // shown on the gate after a failed accept
     private boolean shown = false;          // gate visible (checkResult was TRUE)
     private boolean busy = false;           // an accept POST is in flight
     private boolean transitioned = false;   // guard so we only hand off once
@@ -96,10 +100,9 @@ public class TermsAcceptState extends GameState {
             try {
                 this.checkResult.set(this.svc.needsTermsAcceptance());
             } catch (Exception e) {
-                // Fail open: a transient status-check failure shouldn't lock the
-                // player out. The gate still fires whenever the server reports it.
-                log.warn("[TERMS] status check failed, passing through: {}", e.getMessage());
-                this.checkResult.set(Boolean.FALSE);
+                // Fail CLOSED: never let the player in when we can't verify acceptance.
+                log.warn("[TERMS] status check failed, blocking: {}", e.getMessage());
+                this.checkFailed.set(true);
             }
         }, "openrealm-terms-check").start();
     }
@@ -129,21 +132,38 @@ public class TermsAcceptState extends GameState {
     @Override
     public void update(double time) {
         if (this.transitioned) return;
-        if (!this.shown) {
+        if (!this.shown && !this.checkFailed.get()) {
             final Boolean r = this.checkResult.get();
             if (r != null) {
                 if (Boolean.TRUE.equals(r)) this.shown = true;
                 else this.goToCharacterSelect();
             }
         }
-        if (this.acceptFinished.get()) {
-            this.goToCharacterSelect();
+        if (this.acceptFinished.compareAndSet(true, false)) {
+            this.busy = false;
+            if (this.acceptOk) this.goToCharacterSelect();
+            else this.error = "Could not record your acceptance. Please try again.";
         }
     }
 
     @Override
     public void input(MouseHandler mouse, KeyHandler key) {
-        if (this.transitioned || !this.shown || this.busy) return;
+        if (this.transitioned) return;
+        // Check failed -> only the "Back to Login" button is interactive.
+        if (this.checkFailed.get()) {
+            final boolean md = mouse.isPressed(1);
+            final boolean jc = md && !this.prevMouseDown;
+            this.prevMouseDown = md;
+            final int bw = 220, bh = 46;
+            final int bx = (OpenRealmGame.width - bw) / 2;
+            final int by = OpenRealmGame.height / 2 + 24;
+            if (jc && this.hit(mouse.getX(), mouse.getY(), bx, by, bw, bh)) this.decline();
+            return;
+        }
+        if (!this.shown || this.busy) {
+            this.prevMouseDown = mouse.isPressed(1);
+            return;
+        }
         this.recomputeLayout();
 
         // --- scroll (wheel + keyboard) ---
@@ -186,6 +206,18 @@ public class TermsAcceptState extends GameState {
         shapes.end();
         batch.begin();
 
+        if (this.checkFailed.get()) {
+            final float mcx = OpenRealmGame.width / 2f;
+            font.setColor(0.95f, 0.55f, 0.45f, 1f);
+            this.drawCenteredText(batch, font, "Could not verify Terms of Use.", mcx, OpenRealmGame.height / 2f - 40);
+            font.setColor(0.70f, 0.66f, 0.60f, 1f);
+            this.drawCenteredText(batch, font, "Please return to login and try again.", mcx, OpenRealmGame.height / 2f - 14);
+            font.setColor(Color.WHITE);
+            final int bw = 220, bh = 46;
+            this.drawButton(batch, shapes, font, (OpenRealmGame.width - bw) / 2,
+                    OpenRealmGame.height / 2 + 24, bw, bh, "Back to Login", true, false);
+            return;
+        }
         if (!this.shown) {
             font.setColor(0.78f, 0.66f, 0.43f, 1f);
             this.drawCenteredText(batch, font, "Loading...",
@@ -265,6 +297,13 @@ public class TermsAcceptState extends GameState {
             font.setColor(Color.WHITE);
         }
 
+        // Accept-failure message (fail-closed: they stay gated until it records).
+        if (this.error != null) {
+            font.setColor(0.95f, 0.45f, 0.45f, 1f);
+            this.drawCenteredText(batch, font, this.error, cx, this.btnY - 18);
+            font.setColor(Color.WHITE);
+        }
+
         // Buttons.
         this.drawButton(batch, shapes, font, this.declineX, this.btnY, this.btnW, this.btnH,
                 "Decline & Log Out", false, false);
@@ -275,13 +314,15 @@ public class TermsAcceptState extends GameState {
     private void agree() {
         if (this.busy) return;
         this.busy = true;
+        this.error = null;
         new Thread(() -> {
             try {
                 this.svc.acceptTerms();
+                this.acceptOk = true;
             } catch (Exception e) {
-                // If the stamp fails they'll simply be re-prompted next login;
-                // don't block entering the game on an infra hiccup.
-                log.warn("[TERMS] accept POST failed: {}", e.getMessage());
+                // Fail CLOSED: don't enter the game unless the acceptance was recorded.
+                log.warn("[TERMS] accept POST failed, blocking: {}", e.getMessage());
+                this.acceptOk = false;
             } finally {
                 this.acceptFinished.set(true);
             }
