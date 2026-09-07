@@ -225,6 +225,23 @@ public class ClientGameLogic {
 			// compute progress and auto-clear when the cast completes.
 			cli.getState().getActiveCasts().put(cast.getPlayerId(),
 					new long[] { System.currentTimeMillis(), cast.getDurationMs() });
+			// Play the caster's directional attack frame to signify the cast.
+			// The local caster already poses at the cast site (PlayState), so
+			// only drive remotes here. Default to the front (down) pose when the
+			// ability has no meaningful world target (e.g. self-cast).
+			if (cast.getPlayerId() != cli.getCurrentPlayerId()) {
+				final Player caster = cli.getRealm().getPlayer(cast.getPlayerId());
+				if (caster != null) {
+					final float dx = cast.getWorldTargetX() - (caster.getPos().x + caster.getSize() / 2f);
+					final float dy = cast.getWorldTargetY() - (caster.getPos().y + caster.getSize() / 2f);
+					if ((cast.getWorldTargetX() != 0f || cast.getWorldTargetY() != 0f)
+							&& (Math.abs(dx) > 0.001f || Math.abs(dy) > 0.001f)) {
+						caster.triggerAttackAnimation((float) Math.atan2(dx, dy));
+					} else {
+						caster.triggerAttackAnimation(0f);
+					}
+				}
+			}
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle AbilityCastStart Packet. Reason: {}", e);
 		}

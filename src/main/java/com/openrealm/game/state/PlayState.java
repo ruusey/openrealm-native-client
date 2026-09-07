@@ -1659,6 +1659,7 @@ public class PlayState extends GameState {
                             this.getPlayer(), pos, bindingIdx);
                     this.realmManager.getClient().sendRemote(useAbility);
                     this.lastAbilityTick = System.currentTimeMillis();
+                    player.triggerAttackAnimation();
                 } catch (Exception e) {
                     PlayState.log.error("{} failed to send UseAbility packet from hotbar click for slot {}",
                             LOG_NS, bindingIdx, e);
@@ -1706,6 +1707,7 @@ public class PlayState extends GameState {
                         UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
                         this.realmManager.getClient().sendRemote(useAbility);
                         this.lastAbilityTick = System.currentTimeMillis();
+                        player.triggerAttackAnimation();
                     } catch (Exception e) {
                         PlayState.log.error("{} failed to send UseAbility packet for slot {}", LOG_NS, slot, e);
                     }
@@ -1737,6 +1739,7 @@ public class PlayState extends GameState {
                     UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos);
                     this.realmManager.getClient().sendRemote(useAbility);
                     this.lastAbilityTick = System.currentTimeMillis();
+                    player.triggerAttackAnimation();
                     if (abilityCost > 0) {
                         player.setMana(Math.max(0, player.getMana() - abilityCost));
                     }
