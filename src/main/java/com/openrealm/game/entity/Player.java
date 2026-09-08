@@ -40,6 +40,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import com.openrealm.game.entity.item.Enchantment;
+import com.openrealm.game.entity.item.AttributeModifier;
 import com.openrealm.game.graphics.ShaderManager;
 import com.openrealm.net.client.packet.PlayerStatePacket;
 import java.util.Queue;
@@ -539,32 +540,43 @@ public class Player extends Entity {
 		return stats;
 	}
 
-	/** Total stat contribution of equipped items (item stats + pixel-forge
-	 *  enchantments). Gems are combat effects (crit/multishot/etc.), not stat
-	 *  lines, so they don't appear here. */
+	/** Total stat contribution of equipped items (item stats + affix attribute
+	 *  modifiers + pixel-forge enchantments). Must mirror the additive deltas in
+	 *  the server's getComputedStats so the reconstructed base reads maxed off the
+	 *  leveled stat alone. Percentage scaling gems and transient buffs aren't
+	 *  representable as a flat sum and are left out. */
 	public Stats getEquipmentBonus() {
 		Stats bonus = new Stats();
 		final GameItem[] equipment = this.getSlots(0, EQUIPMENT_SLOT_COUNT);
 		for (final GameItem item : equipment) {
 			if (item == null) continue;
 			bonus = bonus.concat(item.getStats());
+			if (item.getAttributeModifiers() != null) {
+				for (final AttributeModifier m : item.getAttributeModifiers()) {
+					addStatDelta(bonus, m.getStatId(), m.getDeltaValue());
+				}
+			}
 			if (item.getEnchantments() != null) {
 				for (final Enchantment e : item.getEnchantments()) {
-					final short delta = e.getDeltaValue();
-					switch (e.getStatId()) {
-					case 0: bonus.setVit((short) (bonus.getVit() + delta)); break;
-					case 1: bonus.setWis((short) (bonus.getWis() + delta)); break;
-					case 2: bonus.setHp(bonus.getHp() + delta); break;
-					case 3: bonus.setMp((short) (bonus.getMp() + delta)); break;
-					case 4: bonus.setStr((short) (bonus.getStr() + delta)); break;
-					case 5: bonus.setDef((short) (bonus.getDef() + delta)); break;
-					case 6: bonus.setSpd((short) (bonus.getSpd() + delta)); break;
-					case 7: bonus.setDex((short) (bonus.getDex() + delta)); break;
-					}
+					addStatDelta(bonus, e.getStatId(), e.getDeltaValue());
 				}
 			}
 		}
 		return bonus;
+	}
+
+	/** statId order: 0=VIT 1=WIS 2=HP 3=MP 4=STR 5=DEF 6=SPD 7=DEX. */
+	private static void addStatDelta(Stats bonus, int statId, int delta) {
+		switch (statId) {
+		case 0: bonus.setVit((short) (bonus.getVit() + delta)); break;
+		case 1: bonus.setWis((short) (bonus.getWis() + delta)); break;
+		case 2: bonus.setHp(bonus.getHp() + delta); break;
+		case 3: bonus.setMp((short) (bonus.getMp() + delta)); break;
+		case 4: bonus.setStr((short) (bonus.getStr() + delta)); break;
+		case 5: bonus.setDef((short) (bonus.getDef() + delta)); break;
+		case 6: bonus.setSpd((short) (bonus.getSpd() + delta)); break;
+		case 7: bonus.setDex((short) (bonus.getDex() + delta)); break;
+		}
 	}
 
 	/** Leveled/allocated stats (the wire value minus equipment). A stat is
