@@ -650,23 +650,24 @@ public class TileManager {
     public boolean collidesSlowTile(Entity e) {
         // Must match the server's collidesSlowTile EXACTLY or local slow prediction (and the
         // wading sprite cutoff, which reads this) desyncs against the authoritative check.
-        return this.centerOnFlaggedTile(e, true);
+        return this.feetOnFlaggedTile(e, true);
     }
 
     public boolean collidesDamagingTile(Entity e) {
-        return this.centerOnFlaggedTile(e, false);
+        return this.feetOnFlaggedTile(e, false);
     }
 
-    // Center-based: an entity is "on" a slow/hazard tile when its CENTER is over one,
-    // matching the wading/sink visual. The old rule required the whole 28px hitbox inside
-    // the flag (all four corners), which never fired on single scattered lava tiles (e.g.
-    // highlands Lava_0) -- you'd sink in and take no damage / no slow. Keep IDENTICAL to
-    // the server's centerOnFlaggedTile + webclient _isOnSlowTile.
-    private boolean centerOnFlaggedTile(final Entity e, final boolean slow) {
+    // X uses the horizontal midpoint (wade in from either side) but Y samples the BOTTOM
+    // of the hitbox (the feet), not the center: the sprite's feet rest on the ground, so
+    // this lets a player stand on the walkable edge of a lava pool without taking damage
+    // and makes stepping off the edge read clearly. Keep IDENTICAL to the server's
+    // feetOnFlaggedTile + webclient _isOnSlowTile.
+    private boolean feetOnFlaggedTile(final Entity e, final boolean slow) {
         final Tile[][] blocks = this.getBaseLayer().getBlocks();
         final int ts = this.getBaseLayer().getTileSize();
-        final Vector2f c = e.getCenteredPosition();
-        return this.flaggedTileAt(blocks, ts, c.x, c.y, slow);
+        final float sampleX = e.getPos().x + e.getSize() / 2f;
+        final float sampleY = e.getPos().y + e.getSize();
+        return this.flaggedTileAt(blocks, ts, sampleX, sampleY, slow);
     }
 
     private boolean flaggedTileAt(final Tile[][] blocks, final int ts, final float x, final float y, final boolean slow) {
