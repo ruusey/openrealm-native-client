@@ -1552,6 +1552,7 @@ public class PlayState extends GameState {
             boolean anyModal = (this.pui != null) && (
                     this.pui.getForgeWindow().isVisible()
                  || this.pui.getFameStoreWindow().isVisible()
+                 || this.pui.getExchangeMarketWindow().isVisible()
                  || this.pui.getOptionsWindow().isVisible()
                  || this.pui.getPotionStorageWindow().isVisible()
                  || this.pui.getSkillsWindow().isVisible()

@@ -456,6 +456,7 @@ public class PlayerUI {
     // loop can reach them via realmManager.state.pui.<name>.
     private final ForgeWindow forgeWindow = new ForgeWindow();
     private final FameStoreWindow fameStoreWindow = new FameStoreWindow();
+    private final ExchangeMarketWindow exchangeMarketWindow = new ExchangeMarketWindow();
     private final OptionsWindow optionsWindow = new OptionsWindow();
     private final RealmTransitionState realmTransition = new RealmTransitionState();
     // Potion-storage UI: 32-slot dialog opened by F-key on tile 328 in the
@@ -1845,6 +1846,8 @@ public class PlayerUI {
         this.forgeWindow.render(batch, shapes, font);
         this.fameStoreWindow.update();
         this.fameStoreWindow.render(batch, shapes, font);
+        this.exchangeMarketWindow.update();
+        this.exchangeMarketWindow.render(batch, shapes, font);
         this.optionsWindow.update();
         this.optionsWindow.render(batch, shapes, font);
         this.potionStorageWindow.update();
@@ -3086,6 +3089,7 @@ public class PlayerUI {
         // "press F" is meaningless once they're inside.
         if (this.forgeWindow != null && this.forgeWindow.isVisible()) return;
         if (this.fameStoreWindow != null && this.fameStoreWindow.isVisible()) return;
+        if (this.exchangeMarketWindow != null && this.exchangeMarketWindow.isVisible()) return;
         if (this.potionStorageWindow != null && this.potionStorageWindow.isVisible()) return;
         try {
             final String type = this.playState.getNearbyInteractionType();
@@ -3094,6 +3098,7 @@ public class PlayerUI {
             if ("forge".equalsIgnoreCase(type)) label = "PRESS F TO USE FORGE";
             else if ("fame_store".equalsIgnoreCase(type)) label = "PRESS F TO OPEN FAME SHOP";
             else if ("potion_storage".equalsIgnoreCase(type)) label = "PRESS F TO OPEN POTION STORAGE";
+            else if ("exchange_market".equalsIgnoreCase(type)) label = "PRESS F TO OPEN EXCHANGE MARKET";
             else label = "PRESS F TO INTERACT";
             this.renderHintBox(batch, shapes, font, label, 1);
         } catch (Exception ignored) { /* never block render on a UI hint */ }

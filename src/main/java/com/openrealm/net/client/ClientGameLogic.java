@@ -62,9 +62,11 @@ import com.openrealm.util.PacketHandlerClient;
 
 import lombok.extern.slf4j.Slf4j;
 import com.openrealm.game.ui.FameStoreEntry;
+import com.openrealm.game.ui.ExchangeMarketWindow;
 import com.openrealm.game.ui.FameStoreWindow;
 import com.openrealm.game.ui.ForgeWindow;
 import com.openrealm.game.ui.PotionStorageWindow;
+import com.openrealm.net.client.packet.OpenExchangeMarketPacket;
 import com.openrealm.net.client.packet.OpenFameStorePacket;
 import com.openrealm.net.client.packet.OpenForgePacket;
 import com.openrealm.net.client.packet.OpenItemStorePacket;
@@ -631,6 +633,19 @@ public class ClientGameLogic {
 			store.show();
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenFameStore Packet. Reason: {}", e);
+		}
+	}
+
+	@PacketHandlerClient(OpenExchangeMarketPacket.class)
+	public static void handleOpenExchangeMarketClient(RealmManagerClient cli, Packet packet) {
+		try {
+			if (cli.getState() == null || cli.getState().getPui() == null) return;
+			final ExchangeMarketWindow win = cli.getState().getPui().getExchangeMarketWindow();
+			win.setRealmManager(cli);
+			win.setPlayerUi(cli.getState().getPui());
+			win.show();
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed to handle OpenExchangeMarket Packet. Reason: {}", e);
 		}
 	}
 
