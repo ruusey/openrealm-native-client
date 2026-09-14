@@ -60,6 +60,10 @@ public abstract class Entity extends GameObject {
 
     private Short[] effectIds;
     private Long[] effectTimes;
+    /** Per-effect stack count, parallel to effectIds (server-authoritative). >1
+     *  only for stacked DOTs (poison/bleed); drives the "xN" badge on the
+     *  overhead status icon. */
+    private Short[] effectStacks;
 
     public Entity(long id, Vector2f origin, int size) {
         super(id, origin, size);
@@ -115,6 +119,19 @@ public abstract class Entity extends GameObject {
     public void resetEffects() {
         this.effectIds = new Short[] { -1, -1, -1, -1, -1, -1, -1, -1 };
         this.effectTimes = new Long[] { -1l, -1l, -1l, -1l, -1l, -1l, -1l, -1l };
+        this.effectStacks = new Short[] { 1, 1, 1, 1, 1, 1, 1, 1 };
+    }
+
+    /** Stack count for an active effect (1 if not present / not stacked). Used
+     *  by the overhead status-icon renderer to show a "xN" badge. */
+    public int getEffectStackCount(StatusEffectType effect) {
+        if (this.effectIds == null || this.effectStacks == null) return 1;
+        for (int i = 0; i < this.effectIds.length; i++) {
+            if (this.effectIds[i] == effect.effectId) {
+                return Math.max(1, this.effectStacks[i]);
+            }
+        }
+        return 1;
     }
 
     /** Status effect ids treated as debuffs by the WARDED / VULNERABLE gates in

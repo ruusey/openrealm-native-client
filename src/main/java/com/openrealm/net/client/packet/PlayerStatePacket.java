@@ -30,6 +30,11 @@ public class PlayerStatePacket extends Packet {
 	private Short[] effectIds;
 	@SerializableField(order = 4, type = SerializableLong.class, isCollection = true)
 	private Long[] effectTimes;
+	/** Per-effect stack count, parallel to effectIds. >1 only for stacked DOTs
+	 *  (poison/bleed); drives the "xN" overhead-icon badge. Wire order MUST
+	 *  match the server's PlayerStatePacket. */
+	@SerializableField(order = 5, type = SerializableShort.class, isCollection = true)
+	private Short[] effectStacks;
 
 	public static PlayerStatePacket from(Player player) {
 		final PlayerStatePacket packet = new PlayerStatePacket();

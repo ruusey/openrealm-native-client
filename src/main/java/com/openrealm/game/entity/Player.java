@@ -943,6 +943,7 @@ public class Player extends Entity {
 		this.mana = packet.getMana();
 		this.setEffectIds(packet.getEffectIds());
 		this.setEffectTimes(packet.getEffectTimes());
+		this.setEffectStacks(packet.getEffectStacks());
 	}
 
 	public int numStatsMaxed() {

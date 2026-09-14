@@ -107,6 +107,7 @@ public class Enemy extends Entity {
         this.mana = packet.getMana();
         this.setEffectIds(packet.getEffectIds());
         this.setEffectTimes(packet.getEffectTimes());
+        this.setEffectStacks(packet.getEffectStacks());
         this.recomputeHealthPercent();
     }
 

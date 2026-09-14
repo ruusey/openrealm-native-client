@@ -1902,7 +1902,7 @@ public class PlayState extends GameState {
             // Extra lift clears the nameplate, or the bottom chip sits behind the
             // name glyphs and the later batch.draw paints text over the icon.
             final float bottomY = wy - 22f / chipWS - 11f;
-            this.emitStatusChips(shapes, effs, iconX, bottomY, chipW, chipH,
+            this.emitStatusChips(shapes, effs, rp.getEffectStacks(), iconX, bottomY, chipW, chipH,
                     _statusChipLayout, _statusChipLabels);
         }
 
@@ -1917,7 +1917,7 @@ public class PlayState extends GameState {
             final float iconX = wx + (sSize * 0.5f) - (chipW * 0.5f);
             final boolean named = this.shouldLabelEnemy(en);
             final float bottomY = wy - 4f - (named ? 16f / chipWS : 0f);
-            this.emitStatusChips(shapes, effs, iconX, bottomY, chipW, chipH,
+            this.emitStatusChips(shapes, effs, en.getEffectStacks(), iconX, bottomY, chipW, chipH,
                     _statusChipLayout, _statusChipLabels);
         }
 
@@ -2372,7 +2372,8 @@ public class PlayState extends GameState {
     /** Emit one active-effect chip per set effect, stacking upward from bottomY,
      *  and record each chip's rect + label for the later label pass. Runs inside
      *  the caller's open Filled shapes pass. */
-    private void emitStatusChips(ShapeRenderer shapes, Short[] effs, float iconX, float bottomY,
+    private void emitStatusChips(ShapeRenderer shapes, Short[] effs, Short[] stacks,
+            float iconX, float bottomY,
             float iconW, float iconH, List<float[]> outLayout, List<String> outLabels) {
         final float iconGap = 2f / OpenRealmGame.WORLD_SCALE;
         int activeIdx = 0;
@@ -2386,9 +2387,21 @@ public class PlayState extends GameState {
             shapes.setColor(1f, 1f, 1f, 0.18f);
             shapes.rect(iconX + 1, chipY + iconH - 4f, iconW - 2, 3f);
             outLayout.add(new float[] { iconX, chipY, iconW, iconH });
-            outLabels.add(def.label);
+            // Append "xN" for stacked DOTs so the player reads the intensity.
+            final int stack = stackFor(effs, stacks, def.effectId);
+            outLabels.add(stack > 1 ? (def.label + " x" + stack) : def.label);
             activeIdx++;
         }
+    }
+
+    private static int stackFor(Short[] effs, Short[] stacks, short eid) {
+        if (effs == null || stacks == null) return 1;
+        for (int i = 0; i < effs.length && i < stacks.length; i++) {
+            if (effs[i] != null && effs[i] == eid) {
+                return (stacks[i] != null) ? Math.max(1, stacks[i]) : 1;
+            }
+        }
+        return 1;
     }
 
     private TextureRegion getShurikenRegion(int tier) {
