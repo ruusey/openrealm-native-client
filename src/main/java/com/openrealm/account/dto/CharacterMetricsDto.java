@@ -7,15 +7,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Per-character lifetime metrics report, mirroring the data service's
- * {@code CharacterMetricsEntity}. Fetched read-only from
- * {@code GET /data/account/character/{uuid}/metrics} to render the
- * right-click stats window on the character-select screen.
- *
- * ignoreUnknown so the data service can add new counters without breaking
- * the native parse before a client release ships.
- */
+// ignoreUnknown lets the data service add counters without breaking native parse pre-release.
 @Data
 @NoArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)

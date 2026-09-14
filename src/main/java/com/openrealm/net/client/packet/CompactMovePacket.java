@@ -15,13 +15,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Bandwidth-efficient movement packet using 2-byte short entity IDs and
- * quantized velocity (15 bytes/entity vs 26 bytes in ObjectMovePacket).
- * <p>
- * Clients resolve short IDs to long IDs using the mapping established
- * in LoadPacket (NetPlayer.shortId / NetEnemy.shortId).
- */
+// Short (2-byte) entity IDs resolve to long IDs via the mapping in LoadPacket.
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable
@@ -32,10 +26,6 @@ public class CompactMovePacket extends Packet {
     @SerializableField(order = 0, type = NetCompactMovement.class, isCollection = true)
     private NetCompactMovement[] movements;
 
-    /**
-     * Build a CompactMovePacket from a list of dead reckoning corrections,
-     * mapping long entity IDs to short IDs via the allocator.
-     */
     public static CompactMovePacket from(List<NetObjectMovement> corrections, ShortIdAllocator allocator) throws Exception {
         final List<NetCompactMovement> compact = new ArrayList<>();
         for (final NetObjectMovement m : corrections) {

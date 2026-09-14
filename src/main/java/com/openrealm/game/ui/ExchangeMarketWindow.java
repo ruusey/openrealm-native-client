@@ -22,14 +22,9 @@ import com.openrealm.net.server.packet.ExchangeItemsPacket;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * Exchange Market UI — swap N of one consumable for N-1 of another in the same
- * exchange group (shards, crystals, essences, or stackable stat potions). One
- * item is always lost as the exchange tax, so the minimum trade is 2 -> 1.
- *
- * Grouping mirrors ServerExchangeMarketHelper so the UI only ever offers legal
- * swaps; the server re-validates every ExchangeItemsPacket.
- */
+/** Exchange Market UI: swap N of one consumable for N-1 of another in the same
+ *  exchange group (one lost as tax, minimum 2 -> 1). Grouping mirrors
+ *  ServerExchangeMarketHelper; the server re-validates every ExchangeItemsPacket. */
 @Slf4j
 public class ExchangeMarketWindow {
 
@@ -138,7 +133,6 @@ public class ExchangeMarketWindow {
         if (!this.visible) return;
 
         final Map<Integer, Integer> owned = this.ownedCounts();
-        // Drop a stale source the player no longer owns.
         if (this.sourceItemId >= 0 && !owned.containsKey(this.sourceItemId)) {
             this.sourceItemId = -1;
             this.targetItemId = -1;
@@ -179,7 +173,6 @@ public class ExchangeMarketWindow {
         shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
         shapes.rect(x, y, DIALOG_W, HEADER_H);
 
-        // Cancel button in the header (right side).
         final int closeBtnW = 60, closeBtnH = HEADER_H - 8;
         final int closeBtnX = x + DIALOG_W - closeBtnW - 6;
         final int closeBtnY = y + 4;
@@ -204,10 +197,14 @@ public class ExchangeMarketWindow {
         // Quantity stepper + Exchange button along the bottom.
         final int controlsY = y + dialogH - 40;
         final int stepW = 26;
+        final int minusX = leftColX;
+        final int plusX = leftColX + stepW + 40;
+        final int maxX = leftColX + stepW * 2 + 52;
+        final int maxW = 44;
         shapes.setColor(0.16f, 0.16f, 0.20f, 1f);
-        shapes.rect(leftColX, controlsY, stepW, stepW);                 // minus
-        shapes.rect(leftColX + stepW + 40, controlsY, stepW, stepW);    // plus
-        shapes.rect(leftColX + stepW * 2 + 52, controlsY, 44, stepW);   // max
+        shapes.rect(minusX, controlsY, stepW, stepW);
+        shapes.rect(plusX, controlsY, stepW, stepW);
+        shapes.rect(maxX, controlsY, maxW, stepW);
         final boolean ready = this.sourceItemId >= 0 && this.targetItemId >= 0 && maxQty >= MIN_QUANTITY;
         final int exBtnW = 120, exBtnH = 28;
         final int exBtnX = x + DIALOG_W - exBtnW - 12;
@@ -219,7 +216,7 @@ public class ExchangeMarketWindow {
 
         font.setColor(Color.WHITE);
         font.draw(batch, "EXCHANGE MARKET", x + 16, y + 22);
-        font.draw(batch, "Cancel", closeBtnX + 8, closeBtnY + closeBtnH - 6);
+        UiRender.drawCenteredIn(batch, font, "Cancel", closeBtnX, closeBtnY, closeBtnW, closeBtnH);
         font.setColor(Color.LIGHT_GRAY);
         font.draw(batch, "You give", leftColX + 4, y + HEADER_H + 28);
         font.draw(batch, "You receive", rightColX + 4, y + HEADER_H + 28);
@@ -250,12 +247,12 @@ public class ExchangeMarketWindow {
 
         // Quantity + summary line (reuse the geometry declared above).
         font.setColor(Color.WHITE);
-        font.draw(batch, "-", leftColX + 9, controlsY + 19);
-        font.draw(batch, String.valueOf(this.quantity), leftColX + stepW + 14, controlsY + 19);
-        font.draw(batch, "+", leftColX + stepW + 48, controlsY + 19);
-        font.draw(batch, "Max", leftColX + stepW * 2 + 58, controlsY + 19);
+        UiRender.drawCenteredIn(batch, font, "-", minusX, controlsY, stepW, stepW);
+        UiRender.drawCenteredIn(batch, font, String.valueOf(this.quantity), minusX + stepW, controlsY, plusX - (minusX + stepW), stepW);
+        UiRender.drawCenteredIn(batch, font, "+", plusX, controlsY, stepW, stepW);
+        UiRender.drawCenteredIn(batch, font, "Max", maxX, controlsY, maxW, stepW);
         font.setColor(ready ? Color.WHITE : Color.GRAY);
-        font.draw(batch, "Exchange", exBtnX + 26, controlsY + 19);
+        UiRender.drawCenteredIn(batch, font, "Exchange", exBtnX, controlsY, exBtnW, exBtnH);
 
         if (ready) {
             final GameItem s = GameDataManager.GAME_ITEMS.get(this.sourceItemId);

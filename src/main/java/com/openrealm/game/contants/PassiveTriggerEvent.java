@@ -1,22 +1,12 @@
 package com.openrealm.game.contants;
 
-/**
- * When a PassiveAbility's trigger fires. The combat tick / damage / cast
- * pipelines all check passive triggers against the relevant events on the
- * acting player and any party members in range.
- *
- * See design doc §3.2.
- */
+/** When a PassiveAbility's trigger fires. */
 public enum PassiveTriggerEvent {
-    /** Incoming projectile struck self. Knight's Deflect. */
+    /** Incoming projectile struck self. */
     ON_PROJECTILE_HIT_SELF,
-    /** Self fired a basic attack. Wizard's Arcane Surge. */
+    /** Self fired a basic attack. */
     ON_BASIC_ATTACK,
-    /** Self's basic-attack projectile struck an enemy. Differs from
-     *  ON_BASIC_ATTACK (which fires on the shot itself) — this fires per
-     *  impact, so multi-shot weapons get one trigger per pellet that lands.
-     *  Used by Assassin Lethal Wound, Ninja Armor Piercer, Heavy Oddball
-     *  Lucky Strikes (see passives.json on the data repo). */
+    /** Self's basic-attack projectile struck an enemy; fires per impact, so multishot gets one per pellet. */
     ON_BULLET_HIT_ENEMY,
     /** Self cast any active ability. */
     ON_ABILITY_CAST,

@@ -1,20 +1,16 @@
 package com.openrealm.game.contants;
 
 /**
- * Shape of the stat → contribution function for an AbilityScaling.
- *
- *   LINEAR:      contribution = stat * coeff           (clamped to cap)
- *   DIMINISHING: contribution = cap * (1 - exp(-stat * coeff / cap))
- *                  — saturating, used for CDR / cast speed
- *   THRESHOLD:   contribution = coeff   if stat >= cap, else 0
- *
- * See design doc §3.3.
+ * Shape of the stat-to-contribution function for an AbilityScaling.
+ *   LINEAR:      stat * coeff (clamped to cap)
+ *   DIMINISHING: cap * (1 - exp(-stat * coeff / cap)); saturating
+ *   THRESHOLD:   coeff if stat >= cap, else 0
  */
 public enum ScalingCurve {
     LINEAR,
     DIMINISHING,
     THRESHOLD,
-    /** {@code contribution = coeff * max(0, stat - cap)} — "+N per stat point above cap". */
+    /** coeff * max(0, stat - cap): +N per stat point above cap. */
     LINEAR_THRESHOLD;
 
     public static ScalingCurve parse(String s) {

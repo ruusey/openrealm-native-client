@@ -240,24 +240,17 @@ public class DungeonGenerator {
 			previousRoom = room;
 		}
 
-		// Add short dead-end side branches off corridors for exploration variety.
-		// Scale count with room count: roughly 1 branch per 4 rooms.
 		int branchCount = Math.max(2, numRooms / 4);
 		this.addSideBranches(baseLayer, branchCount);
 
-		// Post-processing: line all walkable areas with wall tiles.
-		// Run twice — the second pass catches diagonal gaps at corridor intersections
-		// where the first pass left a void tile surrounded by walls on two sides
-		// but not directly adjacent to a floor tile.
+		// Line walkable areas with walls; second pass catches diagonal gaps at intersections.
 		this.lineWithWalls(baseLayer, collisionLayer);
 		this.lineWithWalls(baseLayer, collisionLayer);
 
-		// Roughen straight wall edges for a more natural, organic look.
 		this.roughenWalls(baseLayer, collisionLayer);
-		// Re-line walls after roughening to fill any new gaps
 		this.lineWithWalls(baseLayer, collisionLayer);
 
-		// Carve boss room entrance AFTER wall lining so the opening isn't blocked
+		// Carve the entrance after wall lining so the opening isn't blocked.
 		if (bossRoomOffsetX >= 0) {
 			this.carveBossRoomEntrance(baseLayer, collisionLayer,
 					bossRoomOffsetX, bossRoomOffsetY, bossRoomWidth, bossRoomHeight);
@@ -671,11 +664,7 @@ public class DungeonGenerator {
 		}
 	}
 
-	/**
-	 * Triangle room pointing in a random cardinal direction.
-	 * The triangle fills roughly the bounding box by linearly narrowing from
-	 * base to apex.
-	 */
+	// Triangle narrowing from base to apex in a random cardinal direction.
 	private void generateTriangleRoom(TileMap baseLayer, int roomWidth, int roomHeight) {
 		// 0=up, 1=down, 2=left, 3=right
 		int dir = Realm.RANDOM.nextInt(4);
@@ -716,18 +705,12 @@ public class DungeonGenerator {
 		}
 	}
 
-	/**
-	 * Organic cave-like room generated via cellular automata.
-	 * Seeds ~45% of tiles as floor, then runs 4 iterations of the
-	 * B5678/S45678 rule (a tile becomes floor if 5+ of its 8 neighbors
-	 * are floor). Produces natural, blobby cavern shapes.
-	 */
+	// Cellular-automata cave: seed ~45% floor, then 4 iterations of birth>=5/survive>=4.
 	private void generateIrregularRoom(TileMap baseLayer, int roomWidth, int roomHeight) {
-		// Seed grid: ~45% floor
 		boolean[][] alive = new boolean[roomHeight][roomWidth];
 		for (int i = 0; i < roomHeight; i++) {
 			for (int j = 0; j < roomWidth; j++) {
-				// Edges always wall to keep the room bounded
+				// Edges stay wall to keep the room bounded.
 				if (i == 0 || i == roomHeight - 1 || j == 0 || j == roomWidth - 1) {
 					alive[i][j] = false;
 				} else {
@@ -736,7 +719,6 @@ public class DungeonGenerator {
 			}
 		}
 
-		// 4 iterations of cellular automata
 		for (int iter = 0; iter < 4; iter++) {
 			boolean[][] next = new boolean[roomHeight][roomWidth];
 			for (int i = 1; i < roomHeight - 1; i++) {
@@ -755,7 +737,7 @@ public class DungeonGenerator {
 			alive = next;
 		}
 
-		// Ensure center area is always open (so the room is usable)
+		// Keep the center open so the room is usable.
 		int cx = roomWidth / 2, cy = roomHeight / 2;
 		int clearRadius = Math.min(roomWidth, roomHeight) / 4;
 		for (int i = 0; i < roomHeight; i++) {
@@ -778,13 +760,7 @@ public class DungeonGenerator {
 		}
 	}
 
-	// ========== NEW HALLWAY STYLES ==========
-
-	/**
-	 * Curved corridor using a quadratic Bézier-like path.
-	 * A random control point is offset perpendicular to the straight line
-	 * between src and dest, producing a smooth arc.
-	 */
+	// Quadratic Bezier arc: control point offset perpendicular to the src->dest line.
 	private void connectCurved(TileMap targetLayer, int srcX, int srcY, int destX, int destY) {
 		// Control point: midpoint offset perpendicular to src->dest line
 		int midX = (srcX + destX) / 2;
@@ -801,14 +777,12 @@ public class DungeonGenerator {
 		int ctrlX = midX + Math.round(perpX * offset);
 		int ctrlY = midY + Math.round(perpY * offset);
 
-		// Walk the Bézier curve in small steps
 		int steps = (int) (dist * 1.5f);
 		steps = Math.max(steps, 20);
 		int hw = 1;
 		for (int s = 0; s <= steps; s++) {
 			float t = (float) s / steps;
 			float u = 1f - t;
-			// Quadratic Bézier: B(t) = (1-t)²·P0 + 2(1-t)t·P1 + t²·P2
 			float bx = u * u * srcX + 2 * u * t * ctrlX + t * t * destX;
 			float by = u * u * srcY + 2 * u * t * ctrlY + t * t * destY;
 			int px = Math.round(bx);
@@ -821,10 +795,7 @@ public class DungeonGenerator {
 		}
 	}
 
-	/**
-	 * S-bend corridor: two opposing curves creating an S-shaped path.
-	 * Splits the journey into two halves, each curving in opposite directions.
-	 */
+	// Two opposing curves forming an S-shaped path.
 	private void connectSBend(TileMap targetLayer, int srcX, int srcY, int destX, int destY) {
 		int midX = (srcX + destX) / 2;
 		int midY = (srcY + destY) / 2;
@@ -839,14 +810,7 @@ public class DungeonGenerator {
 		this.connectCurved(targetLayer, midX, midY, destX, destY);
 	}
 
-	// ========== POST-PROCESSING ==========
-
-	/**
-	 * Roughen straight wall edges to give them a more natural, eroded look.
-	 * For each wall tile that has floor on one side and wall on the opposite
-	 * side (straight wall segment), there's a chance to either remove it
-	 * (carve into the wall) or add an extra wall tile on the floor side.
-	 */
+	// Chance-carve edge wall tiles (1-2 floor neighbors) for an eroded look, re-lining after.
 	void roughenWalls(TileMap baseLayer, TileMap collisionLayer) {
 		Tile[][] base = baseLayer.getBlocks();
 		Tile[][] coll = collisionLayer.getBlocks();
@@ -895,11 +859,7 @@ public class DungeonGenerator {
 		}
 	}
 
-	/**
-	 * Add short dead-end side branches off the main corridor path to give
-	 * the dungeon a more exploratory feel. Picks random floor tiles along
-	 * corridor-like areas (narrow passages) and extends a short tunnel.
-	 */
+	// Extend short dead-end tunnels off corridor-like floor tiles (3-5 floor neighbors).
 	void addSideBranches(TileMap baseLayer, int count) {
 		Tile[][] base = baseLayer.getBlocks();
 		int added = 0;

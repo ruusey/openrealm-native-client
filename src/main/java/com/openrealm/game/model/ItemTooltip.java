@@ -1,5 +1,7 @@
 package com.openrealm.game.model;
 
+import com.openrealm.game.OpenRealmGame;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,6 +17,7 @@ import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.Rarity;
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
+import com.openrealm.game.ui.UiRender;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -54,12 +57,10 @@ public class ItemTooltip {
     private byte archetypeId;
     private int projectileGroupId;
 
-    /** Local player's classId for compatibility-line rendering. -1 means
-     *  "no viewer set" — the compatibility row is suppressed. */
+    /** Local player's classId; -1 suppresses the compatibility row. */
     private int viewerClassId = -1;
 
-    /** Local player's computed stats, used for the weapon DPS estimate. Null
-     *  hides the DPS line (no viewer context, e.g. tooltips with no player). */
+    /** Local player's computed stats; null hides the DPS line. */
     private Stats viewerStats;
 
     private static final int PADDING = 8;
@@ -82,9 +83,6 @@ public class ItemTooltip {
         "Cursed","Poisoned","Armored","Berserk","","Slowed","Armor Broken"
     };
 
-    /** Constructor variant that carries the viewer's classId so the tooltip
-     *  can render a "Compatible with your class" / "Cannot be equipped" row.
-     *  Pass -1 (or use the 4-arg constructor) to suppress the row. */
     public ItemTooltip(GameItem item, Vector2f pos, int width, int height, int viewerClassId) {
         this(item, pos, width, height);
         this.viewerClassId = viewerClassId;
@@ -123,9 +121,7 @@ public class ItemTooltip {
         return cls.name();
     }
 
-    /** Human-readable label for an item's class requirement. Covers both
-     *  specific-class IDs (Rogue, Archer, ...) and the role/weapon-family
-     *  buckets (ROBE/LEATHER/HEAVY/ALL/STAFF/WAND/DAGGER/BOW). */
+    /** Label for an item's class requirement: specific classes or role/weapon-family buckets. */
     private static String compatibilityLabel(byte targetClass) {
         switch ((int) targetClass) {
             case -1: return "Robe classes";
@@ -139,7 +135,6 @@ public class ItemTooltip {
             default: {
                 CharacterClass c = CharacterClass.valueOf((int) targetClass);
                 if (c == null) return "Unknown class";
-                // Title-case the enum name for display: ROGUE -> Rogue.
                 final String n = c.name();
                 if (n.isEmpty()) return n;
                 return n.charAt(0) + n.substring(1).toLowerCase().replace('_', ' ');
@@ -147,20 +142,12 @@ public class ItemTooltip {
         }
     }
 
-    /**
-     * Tooltip-side compatibility hint. The new item system (2026-05-18) gates
-     * equip on {@link com.openrealm.game.entity.item.ItemClass} + the player
-     * class's allowed lists — that data lives server-side, so the tooltip
-     * can't compute the same answer locally. For now we treat exact classId
-     * matches as compatible and everything else as a soft "see server" — the
-     * server still authoritatively rejects bad equips via canEquip().
-     */
+    /** Client-side hint only; the server authoritatively rejects bad equips via canEquip(). */
     private static boolean isCompatible(int viewerClassId, byte targetClass) {
         if (targetClass < 0) return true;
         return targetClass == (byte) viewerClassId;
     }
 
-    /** Convert ARGB int to a libGDX Color. */
     private static Color argbToColor(int argb) {
         float a = ((argb >> 24) & 0xFF) / 255f;
         float r = ((argb >> 16) & 0xFF) / 255f;
@@ -169,8 +156,6 @@ public class ItemTooltip {
         return new Color(r, g, b, a == 0f ? 1f : a);
     }
 
-    /** Plain-text effect description for an enchantment row. Enchantments are
-     *  pure stat-delta now — behavioral effects live on gemstones. */
     private static String describeEnchantment(Enchantment e) {
         if (e == null) return "";
         final int mag = e.getDeltaValue();
@@ -188,8 +173,7 @@ public class ItemTooltip {
         return argbToColor(e.getPixelColor() == 0 ? 0xFFFFFFFF : e.getPixelColor());
     }
 
-    /** Display string for a socketed gemstone — keep in sync with the server's
-     *  GemstoneRegistry. */
+    /** Keep in sync with the server's GemstoneRegistry. */
     private static String gemstoneName(byte typeId) {
         switch (typeId) {
             case 1: return "Vampiric Gem";
@@ -211,9 +195,8 @@ public class ItemTooltip {
         }
     }
 
-    /** Equip slots this gem may socket into. Prefers the item's data-driven
-     *  socketSlots (editable in the data editor); falls back to the per-type
-     *  default that mirrors Gemstone.canSocketInto on the server. */
+    /** Prefers the item's data-driven socketSlots; falls back to the
+     *  per-type default mirroring Gemstone.canSocketInto on the server. */
     private String gemAllowedSlotNames() {
         final String[] names = {"Weapon", "Armor", "Gauntlet", "Boots", "Ring"};
         if (this.socketSlots != null && !this.socketSlots.isEmpty()) {
@@ -237,7 +220,6 @@ public class ItemTooltip {
     private List<TooltipLine> buildLines() {
         List<TooltipLine> lines = new ArrayList<>();
 
-        // Title — colored by rarity so the player's eye lands on it first.
         if (this.title != null && !this.title.isEmpty()) {
             final Color titleColor = (this.rarity > 0)
                     ? argbToColor(Rarity.fromOrdinal(this.rarity).color)
@@ -245,7 +227,6 @@ public class ItemTooltip {
             lines.add(new TooltipLine(this.title, titleColor));
         }
 
-        // Subtitle: rarity · tier · class · consumable
         final List<String> subtitleBits = new ArrayList<>();
         subtitleBits.add(Rarity.fromOrdinal(this.rarity).displayName);
         if (this.tier >= 0) subtitleBits.add("Tier " + this.tier);
@@ -255,15 +236,10 @@ public class ItemTooltip {
             lines.add(new TooltipLine(String.join(" - ", subtitleBits), rarityColor));
         }
 
-        // Class-compatibility row — shown when a viewer is set AND the item
-        // has a class restriction (everything except targetClass=-4 ALL,
-        // which is always compatible so we just say "Any class").
         if (this.viewerClassId >= 0) {
             final boolean ok = isCompatible(this.viewerClassId, this.targetClass);
             final String label = compatibilityLabel(this.targetClass);
-            // -4 ALL is a special case — never a "cannot equip" call-out, just
-            // a single info line. For everything else, give explicit green/red
-            // feedback so the player knows at a glance.
+            // -4 ALL is always usable, so show a single info line rather than a green/red call-out.
             if (this.targetClass == (byte) -4) {
                 lines.add(new TooltipLine("Usable by: Any class", INFO_COLOR));
             } else {
@@ -272,7 +248,6 @@ public class ItemTooltip {
             }
         }
 
-        // Description - wrap long text to fit tooltip width
         if (this.description != null && !this.description.isEmpty()) {
             int charWidth = 7;
             int maxCharsPerLine = Math.max(8, (this.width - PADDING * 2) / charWidth);
@@ -301,9 +276,6 @@ public class ItemTooltip {
             lines.add(new TooltipLine(
                     "Damage: " + this.minDamage + " - " + this.maxDamage + "  (scales with " + scalesWith + ")",
                     INFO_COLOR));
-            // DPS estimate — folds in the viewer's current stats, the weapon
-            // archetype's fire-rate/damage multipliers, projectile count, and
-            // any socketed combat gem (crit/multishot/crushing).
             final int[] dps = this.computeDps();
             if (dps != null) {
                 final String shotLabel = dps[1] == 1 ? "1 shot" : dps[1] + " shots";
@@ -313,7 +285,6 @@ public class ItemTooltip {
             }
         }
 
-        // Stats
         if (this.stats != null) {
             List<String> statParts = new ArrayList<>();
             this.addStat(statParts, "HP", this.stats.getHp());
@@ -333,7 +304,6 @@ public class ItemTooltip {
             }
         }
 
-        // Random attribute-modifier affixes ("of the Bear: +2 VIT")
         if (this.attributeModifiers != null && !this.attributeModifiers.isEmpty()) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Affix:", HEADER_COLOR));
@@ -344,8 +314,6 @@ public class ItemTooltip {
             }
         }
 
-        // Gem template description (gem items in inventory show which Gemstone
-        // they produce when forged) OR socketed gem on equipment.
         if ("gem".equals(this.category) && this.gemstoneType != 0) {
             lines.add(new TooltipLine("", null));
             lines.add(new TooltipLine("Gem: " + gemstoneName(this.gemstoneType), GEM_COLOR));
@@ -355,8 +323,7 @@ public class ItemTooltip {
             lines.add(new TooltipLine("Socketed: " + gemstoneName(this.gemstoneType), GEM_COLOR));
         }
 
-        // Forged enchantments — one row per gem with its effect description.
-        // Empty equipment shows the available slot count so the rarity ceiling is visible.
+        // Empty equipment still shows the slot count so the rarity ceiling is visible.
         if (this.targetSlot >= 0 && this.targetSlot <= 4) {
             final int slotCap = Rarity.slotsFor(this.rarity);
             final int filled = (this.enchantments == null) ? 0 : this.enchantments.size();
@@ -379,14 +346,13 @@ public class ItemTooltip {
         }
     }
 
-    /** DPS estimate as {dps, bulletsPerAttack, attacksPerSecond×100}, or null
-     *  when the item isn't a weapon or no viewer stats are set. Mirrors the
-     *  server basic-attack pipeline (ServerGameLogic shoot handler):
-     *    aps     = floor((6.5*(DEX+17.3))/75) × archetype.attackSpeedMul
-     *    perShot = (avgRoll + scalingStatValue) × archetype.damageMul × gem mods
-     *    bullets = projectilesInGroup × (archetype.projectileCount + gemExtraProjectiles)
-     *  Crit is folded in as expected value (chance × double). Scaling-gem stat
-     *  bonuses already live in the computed stats passed in, so only the
+    /** DPS estimate as {dps, bulletsPerAttack, attacksPerSecond*100}, or null when
+     *  the item isn't a weapon or no viewer stats are set. Mirrors the server
+     *  basic-attack pipeline:
+     *    aps     = floor((6.5*(DEX+17.3))/75) * archetype.attackSpeedMul
+     *    perShot = (avgRoll + scalingStatValue) * archetype.damageMul * gem mods
+     *    bullets = projectilesInGroup * (archetype.projectileCount + gemExtraProjectiles)
+     *  Scaling-gem stat bonuses already live in the passed-in stats, so only the
      *  per-shot gems (crit/multishot/crushing) are applied here. */
     private int[] computeDps() {
         if (this.maxDamage <= 0 || this.viewerStats == null || this.targetSlot != 0) return null;
@@ -440,17 +406,15 @@ public class ItemTooltip {
 
         float drawX = this.pos.x;
         float drawY = this.pos.y;
+        if (drawX + tooltipWidth > OpenRealmGame.width - 4) drawX = OpenRealmGame.width - 4 - tooltipWidth;
+        if (drawX < 4) drawX = 4;
+        if (drawY + tooltipHeight > OpenRealmGame.height - 4) drawY = OpenRealmGame.height - 4 - tooltipHeight;
+        if (drawY < 4) drawY = 4;
 
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
         // Border tinted by rarity so the whole tooltip reflects the item's tier.
         final Color border = (this.rarity > 0) ? argbToColor(Rarity.fromOrdinal(this.rarity).color) : BORDER_COLOR;
-        shapes.setColor(border);
-        shapes.rect(drawX - 2, drawY - 2, tooltipWidth + 4, tooltipHeight + 4);
-        shapes.setColor(BG_COLOR);
-        shapes.rect(drawX, drawY, tooltipWidth, tooltipHeight);
-        shapes.end();
-        batch.begin();
+        UiRender.fillRect(batch, shapes, drawX - 2, drawY - 2, tooltipWidth + 4, tooltipHeight + 4, border);
+        UiRender.fillRect(batch, shapes, drawX, drawY, tooltipWidth, tooltipHeight, BG_COLOR);
 
         float textX = drawX + PADDING;
         float textY = drawY + PADDING + LINE_HEIGHT;

@@ -14,18 +14,7 @@ import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.openrealm.net.core.nettypes.SerializableInt;
 
-/**
- * Player movement input packet.
- *
- * Carries a 2D unit-vector (vx, vy) describing the world-space direction the
- * client is asking the player to move. Replaces the previous 4-bit {@code dirFlags}
- * which could only express 8 directions and snapped diagonally — the camera
- * rotation feature needs continuous angles.
- *
- * Convention: (0, 0) = not moving. Otherwise the magnitude SHOULD be 1 (the
- * server scales by per-tick speed). Server tolerates non-unit input by treating
- * it as the requested velocity direction.
- */
+// (vx, vy) is a world-space direction unit-vector; (0, 0) = not moving.
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Slf4j

@@ -57,15 +57,10 @@ public class NetObjectMovement extends SerializableFieldType<NetObjectMovement> 
         } else if (obj instanceof Bullet) {
             this.entityType = EntityType.BULLET.getEntityTypeId();
         }
-        // Quantize positions to 0.5px precision — reduces diff churn for sub-pixel movement
-        // and improves compression ratio. Invisible in a pixel art game.
         this.posX = Math.round(obj.getPos().x * 2f) / 2f;
         this.posY = Math.round(obj.getPos().y * 2f) / 2f;
-
-        this.velX = Math.round(obj.getDx() * 8f) / 8f;  // 0.125px/tick velocity precision
+        this.velX = Math.round(obj.getDx() * 8f) / 8f;
         this.velY = Math.round(obj.getDy() * 8f) / 8f;
-
-        // Pack boolean flags into a single byte
         this.flags = 0;
         if (obj instanceof Entity && ((Entity) obj).isAttacking()) this.flags |= FLAG_ATTACKING;
     }
@@ -85,7 +80,7 @@ public class NetObjectMovement extends SerializableFieldType<NetObjectMovement> 
                 && this.getVelY() == other.getVelY() && this.flags == other.getFlags();
     }
 
-    /** Hand-coded write: 26 bytes (8+1+4+4+4+4+1), bypasses reflection */
+    // Wire: 26 bytes (8+1+4+4+4+4+1).
     @Override
     public int write(NetObjectMovement value, DataOutputStream stream) throws Exception {
         final NetObjectMovement v = (value == null) ? new NetObjectMovement() : value;
@@ -99,7 +94,6 @@ public class NetObjectMovement extends SerializableFieldType<NetObjectMovement> 
         return 26;
     }
 
-    /** Hand-coded read: 26 bytes, bypasses reflection */
     @Override
     public NetObjectMovement read(DataInputStream stream) throws Exception {
         final NetObjectMovement m = new NetObjectMovement();

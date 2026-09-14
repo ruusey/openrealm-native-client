@@ -7,12 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Native-client mirror of the server's WeaponArchetypeModel — drives the
- * client-side shot prediction (PlayState.shoot) so the predicted bullet
- * shape matches the server's authoritative spawn exactly. Loaded from
- * weapon-archetypes.json via GameDataManager and indexed by archetype id.
- */
+// mirror of server WeaponArchetypeModel; drives client shot prediction (must match server spawn)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -38,8 +33,7 @@ public class WeaponArchetypeModel {
     private int projectileCount = 1;
     @Builder.Default
     private float spreadRad = 0.10f;
-    /** Melee archetype: the basic attack is an invisible instant AoE swing at
-     *  the cursor, so the client skips predicted-bullet spawning for it. */
+    // melee basic attack is an instant AoE swing; client skips predicted-bullet spawning
     @Builder.Default
     private boolean melee = false;
 }

@@ -3,16 +3,8 @@ package com.openrealm.game.model;
 import lombok.Data;
 
 /**
- * Web-parity dye registry entry. Mirrors openrealm-data's
- * data/dye-assets.json. Each entry maps a dyeId to a recolor strategy:
- *
- *   "solid"  — flat RGB color applied to every masked pixel,
- *              luminance preserved (renderer.js getDyedRegion).
- *   "sprite" — 8x8 sprite cell composited through the mask
- *              (cosmetic patterned cloths). Optional extra fields:
- *              spriteKey, row, col, spriteSize, spriteHeight.
- *
- * "color" is stored as a 24-bit decimal int matching the JSON.
+ * Dye registry entry. type "solid" = flat RGB (luminance preserved),
+ * "sprite" = sprite cell composited through the mask. color is a 24-bit decimal int.
  */
 @Data
 public class DyeAssetModel {

@@ -64,7 +64,7 @@ public class LootTableModel {
                 final GameItem essence = newStackedDrop(ESSENCE_ITEM_BASE + Math.max(0, Math.min(3, slotId)), rollRange(range));
                 if (essence != null) itemsToDrop.add(essence);
             } else {
-                // Treat any other prefix as a direct itemId reference (existing "item:N" style)
+                // Any other prefix is a direct itemId reference ("item:N").
                 final GameItem item = GameDataManager.GAME_ITEMS.get(this.getLootGroupId(key));
                 if (item != null) itemsToDrop.add(item);
             }
@@ -155,11 +155,4 @@ public class LootTableModel {
         }
         return res;
     }
-
-    // private List<GameItem> getPossibleGameItems() {
-    // return this.drops.keySet().stream().filter(key -> !this.isLootGroup(key))
-    // .map(key -> Integer.parseInt(key.split(":")[1])).map(itemId ->
-    // GameDataManager.GAME_ITEMS.get(itemId))
-    // .collect(Collectors.toList());
-    // }
 }

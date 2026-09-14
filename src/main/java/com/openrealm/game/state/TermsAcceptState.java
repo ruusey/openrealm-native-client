@@ -17,6 +17,7 @@ import com.badlogic.gdx.utils.Align;
 import com.openrealm.account.dto.PlayerAccountDto;
 import com.openrealm.account.service.OpenRealmClientDataService;
 import com.openrealm.game.OpenRealmGame;
+import com.openrealm.game.ui.UiRender;
 import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
@@ -24,22 +25,15 @@ import com.openrealm.util.MouseHandler;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * One-time Terms-of-Use acceptance gate. Inserted between LoginState and
- * CharacterSelectState: on entry it asks the data service whether the account
- * still needs to accept the current Terms version. If not, it transitions
- * straight through to character select; if so, it shows a must-read-and-agree
- * frame (the "I Agree" button unlocks only after the user scrolls the terms to
- * the bottom). Declining logs the user back out to LoginState.
- *
- * All GameStateManager transitions happen on the GL thread (update/input); the
- * network calls run on worker threads that only flip atomics.
+ * One-time Terms-of-Use gate between LoginState and CharacterSelectState. Fails
+ * CLOSED: the player only passes through when the data service confirms the
+ * current Terms version is accepted (or records a fresh acceptance). "I Agree"
+ * unlocks only after scrolling to the bottom; declining returns to LoginState.
+ * Transitions run on the GL thread; network calls flip atomics from workers.
  */
 @Slf4j
 public class TermsAcceptState extends GameState {
 
-    // Font scale for the scrollable body text, relative to the UI font's base
-    // scale (the title/buttons use the base scale; the body is a touch smaller
-    // so more of the terms fit per line).
     private static final float BODY_SCALE = 0.7f;
     private static final float SCROLL_STEP = 56f;
 
@@ -63,31 +57,26 @@ public class TermsAcceptState extends GameState {
     private final transient PlayerAccountDto account;
     private final transient OpenRealmClientDataService svc;
 
-    // null = still checking; TRUE = must accept (show gate); FALSE = already accepted.
+    // null = still checking; TRUE = must accept; FALSE = already accepted.
     private final AtomicReference<Boolean> checkResult = new AtomicReference<>(null);
-    // Fail CLOSED: if the status check errors we block (never pass through) and show
-    // an error with a Back-to-Login button.
+    // Fail CLOSED: a failed status check blocks with a Back-to-Login button.
     private final AtomicBoolean checkFailed = new AtomicBoolean(false);
     private final AtomicBoolean acceptFinished = new AtomicBoolean(false);
-    private volatile boolean acceptOk = false;   // did the accept POST succeed?
-    private String error = null;                 // shown on the gate after a failed accept
-    private boolean shown = false;          // gate visible (checkResult was TRUE)
-    private boolean busy = false;           // an accept POST is in flight
-    private boolean transitioned = false;   // guard so we only hand off once
+    private volatile boolean acceptOk = false;
+    private String error = null;
+    private boolean shown = false;
+    private boolean busy = false;
+    private boolean transitioned = false;
 
-    // Scroll + read-gate state.
     private float scrollOffset = 0f;
     private float maxScroll = 0f;
     private boolean scrolledToBottom = false;
     private boolean prevMouseDown = false;
 
-    // Cached wrapped layout of the body text (computed once at BODY_SCALE).
     private GlyphLayout cachedBody = null;
     private float bodyTextHeight = 0f;
     private float cachedBodyWidth = -1f;
 
-    // Geometry, recomputed each frame from the current window size so render()
-    // and input() always agree on hit-boxes.
     private int cardX, cardY, cardW, cardH;
     private int bodyX, bodyY, bodyW, bodyH;
     private int btnW, btnH, btnY, declineX, agreeX;
@@ -100,9 +89,8 @@ public class TermsAcceptState extends GameState {
             try {
                 this.checkResult.set(this.svc.needsTermsAcceptance());
             } catch (Exception e) {
-                // Fail CLOSED: never let the player in when we can't verify acceptance.
                 log.warn("[TERMS] status check failed, blocking: {}", e.getMessage());
-                this.checkFailed.set(true);
+                this.checkFailed.set(true); // fail closed
             }
         }, "openrealm-terms-check").start();
     }
@@ -114,7 +102,7 @@ public class TermsAcceptState extends GameState {
         this.cardY = (OpenRealmGame.height - this.cardH) / 2;
 
         final int pad = 24;
-        final int btnAreaH = 100;    // reserved at the bottom for hint + buttons
+        final int btnAreaH = 100; // bottom hint + buttons
         this.bodyX = this.cardX + pad;
         this.bodyY = this.cardY + 78;
         this.bodyW = this.cardW - 2 * pad;
@@ -149,7 +137,6 @@ public class TermsAcceptState extends GameState {
     @Override
     public void input(MouseHandler mouse, KeyHandler key) {
         if (this.transitioned) return;
-        // Check failed -> only the "Back to Login" button is interactive.
         if (this.checkFailed.get()) {
             final boolean md = mouse.isPressed(1);
             final boolean jc = md && !this.prevMouseDown;
@@ -166,7 +153,6 @@ public class TermsAcceptState extends GameState {
         }
         this.recomputeLayout();
 
-        // --- scroll (wheel + keyboard) ---
         final float wheel = KeyHandler.consumeScroll();
         if (wheel != 0f) this.scrollOffset += wheel * SCROLL_STEP;
         final float page = this.bodyH - 28;
@@ -176,7 +162,6 @@ public class TermsAcceptState extends GameState {
         if (Gdx.input.isKeyJustPressed(Input.Keys.UP))        this.scrollOffset -= 48f;
         this.scrollOffset = Math.max(0f, Math.min(this.maxScroll, this.scrollOffset));
 
-        // --- buttons ---
         final boolean mouseDown = mouse.isPressed(1);
         final boolean justClicked = mouseDown && !this.prevMouseDown;
         this.prevMouseDown = mouseDown;
@@ -198,20 +183,15 @@ public class TermsAcceptState extends GameState {
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         this.recomputeLayout();
 
-        // Dark backdrop.
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.10f, 0.07f, 0.10f, 1f);
-        shapes.rect(0, 0, OpenRealmGame.width, OpenRealmGame.height);
-        shapes.end();
-        batch.begin();
+        UiRender.fillRect(batch, shapes, 0, 0, OpenRealmGame.width, OpenRealmGame.height,
+                new Color(0.10f, 0.07f, 0.10f, 1f));
 
         if (this.checkFailed.get()) {
             final float mcx = OpenRealmGame.width / 2f;
             font.setColor(0.95f, 0.55f, 0.45f, 1f);
-            this.drawCenteredText(batch, font, "Could not verify Terms of Use.", mcx, OpenRealmGame.height / 2f - 40);
+            UiRender.drawCentered(batch, font, "Could not verify Terms of Use.", mcx, OpenRealmGame.height / 2f - 40);
             font.setColor(0.70f, 0.66f, 0.60f, 1f);
-            this.drawCenteredText(batch, font, "Please return to login and try again.", mcx, OpenRealmGame.height / 2f - 14);
+            UiRender.drawCentered(batch, font, "Please return to login and try again.", mcx, OpenRealmGame.height / 2f - 14);
             font.setColor(Color.WHITE);
             final int bw = 220, bh = 46;
             this.drawButton(batch, shapes, font, (OpenRealmGame.width - bw) / 2,
@@ -220,35 +200,23 @@ public class TermsAcceptState extends GameState {
         }
         if (!this.shown) {
             font.setColor(0.78f, 0.66f, 0.43f, 1f);
-            this.drawCenteredText(batch, font, "Loading...",
+            UiRender.drawCentered(batch, font, "Loading...",
                     OpenRealmGame.width / 2f, OpenRealmGame.height / 2f);
             font.setColor(Color.WHITE);
             return;
         }
 
-        // Card + body panel.
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.16f, 0.13f, 0.16f, 1f);
-        shapes.rect(this.cardX, this.cardY, this.cardW, this.cardH);
-        shapes.setColor(0.12f, 0.09f, 0.13f, 1f);
-        shapes.rect(this.bodyX, this.bodyY, this.bodyW, this.bodyH);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.30f, 0.25f, 0.30f, 1f);
-        shapes.rect(this.cardX, this.cardY, this.cardW, this.cardH);
-        shapes.rect(this.bodyX, this.bodyY, this.bodyW, this.bodyH);
-        shapes.end();
-        batch.begin();
+        UiRender.panel(batch, shapes, this.cardX, this.cardY, this.cardW, this.cardH,
+                new Color(0.16f, 0.13f, 0.16f, 1f), new Color(0.30f, 0.25f, 0.30f, 1f));
+        UiRender.panel(batch, shapes, this.bodyX, this.bodyY, this.bodyW, this.bodyH,
+                new Color(0.12f, 0.09f, 0.13f, 1f), new Color(0.30f, 0.25f, 0.30f, 1f));
 
-        // Title + subtitle (centered).
         final float cx = this.cardX + this.cardW / 2f;
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        this.drawCenteredText(batch, font, "Terms of Use & Privacy Policy", cx, this.cardY + 24);
+        UiRender.drawCentered(batch, font, "Terms of Use & Privacy Policy", cx, this.cardY + 24);
         font.setColor(0.55f, 0.50f, 0.45f, 1f);
-        this.drawCenteredText(batch, font, "Read to the bottom to enable \"I Agree\".", cx, this.cardY + 50);
+        UiRender.drawCentered(batch, font, "Read to the bottom to enable \"I Agree\".", cx, this.cardY + 50);
 
-        // --- scrollable body text (clipped + scrolled) ---
         final int textX = this.bodyX + 14;
         final int textY = this.bodyY + 14;
         final int textW = this.bodyW - 28;
@@ -277,34 +245,26 @@ public class TermsAcceptState extends GameState {
         font.getData().setScale(prevSx, prevSy);
         font.setColor(Color.WHITE);
 
-        // Scroll thumb.
         if (this.maxScroll > 0f) {
             final float trackH = this.bodyH - 8f;
             final float thumbH = Math.max(24f, trackH * (innerH / this.bodyTextHeight));
             final float thumbY = this.bodyY + 4f + (this.scrollOffset / this.maxScroll) * (trackH - thumbH);
-            batch.end();
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0.55f, 0.45f, 0.25f, 0.85f);
-            shapes.rect(this.bodyX + this.bodyW - 6, thumbY, 4, thumbH);
-            shapes.end();
-            batch.begin();
+            UiRender.fillRect(batch, shapes, this.bodyX + this.bodyW - 6, thumbY, 4, thumbH,
+                    new Color(0.55f, 0.45f, 0.25f, 0.85f));
         }
 
-        // "Scroll down" hint until they've read to the end.
         if (!this.scrolledToBottom) {
             font.setColor(0.78f, 0.66f, 0.43f, 1f);
-            this.drawCenteredText(batch, font, "Scroll down to read all terms", cx, this.btnY - 18);
+            UiRender.drawCentered(batch, font, "Scroll down to read all terms", cx, this.btnY - 18);
             font.setColor(Color.WHITE);
         }
 
-        // Accept-failure message (fail-closed: they stay gated until it records).
         if (this.error != null) {
             font.setColor(0.95f, 0.45f, 0.45f, 1f);
-            this.drawCenteredText(batch, font, this.error, cx, this.btnY - 18);
+            UiRender.drawCentered(batch, font, this.error, cx, this.btnY - 18);
             font.setColor(Color.WHITE);
         }
 
-        // Buttons.
         this.drawButton(batch, shapes, font, this.declineX, this.btnY, this.btnW, this.btnH,
                 "Decline & Log Out", false, false);
         this.drawButton(batch, shapes, font, this.agreeX, this.btnY, this.btnW, this.btnH,
@@ -320,9 +280,8 @@ public class TermsAcceptState extends GameState {
                 this.svc.acceptTerms();
                 this.acceptOk = true;
             } catch (Exception e) {
-                // Fail CLOSED: don't enter the game unless the acceptance was recorded.
                 log.warn("[TERMS] accept POST failed, blocking: {}", e.getMessage());
-                this.acceptOk = false;
+                this.acceptOk = false; // fail closed
             } finally {
                 this.acceptFinished.set(true);
             }
@@ -343,32 +302,14 @@ public class TermsAcceptState extends GameState {
         this.gsm.add(GameStateManager.CHARSELECT, new CharacterSelectState(this.gsm, this.account));
     }
 
-    // ---- Rendering helpers (kept identical to LoginState so centering matches) ----
-
-    private void drawCenteredText(SpriteBatch batch, BitmapFont font, String s, float cx, float topY) {
-        final GlyphLayout layout = new GlyphLayout(font, s);
-        font.draw(batch, s, cx - layout.width / 2f, topY);
-    }
-
     private void drawButton(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
                             int x, int y, int w, int h, String label, boolean primary, boolean disabled) {
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        if (disabled) shapes.setColor(0.20f, 0.18f, 0.20f, 1f);
-        else if (primary) shapes.setColor(0.55f, 0.40f, 0.18f, 1f);
-        else shapes.setColor(0.20f, 0.18f, 0.22f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.78f, 0.66f, 0.43f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        batch.begin();
+        Color fill = disabled ? new Color(0.20f, 0.18f, 0.20f, 1f)
+                : primary ? new Color(0.55f, 0.40f, 0.18f, 1f)
+                : new Color(0.20f, 0.18f, 0.22f, 1f);
+        UiRender.panel(batch, shapes, x, y, w, h, fill, new Color(0.78f, 0.66f, 0.43f, 1f));
         font.setColor(disabled ? Color.LIGHT_GRAY : Color.WHITE);
-        final GlyphLayout layout = new GlyphLayout(font, label);
-        final float textX = x + (w - layout.width) / 2f;
-        final float textY = y + (h - layout.height) / 2f;
-        font.draw(batch, label, textX, textY);
+        UiRender.drawCenteredIn(batch, font, label, x, y, w, h);
         font.setColor(Color.WHITE);
     }
 

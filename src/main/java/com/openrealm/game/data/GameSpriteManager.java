@@ -2,6 +2,7 @@ package com.openrealm.game.data;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,10 +35,7 @@ public class GameSpriteManager {
     private static final String LOG_NS = "[CLIENT](sprite-manager)";
 
     private static final String[] SPRITE_NAMES = {
-            // HUD chrome — fetched from /game-data/ui.png and /game-data/buttons.png
-            // which the data service serves out of openrealm-data's classpath:/ui/.
-            // Without these in the cache, GameStateManager's SpriteSheet ctor for
-            // "ui.png" / "buttons.png" hits a null Texture and crashes on startup.
+            // ui.png / buttons.png must be cached or GameStateManager's SpriteSheet ctor NPEs on startup.
             "ui.png", "buttons.png",
             "rotmg-projectiles.png",
             "rotmg-bosses.png", "rotmg-bosses-1.png",
@@ -64,39 +62,27 @@ public class GameSpriteManager {
             "battleOryxObjects8x8.png",
             "openrealm-items.png", "openrealm-classes.png", "openrealm-ability-icons.png" };
 
+    // Bundled under resources/ui/; preferred outright so startup doesn't stall on the data service.
+    private static final Set<String> BUNDLED_HUD_SHEETS = Set.of("ui.png", "buttons.png");
+
+    private static final String[] CLASS_SHEET_NAMES = {
+        "rotmg-classes-0.png", "rotmg-classes-1.png", "rotmg-classes-2.png", "rotmg-classes-3.png"
+    };
+
     public static Map<String, Texture> TEXTURE_CACHE;
     public static Map<Integer, TextureRegion> TILE_SPRITES;
     public static Map<Integer, TextureRegion> ITEM_SPRITES;
     public static Map<Integer, TextureRegion> ABILITY_SPRITES;
-    /** Pre-baked seam-feather TextureRegions, indexed by tileId. Each
-     *  entry is a 4-element array [N, S, W, E] — the neighbor's pixels
-     *  with a linear-alpha gradient applied so when blitted as a seam
-     *  fringe it produces a smooth pixel-perfect blend with zero
-     *  banding. All variants share a single backing Texture (the
-     *  feather atlas), so SpriteBatch can batch every seam draw in
-     *  the per-frame seam pass into a single GL flush. Populated by
-     *  {@link #bakeTileFeathers()} once at boot. */
+    // Pre-baked seam-feather regions per tileId; each is a 4-element [N,S,W,E] array
+    // sharing one backing atlas Texture so every seam draw batches into a single GL flush.
     public static Map<Integer, TextureRegion[]> TILE_FEATHERS;
-    /** Backing Texture for all feather variants. Owned here so we can
-     *  dispose it on app shutdown. Created in bakeTileFeathers. */
     public static Texture TILE_FEATHER_ATLAS;
-    /** Per-tile average opaque color {r,g,b} in 0..255, computed in
-     *  bakeTileFeathers. Feeds {@link #tilesShouldBlend(int,int)} so seams
-     *  between same-material tiles (near-identical color) aren't feathered. */
+    // Per-tile average opaque color {r,g,b} in 0..255; feeds tilesShouldBlend.
     public static Map<Integer, float[]> TILE_COLOR_SIG;
-    /** Memoized pairwise blend decisions keyed by the two tile ids; cleared
-     *  on re-bake and whenever the global threshold changes. */
+    // Keyed by the two tile ids; cleared on re-bake and when the threshold changes.
     private static final Map<Long, Boolean> BLEND_COMPAT_CACHE = new HashMap<>();
-    /** Threshold the cache was last built against; a change invalidates it. */
     private static float lastBlendThreshold = Float.NaN;
-    /** Source Pixmaps held in CPU memory parallel to the GPU textures
-     *  in {@link #TEXTURE_CACHE}. SpriteRecolorCache reads from these
-     *  to do per-pixel dye / enchantment work without having to re-
-     *  fetch the PNG. The class sheets (rotmg-classes-*.png) and item
-     *  sheets are the only ones recolor really needs, but populating
-     *  the whole map is a small RAM cost (~10–20 MB total) for a much
-     *  simpler invariant: any sheet that's in TEXTURE_CACHE is also
-     *  here. */
+    // CPU-side Pixmaps mirroring TEXTURE_CACHE so SpriteRecolorCache can dye without re-fetching the PNG.
     public static Map<String, Pixmap> PIXMAP_CACHE;
 
     public static void loadItemSprites() {
@@ -120,9 +106,7 @@ public class GameSpriteManager {
         }
     }
 
-    /** Bake ability-icon TextureRegions from abilities.json (spriteKey/row/col/
-     *  spriteSize) — same convention as items. Keyed by ability id; rebuilt on
-     *  every sprite reload so a cached region never points at a disposed texture. */
+    // Rebuilt on every sprite reload so a cached region never points at a disposed texture.
     public static void loadAbilitySprites() {
         if (GameSpriteManager.TEXTURE_CACHE == null || GameDataManager.ABILITIES == null) return;
         GameSpriteManager.ABILITY_SPRITES = new HashMap<>();
@@ -144,10 +128,7 @@ public class GameSpriteManager {
         }
     }
 
-    /** Ability-icon region for a single ability, built + cached on demand. Order-
-     *  independent: the HUD calls this at draw time (ability is always loaded by
-     *  then) so it works even if loadAbilitySprites ran before the sheet texture
-     *  or the ability data was ready. Returns null if the sheet isn't loaded. */
+    // Built + cached on demand at draw time; order-independent from loadAbilitySprites.
     public static TextureRegion getAbilityIconRegion(final Ability ability) {
         if (ability == null || ability.getSpriteKey() == null || ability.getSpriteKey().isEmpty()) return null;
         if (GameSpriteManager.TEXTURE_CACHE == null) return null;
@@ -186,21 +167,10 @@ public class GameSpriteManager {
         }
     }
 
-    /**
-     * Pre-bake seam-feather TextureRegions for every base tile, packed into
-     * a single shared atlas Texture so SpriteBatch can batch every per-
-     * frame seam draw into one GL flush. Each tile gets 4 variants (N/S/W/
-     * E); the variant contains the neighbor's pixels for that edge with a
-     * linear alpha gradient applied (opaque at the seam, transparent at
-     * the inner edge). Cost: ~10K pixel ops at boot. Replaces the
-     * runtime multi-stripe blend that produced visible banding and
-     * required 3 draws per seam side.
-     */
+    // Pre-bake seam-feather regions for every base tile into one shared atlas Texture
+    // (4 N/S/W/E variants each) so per-frame seam draws batch into a single GL flush.
     public static void bakeTileFeathers() {
         if (TILE_SPRITES == null || PIXMAP_CACHE == null) return;
-        // Depth = 15% of tile dimension (was 30%, then 20%). Narrower
-        // fringe so standalone single tiles aren't visually swallowed by
-        // the blend on every side.
         final float FEATHER_FRAC = 0.15f;
 
         // Collect tiles that can be baked (have a source pixmap).
@@ -236,11 +206,9 @@ public class GameSpriteManager {
         TILE_FEATHERS = new HashMap<>();
         TILE_COLOR_SIG = new HashMap<>();
         BLEND_COMPAT_CACHE.clear();
-        // Per-tile atlas coords for the 4 variants, kept as raw ints so
-        // we can build TextureRegions AFTER the atlas Texture exists.
-        // TextureRegion.setRegion(int,int,int,int) calls texture.getWidth()
-        // internally — calling it before binding a Texture NPEs.
-        final java.util.Map<Integer, int[][]> regionCoords = new HashMap<>();
+        // Coords kept as raw ints; TextureRegions are built only after the atlas
+        // Texture exists (setRegion calls texture.getWidth() and NPEs before binding).
+        final Map<Integer, int[][]> regionCoords = new HashMap<>();
         int rowY = 0;
         for (Integer tileId : tileIds) {
             final TileModel model = GameDataManager.TILES.get(tileId);
@@ -254,9 +222,8 @@ public class GameSpriteManager {
             final int rowH = Math.max(sh, depthH);
             final int[][] coords = new int[4][4]; // [dir][x, y, w, h]
 
-            // Average opaque color over the whole tile — the seam gate's
-            // signature. Transparent pixels skipped so decorations don't skew
-            // toward black. RGBA8888: R=>>>24, G=>>>16, B=>>>8, A=&0xff.
+            // Average opaque color over the tile (the seam gate signature); skip transparent
+            // pixels so decorations don't skew toward black. RGBA8888: R=>>>24, G=>>>16, B=>>>8, A=&0xff.
             long sr = 0, sg = 0, sb = 0, sn = 0;
             for (int py = 0; py < sh; py++) {
                 for (int px = 0; px < sw; px++) {
@@ -292,12 +259,8 @@ public class GameSpriteManager {
                 final boolean isVert = (dir < 2);
                 for (int y = 0; y < h; y++) {
                     for (int x = 0; x < w; x++) {
-                        // FLIP the sample in the direction perpendicular to
-                        // the seam so the seam-adjacent pixel of the neighbor
-                        // ends up at the visible edge of the fringe. Without
-                        // this, the feather shows the WRONG part of the
-                        // neighbor at the seam (depthH-1 rows away), reading
-                        // as discontinuous / inverted blending.
+                        // Flip perpendicular to the seam so the neighbor's seam-adjacent
+                        // pixel lands at the visible edge of the fringe (else it inverts).
                         final int srcPxX = isVert ? x : (w - 1 - x);
                         final int srcPxY = isVert ? (h - 1 - y) : y;
                         final int rgba = srcPm.getPixel(srcX + sxOff + srcPxX, srcY + syOff + srcPxY);
@@ -310,14 +273,8 @@ public class GameSpriteManager {
                             case 2: t = (float) x / (float) w; break;            // W: left opaque -> right transparent
                             default: t = (float) (w - 1 - x) / (float) w; break; // E: right opaque -> left transparent
                         }
-                        // Peak alpha = 0.5 at the seam (not 1.0). With 1.0
-                        // the neighbor's color FULLY replaced the base tile
-                        // at the seam pixel — looked inverted because the
-                        // grey tile showed blue at its right edge and the
-                        // water tile showed grey at its left edge. Capping
-                        // at 0.5 lets the base color always dominate; both
-                        // sides at the seam show a 50/50 mix instead of a
-                        // hard color override.
+                        // Peak alpha caps at 0.5 so the base color dominates; 1.0 fully
+                        // replaced the base at the seam and read as inverted blending.
                         final float PEAK_ALPHA = 0.5f;
                         final int origA = rgba & 0xff;
                         final int newA = Math.round(origA * PEAK_ALPHA * (1f - t));
@@ -325,8 +282,6 @@ public class GameSpriteManager {
                         atlas.drawPixel(outX + x, outY + y, outRgba);
                     }
                 }
-                // Stash coords; TextureRegions get constructed after the
-                // atlas Texture exists (next loop below).
                 coords[dir][0] = outX;
                 coords[dir][1] = outY;
                 coords[dir][2] = w;
@@ -343,10 +298,8 @@ public class GameSpriteManager {
         TILE_FEATHER_ATLAS.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
         atlas.dispose();
 
-        // Now that the atlas Texture exists, construct TextureRegions
-        // bound to it. Y-flip to match TILE_SPRITES orientation so seam
-        // fringes render the right way up under the Y-down world camera.
-        for (java.util.Map.Entry<Integer, int[][]> e : regionCoords.entrySet()) {
+        // Y-flip to match TILE_SPRITES orientation under the Y-down world camera.
+        for (Map.Entry<Integer, int[][]> e : regionCoords.entrySet()) {
             final int[][] coords = e.getValue();
             final TextureRegion[] variants = new TextureRegion[4];
             for (int dir = 0; dir < 4; dir++) {
@@ -363,11 +316,8 @@ public class GameSpriteManager {
                 LOG_NS, tileIds.size(), tileIds.size() * 4, atlasW, atlasH);
     }
 
-    /** True if a seam between two base tile types should be feathered. Tiles
-     *  whose average colors are within TILE_BLEND_MIN_COLOR_DIST read as the
-     *  same material and are left un-blended so irregular same-material
-     *  patterns (e.g. mixed wood planks) survive. Missing signature -> blend.
-     *  Memoized per unordered pair. */
+    // Tiles whose average colors are within TILE_BLEND_MIN_COLOR_DIST read as the same
+    // material and are left un-blended; missing signature -> blend. Memoized per unordered pair.
     public static boolean tilesShouldBlend(int a, int b) {
         if (a == b) return false;
         final float thresh = GlobalConstants.TILE_BLEND_MIN_COLOR_DIST;
@@ -447,27 +397,9 @@ public class GameSpriteManager {
         return new Sprite(subRegion);
     }
 
-    /**
-     * HUD chrome that the GameStateManager constructs unconditionally on
-     * startup. These are guaranteed to be available because the native client
-     * bundles them under {@code resources/ui/} — we don't want a missing
-     * remote path or a stale data service to crash the launcher.
-     */
-    private static final Set<String> BUNDLED_HUD_SHEETS =
-            Set.of("ui.png", "buttons.png");
-
-    /**
-     * Build the union of (a) the hardcoded {@link #SPRITE_NAMES} baseline
-     * (HUD chrome + sheets we always want to preload) and (b) every
-     * spriteKey referenced by data loaded into GameDataManager — items,
-     * tiles, enemies, portals, animations, character classes, set pieces.
-     * Without this, a newly-added item/tile that points at a brand-new
-     * sprite sheet (e.g. item 837 with a new sheet) silently fails to
-     * render: the sheet isn't in SPRITE_NAMES -> Texture never cached ->
-     * loadItemSprites' TEXTURE_CACHE.get(spriteKey) returns null -> the
-     * item gets no entry in ITEM_SPRITES -> blank quad in inventory and
-     * on the ground.
-     */
+    // Union of the hardcoded SPRITE_NAMES baseline and every spriteKey referenced by
+    // loaded data, so a new sheet referenced only by data still gets cached (else the
+    // item/tile renders as a blank quad).
     private static LinkedHashSet<String> collectAllSpriteKeys() {
         final LinkedHashSet<String> keys = new LinkedHashSet<>();
         for (String s : SPRITE_NAMES) keys.add(s);
@@ -510,10 +442,6 @@ public class GameSpriteManager {
             if (GameDataManager.ANIMATIONS != null) {
                 for (AnimationModel anim : GameDataManager.ANIMATIONS.values()) {
                     if (anim == null) continue;
-                    // Top-level spriteKey carries the sheet for the whole
-                    // animation set when the inner SpriteModel doesn't own
-                    // its own. This is the most common pattern in
-                    // animations.json — one sheet per object.
                     if (anim.getSpriteKey() != null && !anim.getSpriteKey().isEmpty()) {
                         keys.add(anim.getSpriteKey());
                     }
@@ -530,14 +458,11 @@ public class GameSpriteManager {
         return keys;
     }
 
-    /** Reflectively pulls a String spriteKey off any object that has a
-     *  no-arg getSpriteKey() method; silently no-ops otherwise. Lets the
-     *  discovery walk handle EnemyModel / PortalModel / etc. without
-     *  requiring direct compile-time imports. */
+    // Reflectively pulls a String spriteKey off any object with a no-arg getSpriteKey().
     private static void addSpriteKeyReflective(Object obj, LinkedHashSet<String> out) {
         if (obj == null) return;
         try {
-            java.lang.reflect.Method m = obj.getClass().getMethod("getSpriteKey");
+            Method m = obj.getClass().getMethod("getSpriteKey");
             Object v = m.invoke(obj);
             if (v instanceof String && !((String) v).isEmpty()) {
                 out.add((String) v);
@@ -554,10 +479,6 @@ public class GameSpriteManager {
                     LOG_NS, allKeys.size(), SPRITE_NAMES.length, allKeys.size() - SPRITE_NAMES.length);
             for (final String spriteKey : allKeys) {
                 Texture texture = null;
-                // For HUD chrome, prefer the bundled copy outright. It's tiny,
-                // we always have it, and skipping the network avoids both a
-                // spurious miss-log and a startup-time stall when the data
-                // service is slow/unreachable.
                 if (BUNDLED_HUD_SHEETS.contains(spriteKey)) {
                     texture = GameSpriteManager.loadTextureQuiet("ui/" + spriteKey);
                 } else if (loadRemote) {
@@ -574,10 +495,7 @@ public class GameSpriteManager {
         }
     }
 
-    /**
-     * Like {@link #loadTexture(String)} but returns null silently on a miss,
-     * for paths we expect to fail sometimes (the bundled-fallback case).
-     */
+    // Like loadTexture but returns null silently on a miss (bundled-fallback case).
     private static Texture loadTextureQuiet(String file) {
         try {
             InputStream is = GameSpriteManager.class.getClassLoader().getResourceAsStream(file);
@@ -630,13 +548,8 @@ public class GameSpriteManager {
         return texture;
     }
 
-    /** Stash the CPU-side Pixmap behind whatever sprite-key the GPU
-     *  texture is registered under. The path argument arrives as either
-     *  a bare key ("rotmg-classes-0.png") or with a folder prefix
-     *  ("entity/rotmg-classes-0.png" / "ui/buttons.png"); we strip the
-     *  prefix so SpriteRecolorCache can look it up by the same key
-     *  TEXTURE_CACHE uses. The Pixmap is intentionally NOT disposed
-     *  here — recolor work needs to read its pixels later. */
+    // Strip any folder prefix so the Pixmap is keyed the same as TEXTURE_CACHE.
+    // NOT disposed here — recolor work reads its pixels later.
     private static void cachePixmap(String path, Pixmap pixmap) {
         if (PIXMAP_CACHE == null) PIXMAP_CACHE = new HashMap<>();
         String key = path;
@@ -656,10 +569,6 @@ public class GameSpriteManager {
         return baos.toByteArray();
     }
 
-    private static final String[] CLASS_SHEET_NAMES = {
-        "rotmg-classes-0.png", "rotmg-classes-1.png", "rotmg-classes-2.png", "rotmg-classes-3.png"
-    };
-
     private static String getClassSheetName(int classId) {
         int sheetIndex = classId / 3;
         if (sheetIndex >= 0 && sheetIndex < CLASS_SHEET_NAMES.length) {
@@ -668,22 +577,15 @@ public class GameSpriteManager {
         return CLASS_SHEET_NAMES[0];
     }
 
-    /**
-     * Load class sprites from animations.json data. Animation frame coordinates
-     * (row/col) come from the JSON; durations are stored as defaults but for
-     * player entities they will be overridden at runtime based on speed/dexterity stats.
-     */
     public static SpriteSheet loadClassSprites(CharacterClass cls) {
         if (GameSpriteManager.TEXTURE_CACHE == null) return null;
 
-        // Try data-driven path first (animations.json loaded)
         AnimationModel animModel = GameDataManager.getAnimation("player", cls.classId);
 
         if (animModel != null) {
             return loadClassSpritesFromData(cls, animModel);
         }
 
-        // Fallback: should not happen once animations.json is always present
         log.warn("{} No animation data for classId={}, cannot load sprites", LOG_NS, cls.classId);
         return null;
     }
@@ -696,28 +598,15 @@ public class GameSpriteManager {
         return sheet;
     }
 
-    /**
-     * Animated enemy sprites from the enemy's AnimationModel (objectType
-     * "enemy", keyed by enemyId). Returns null when the enemy has no animation
-     * entry, signalling the caller to fall back to a static single-frame sheet.
-     */
+    // Returns null when the enemy has no animation entry, so the caller falls back to a static sheet.
     public static SpriteSheet loadEnemySprites(int enemyId) {
         final AnimationModel animModel = GameDataManager.getAnimation("enemy", enemyId);
         if (animModel == null) return null;
         return buildAnimatedSpriteSheet(animModel);
     }
 
-    /**
-     * Build a SpriteSheet with named animation sets (idle/walk/attack...) from
-     * an AnimationModel. Shared by player classes and animated enemies. Each
-     * frame's effective (width, height) follows a fallback chain:
-     *   frame.spriteWidth  -> set.spriteWidth  -> anim.spriteSize
-     *   frame.spriteHeight -> set.spriteHeight -> anim.spriteHeight (or spriteSize)
-     * When the resolved size matches the sheet's default cell we use the
-     * precomputed grid region; otherwise we slice on-the-fly with
-     * getSubSpritePx so a wider/taller attack frame can overhang the grid
-     * without the sheet needing a uniform cell size.
-     */
+    // Frame size falls back frame -> set -> anim; a size mismatch with the sheet cell
+    // is sliced on-the-fly (getSubSpritePx) so an overhanging attack frame still works.
     public static SpriteSheet buildAnimatedSpriteSheet(AnimationModel animModel) {
         if (GameSpriteManager.TEXTURE_CACHE == null || animModel == null
                 || animModel.getAnimations() == null) return null;

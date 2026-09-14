@@ -19,7 +19,6 @@ public class Stats {
     private short vit;
     private short wis;
 
-    // Stat calculation chaining
     public Stats concat(Stats other) {
         if (other == null)
             return this;

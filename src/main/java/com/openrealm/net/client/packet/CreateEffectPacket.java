@@ -16,15 +16,6 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * Server-to-client packet instructing the client to render a visual particle effect.
- * Effect types:
- *   0 = HEAL_RADIUS (shimmering green particles, expanding ring)
- *   1 = VAMPIRISM (inward-sucking purple/red particles)
- *   2 = STASIS_FIELD (frozen blue/white ring with crystalline particles)
- *   3 = CHAIN_LIGHTNING (electric arc from posX,posY to targetPosX,targetPosY)
- *   4 = CURSE_RADIUS (dark swirling particles)
- */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Slf4j
@@ -48,17 +39,13 @@ public class CreateEffectPacket extends Packet {
 	private float targetPosX;
 	@SerializableField(order = 6, type = SerializableFloat.class)
 	private float targetPosY;
-	// Item tier (0–6 for tiered loot, 0 for non-tiered visuals). Client uses
-	// this to recolor the effect — higher tiers get hotter / rarer hues so
-	// players can read the power level of a teammate's ability at a glance.
+	// Item tier 0-6 (0 = non-tiered); client recolors the effect by tier.
 	@SerializableField(order = 7, type = SerializableByte.class)
 	private byte tier;
-	// Caster entity id: the player's id for player-cast effects, 0 for
-	// enemy/environmental. Drives the "hide ally effects" option.
+	// Caster entity id (0 = enemy/environmental); drives the hide-ally-effects option.
 	@SerializableField(order = 8, type = SerializableLong.class)
 	private long ownerId;
 
-	// Visual effect type constants
 	public static final short EFFECT_HEAL_RADIUS = 0;
 	public static final short EFFECT_VAMPIRISM = 1;
 	public static final short EFFECT_STASIS_FIELD = 2;
@@ -68,29 +55,19 @@ public class CreateEffectPacket extends Packet {
 	public static final short EFFECT_TRAP_THROW = 6;
 	public static final short EFFECT_TRAP_PLACED = 7;
 	public static final short EFFECT_TRAP_TRIGGER = 8;
-	// Class-ability cast visuals (played at the caster's position on use).
-	public static final short EFFECT_SMOKE_POOF = 9;       // Rogue cloak
-	public static final short EFFECT_WIZARD_BURST = 10;    // Wizard spell
-	public static final short EFFECT_KNIGHT_SHOCKWAVE = 11;// Knight shield
-	public static final short EFFECT_WARRIOR_BUFF = 12;    // Warrior helm
-	public static final short EFFECT_NINJA_DASH = 13;      // Ninja dash trail
-	public static final short EFFECT_PALADIN_SEAL = 14;    // Paladin holy cross
-	// Vault Healer (Enemy 67) ambient fountain. Procedural parabolic-arc
-	// droplets continuously launched outward from the center, falling and
-	// splashing inside `radius`. Same lob math as the assassin's poison
-	// throw — just looped over the duration so it reads as a fountain.
+	public static final short EFFECT_SMOKE_POOF = 9;
+	public static final short EFFECT_WIZARD_BURST = 10;
+	public static final short EFFECT_KNIGHT_SHOCKWAVE = 11;
+	public static final short EFFECT_WARRIOR_BUFF = 12;
+	public static final short EFFECT_NINJA_DASH = 13;
+	public static final short EFFECT_PALADIN_SEAL = 14;
 	public static final short EFFECT_WATER_FOUNTAIN = 15;
-	/** Knight Phalanx — translucent shield dome with thick ring boundary. */
 	public static final short EFFECT_SHIELD_DOME = 16;
-	/** Knight Taunt — concentric red rings + exclamation mark. */
 	public static final short EFFECT_TAUNT_ROAR  = 17;
-	/** Knight Brace — translucent shield-arc in front of caster + ground tick marks. */
 	public static final short EFFECT_BRACE_STANCE = 18;
-	/** Wizard Frost Nova — crystalline ice spikes radiating outward. */
 	public static final short EFFECT_FROST_NOVA   = 19;
-	/** Wizard Blink — violet runic glyph at origin + destination. */
 	public static final short EFFECT_BLINK_GLYPH  = 20;
-	// effect id 21 retired (was EFFECT_HUNTERS_RETICLE — Archer Hunter's Mark)
+	// id 21 retired (was EFFECT_HUNTERS_RETICLE)
 	public static final short EFFECT_POISON_CLOUD    = 22;
 	public static final short EFFECT_LIFE_DRAIN      = 23;
 	public static final short EFFECT_BONE_SPIKES     = 24;
@@ -114,53 +91,23 @@ public class CreateEffectPacket extends Packet {
 	public static final short EFFECT_STORM_AURA      = 42;
 	public static final short EFFECT_DEATH_PACT_AURA = 43;
 	public static final short EFFECT_BLADE_STORM     = 44;
-	/** Necromancer Soul Harvest — persistent crimson/violet vortex that drains
-	 *  HP from enemies inside and heals allies near the cast point. */
 	public static final short EFFECT_SOUL_VORTEX     = 45;
-	/** Ninja Blade Storm — three shurikens orbiting the player. The tier byte
-	 *  selects which shuriken sprite (0..5 -> item 298..303). posX/posY is
-	 *  the player's center; radius is the orbit distance. */
+	// BLADE_ORBIT/BLADE_BLENDER: tier byte selects shuriken sprite (0..5 -> item 298..303).
 	public static final short EFFECT_BLADE_ORBIT     = 46;
-	/** Ninja Death Blossom — persistent spiraling blade-blender at a fixed
-	 *  cursor point. Tier byte selects shuriken sprite. radius is the
-	 *  spiral's outer edge. */
 	public static final short EFFECT_BLADE_BLENDER   = 47;
-	// effect ids 48-50 retired (were EFFECT_REALITY_TEAR / EFFECT_PHANTOM_STRIKE /
-	// EFFECT_STASIS_LOCK — tied to the old Sorcerer/Rogue/Mystic classes).
-	/** Priest / Paladin Sanctuary — golden dome with light pillars + holy cross. */
+	// ids 48-50 retired (were REALITY_TEAR / PHANTOM_STRIKE / STASIS_LOCK)
 	public static final short EFFECT_SANCTUARY_DOME  = 51;
-	/** Necromancer Vampirism — red life-drain tendrils to each enemy in range. */
 	public static final short EFFECT_VAMPIRIC_LATCH  = 52;
-	/** Heavy Debuffer Sidearm — quick silver rapier stab. Bright point that
-	 *  flashes outward in 4 cardinal directions with sparkle trail. */
 	public static final short EFFECT_RAPIER_STAB     = 53;
-	/** Heavy Debuffer Ankle Strike — low horizontal arc sweeping across the
-	 *  bottom half of the ring. Steel/red palette. */
 	public static final short EFFECT_LOW_SWING       = 54;
-	/** Heavy Debuffer Disarm — ultimate rapier flourish. Triple-ring expanding
-	 *  outward, sparkle stars at 8 cardinal/diagonal points, central impact
-	 *  burst. Gold + white. */
 	public static final short EFFECT_DISARM_FLOURISH = 55;
-	/** Heavy Buffer Divine Beam — vertical column of golden light + ground
-	 *  halo + rising heal sparkles. */
 	public static final short EFFECT_DIVINE_BEAM     = 56;
-	/** Heavy Buffer Fortify — ground sigil (hexagram) with rising green+blue
-	 *  sparkles. Pulsing regen aura. Longer duration to match the buff. */
 	public static final short EFFECT_FORTIFY_AURA    = 57;
-	/** Heavy DPS Ground Pound — expanding dust ring + radial ground-crack
-	 *  lines + lingering dust cloud. Brown/tan palette. */
 	public static final short EFFECT_GROUND_POUND    = 58;
-	/** Druid Root Growth — writhing roots/vines erupt outward, green ensnaring pulse. */
 	public static final short EFFECT_DRUID_ROOTS     = 59;
-	/** Druid Moonlight — night-blue aura, silver crescent moon, healing motes. */
 	public static final short EFFECT_DRUID_MOONLIGHT = 60;
-	/** Druid Wild Surge (ultimate) — spiraling vine arms, bursting leaves, verdant core. */
 	public static final short EFFECT_DRUID_WILD_SURGE = 61;
-	/** Melee basic-attack swing — small ring at the swing point (renders via the
-	 *  generic AoE-ring fallback in renderAoeEffect). */
 	public static final short EFFECT_MELEE_SWING = 62;
-	/** Spawn protection — white/gold purifying circle played when a player first
-	 *  enters an overworld realm, marking the viewport whose enemies were cleared. */
 	public static final short EFFECT_PURIFY_CIRCLE = 63;
 	public static final short EFFECT_BEAM_WARNING = 64;
 

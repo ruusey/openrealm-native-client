@@ -15,27 +15,21 @@ import com.openrealm.net.client.SocketClient;
 
 public class GameStateManager {
 
-    private GameState states[];
-
-    public static Vector2f map;
-
     public static final int MENU = 0;
     public static final int PLAY = 1;
     public static final int PAUSE = 2;
     public static final int GAMEOVER = 3;
-    // Pre-game flow added when porting the web client's account UI to LibGDX.
-    // LOGIN sits in slot 4 and CHARSELECT sits in slot 5; PLAY is no longer
-    // auto-instantiated, so the launcher boots into LOGIN and only constructs
-    // a PlayState once the user actually clicks "Play".
     public static final int LOGIN = 4;
     public static final int CHARSELECT = 5;
     // One-time Terms-of-Use acceptance gate; sits between LOGIN and CHARSELECT.
     public static final int TERMS = 6;
 
+    public static Vector2f map;
     public static SpriteSheet ui;
     public static SpriteSheet button;
     public static Camera cam;
 
+    private GameState states[];
     private SpriteBatch batch;
     private ShapeRenderer shapes;
     private BitmapFont defaultFont;
@@ -58,10 +52,7 @@ public class GameStateManager {
         GameStateManager.cam = new Camera(
                 new Rectangle(new Vector2f(0, 0), OpenRealmGame.width + 64, OpenRealmGame.height + 64));
 
-        // Boot path:
-        //   - If GameLauncher's CLI form supplied creds + characterUuid, jump
-        //     straight into PlayState (used by automation).
-        //   - Otherwise show the login screen and let the user pick a flow.
+        // CLI creds (automation) jump straight into PlayState; otherwise LOGIN.
         boolean cliCreds = SocketClient.PLAYER_EMAIL != null
                 && SocketClient.PLAYER_PASSWORD != null
                 && SocketClient.CHARACTER_UUID != null;
@@ -112,9 +103,6 @@ public class GameStateManager {
     public void add(int state, GameState gameState) {
         if (this.states[state] != null)
             return;
-        // Generic slot assignment so we don't have to grow the switch every
-        // time a new state is introduced. Bounds-check is implicit because
-        // the array length is fixed at construction.
         this.states[state] = gameState;
     }
 

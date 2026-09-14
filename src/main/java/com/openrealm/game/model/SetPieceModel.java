@@ -9,13 +9,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Reusable setpiece template loaded from setpieces.json.
- *
- * Mirrors the {@link MapModel} layer structure: layers live under
- * {@code data} keyed by string indices ("0" = base, "1" = collision/decoration).
- * Tile ID 0 means "don't overwrite the underlying terrain".
- */
+// data layers keyed "0"=base, "1"=collision/decoration; tile id 0 = don't overwrite terrain
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -24,7 +18,6 @@ public class SetPieceModel {
     private String name;
     private int width;
     private int height;
-    /** Named tile layers: "0" = base, "1" = collision/decoration. */
     private Map<String, int[][]> data = new LinkedHashMap<>();
 
     @JsonIgnore

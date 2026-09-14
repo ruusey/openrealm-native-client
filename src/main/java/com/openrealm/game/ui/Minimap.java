@@ -31,29 +31,14 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Square minimap that mirrors the PixiJS webclient: renders the WHOLE realm
- * (downsampled into a cached Pixmap/Texture once per map load), supports
- * mouse-wheel zoom, and click-to-teleport via the existing /tp server command.
- *
- * Coordinate model matches the webclient's minimap.js: pixel-per-tile scaling
- * with a square src-rect that pans to keep the local player centered when
- * zoomed in.
+ * Square minimap mirroring the webclient: renders the whole realm (cached
+ * Pixmap/Texture per map load), mouse-wheel zoom, click-to-teleport via /tp.
  */
 @Data
 @Slf4j
 public class Minimap {
     private static final int DEFAULT_SIZE_PX = 200;
     private static final int DEFAULT_MARGIN = 10;
-
-    private int drawX = DEFAULT_MARGIN;
-    private int drawY = DEFAULT_MARGIN;
-    private int sizePx = DEFAULT_SIZE_PX;
-
-    public void setLayout(int x, int y, int size) {
-        this.drawX = x;
-        this.drawY = y;
-        this.sizePx = Math.max(32, size);
-    }
 
     private static final Color BG_COLOR     = new Color(0.04f, 0.03f, 0.05f, 0.95f);
     private static final Color BORDER_COLOR = new Color(0.23f, 0.16f, 0.22f, 1f);
@@ -71,42 +56,51 @@ public class Minimap {
     private static final int COL_DARK  = 0x2a2030ff;
     private static final int COL_DEFAULT = 0x3a3a38ff;
 
+    private static final float MIN_ZOOM = 0.10f;
+    private static final float MAX_ZOOM = 1.00f;
+
     private final PlayState playState;
+
+    private int drawX = DEFAULT_MARGIN;
+    private int drawY = DEFAULT_MARGIN;
+    private int sizePx = DEFAULT_SIZE_PX;
+
     private int mapWidth;
     private int mapHeight;
     private Integer cachedMapId = null;
 
     private Pixmap mapPixmap;
     private Texture mapTexture;
-    /** When true, rebuild the cached pixmap on next render. Set on map load
-     *  (tile data may not be present yet at initializeMap time) and on
-     *  periodic refresh so streamed chunks become visible. */
+    /** Rebuild the cached pixmap on next render (tile data may lag map load; also periodic). */
     private boolean dirty = true;
     private long lastRebuildMs = 0L;
 
     /** zoom = visible fraction of the map. 1.0 = whole map; lower = zoomed in. */
     private float zoom = 1.0f;
-    private static final float MIN_ZOOM = 0.10f;
-    private static final float MAX_ZOOM = 1.00f;
 
     private boolean visible = true;
 
-    /** Admin /hop: while on, a minimap click teleports to those world coords.
-     *  Driven by the server's "Hop mode: ON/OFF" message. */
+    /** Admin /hop: while on, a minimap click teleports to those world coords. */
     private boolean hopMode = false;
-    public void setHopMode(final boolean on) { this.hopMode = on; }
-    public boolean isHopMode() { return this.hopMode; }
 
-    // Hover state: index of the nearby player under the cursor (or -1).
     private int hoveredOtherIdx = -1;
     private String hoveredOtherName = null;
-    private float[] cursorOnMapTile = new float[2]; // tile-coords under cursor
+    private float[] cursorOnMapTile = new float[2];
     private boolean cursorInside = false;
     private boolean prevMouseDown = false;
 
     public Minimap(final PlayState playState) {
         this.playState = playState;
     }
+
+    public void setLayout(int x, int y, int size) {
+        this.drawX = x;
+        this.drawY = y;
+        this.sizePx = Math.max(32, size);
+    }
+
+    public void setHopMode(final boolean on) { this.hopMode = on; }
+    public boolean isHopMode() { return this.hopMode; }
 
     public boolean isInitialized() {
         return this.mapWidth > 0 && this.mapHeight > 0;
@@ -115,14 +109,11 @@ public class Minimap {
     public void initializeMap(final int mapId, final int dungeonId) {
         final Integer key = mapId;
         if (this.cachedMapId != null && this.cachedMapId.equals(key)) {
-            // Same map; just request a refresh so streamed chunks redraw.
             this.dirty = true;
             return;
         }
-        // Assembled dungeons carry mapId -1 (no MapModel); their dimensions live
-        // in DUNGEONS. Never dereference a null MapModel here — doing so aborted
-        // the whole LoadMap handler on dungeon entry, leaving the realm id stale
-        // and the terrain unmerged.
+        // Assembled dungeons carry mapId -1 (no MapModel); dimensions live in DUNGEONS.
+        // Dereferencing a null MapModel here aborts the whole LoadMap handler.
         final MapModel mapModel = GameDataManager.MAPS.get(mapId);
         if (mapModel != null) {
             this.mapWidth = mapModel.getWidth();
@@ -138,38 +129,18 @@ public class Minimap {
             this.mapHeight = 0;
         }
         this.cachedMapId = key;
-        // Default zoom: target ~64 tiles visible at any map size. For
-        // small maps (nexus, vault, dungeons) that's the whole map at
-        // zoom=1.0. For the 640x640 overworld it's zoom~0.1 — only the
-        // streaming-loaded region around the player shows, instead of
-        // a mostly-black 640-tile map at zoom=1.0 where the loaded
-        // chunk renders as a few pixels of color in the corner. Player
-        // can mouse-wheel zoom in/out from this baseline.
+        // Default zoom targets ~64 visible tiles: whole map for small realms,
+        // ~0.1 for the 640-tile overworld so the loaded region isn't a dot.
         final float visibleTilesTarget = 64f;
         final float maxDim = Math.max(this.mapWidth, this.mapHeight);
         this.zoom = Math.min(1.0f, Math.max(0.1f, visibleTilesTarget / maxDim));
-        // CRITICAL: this method runs on the network packet thread
-        // (RealmManagerClient.processClientPackets) — NOT the LWJGL GL
-        // thread. Calling dispose() on the Texture here issues
-        // glDeleteTextures with no current GL context, which the LWJGL
-        // native layer responds to with abort() at the C level — JVM
-        // crashes uncatchably ("FATAL ERROR ... No context is current").
-        // That was the vault-portal crash for the past several builds.
-        //
-        // Just flag the rebuild and clear the reference. The OLD Texture
-        // becomes the GPU's problem briefly (still bound until the GC
-        // releases the JVM-side wrapper), but the next render() call —
-        // which IS on the GL thread — will see dirty=true and run
-        // rebuildMapTexture, which disposes the old field's value
-        // safely on the GL thread before allocating the new one.
+        // Runs on the network thread, NOT the GL thread: disposing the Texture
+        // here (no current GL context) aborts the JVM at the C level. Only flag
+        // the rebuild; render() disposes safely on the GL thread.
         this.dirty = true;
     }
 
-    /**
-     * Build a 1px-per-tile snapshot of the entire realm map. Cached as a
-     * Texture so per-frame render is a single textured quad — matches the
-     * webclient's offscreen-canvas tile cache.
-     */
+    /** Build a 1px-per-tile snapshot of the realm, cached as a Texture. */
     private void rebuildMapTexture() {
         if (this.mapTexture != null) {
             this.mapTexture.dispose();
@@ -197,12 +168,7 @@ public class Minimap {
 
         final int w = this.mapWidth;
         final int h = this.mapHeight;
-        // mapWidth / mapHeight are 0 between the moment Realm.loadMap()
-        // wipes tile state and the moment initializeMap() finishes for the
-        // new map. The Pixmap ctor blows up on a 0-dim allocation, so the
-        // first render frame after a portal enter would crash with no
-        // visible recovery path. Bail out cleanly and let the next render
-        // tick try again once the realm has filled in.
+        // Dimensions are 0 briefly during map swap; Pixmap ctor throws on 0-dim.
         if (w <= 0 || h <= 0) return;
         this.mapPixmap = new Pixmap(w, h, Pixmap.Format.RGBA8888);
         this.mapPixmap.setColor(0, 0, 0, 1);
@@ -235,10 +201,7 @@ public class Minimap {
         }
         final int id = t.getTileId();
         if (id <= 0) return COL_VOID;
-        // Semantic color from the tile NAME — mirrors webclient
-        // minimap.js _getTileColor. Was previously hashing by `id % 4`
-        // which painted unrelated tiles in the same color and gave the
-        // overall map a random / uncoordinated look.
+        // Color keyed off the tile NAME (mirrors webclient minimap.js _getTileColor).
         final TileModel def =
                 (GameDataManager.TILES != null)
                         ? GameDataManager.TILES.get(id) : null;
@@ -257,15 +220,11 @@ public class Minimap {
     public void toggle() { this.visible = !this.visible; }
 
     public void update() {
-        // No discovery-mask update needed — the cached texture already holds
-        // the whole map, matching the webclient's "show entire realm" rule.
     }
 
     /**
-     * Process mouse-wheel zoom + click-to-teleport. Should be called once per
-     * frame from PlayerUI.input(), AFTER tab/drag handling so the minimap
-     * doesn't steal scroll from a list element overlapping it (in practice
-     * nothing else uses scroll on the right HUD column).
+     * Mouse-wheel zoom + click-to-teleport. Call once per frame from
+     * PlayerUI.input() AFTER tab/drag handling so it doesn't steal scroll.
      */
     public void input(MouseHandler mouse) {
         if (!this.isInitialized() || !this.visible) return;
@@ -275,7 +234,6 @@ public class Minimap {
                 && my >= this.drawY && my <= this.drawY + this.sizePx;
         this.cursorInside = inside;
 
-        // Mouse-wheel zoom, mirroring webclient (deltaY > 0 = zoom out).
         if (inside) {
             float wheel = KeyHandler.consumeScroll();
             if (wheel != 0f) {
@@ -283,7 +241,6 @@ public class Minimap {
             }
         }
 
-        // Hover detection: compute current src rect, find closest other player.
         this.hoveredOtherIdx = -1;
         this.hoveredOtherName = null;
         if (inside) {
@@ -329,13 +286,11 @@ public class Minimap {
             } catch (Exception ignored) { /* realm may not be ready yet */ }
         }
 
-        // Click-to-teleport: edge-triggered on left-mouse press inside the map.
         final boolean down = mouse.isPressed(1);
         final boolean justClicked = down && !this.prevMouseDown;
         this.prevMouseDown = down;
         if (justClicked && inside) {
             if (this.hopMode) {
-                // Admin hop mode: click anywhere teleports to those world coords.
                 final int worldX = (int) (this.cursorOnMapTile[0] * GlobalConstants.BASE_TILE_SIZE);
                 final int worldY = (int) (this.cursorOnMapTile[1] * GlobalConstants.BASE_TILE_SIZE);
                 if (worldX > 0 && worldY > 0) {
@@ -358,14 +313,7 @@ public class Minimap {
         }
     }
 
-    /** Tile-space position of the LOCAL player, computed from the same
-     *  lerped render coords the world uses. The previous code read
-     *  raw {@code pos.x} which advances in 1/64-second tick steps, so
-     *  the dot lagged the visible sprite by up to a tick. With the
-     *  minimap heavily zoomed out, scaleX shrinks the visible offset
-     *  to a pixel or two — but combined with the texture-bounds bug
-     *  below it added up to a clearly off-by-character-width dot.
-     *  Centered on the player sprite (pos + size/2). */
+    /** Local player center in tile space, from lerped render coords (not raw pos). */
     private float[] localPlayerTile() {
         final Player player = this.playState.getPlayer();
         if (player == null) return new float[]{ this.mapWidth * 0.5f, this.mapHeight * 0.5f };
@@ -399,9 +347,7 @@ public class Minimap {
     public void render(SpriteBatch batch, ShapeRenderer shapes) {
         if (!this.visible || !this.isInitialized()) return;
 
-        // Rebuild the cached map texture lazily — initializeMap() runs before
-        // tile chunks are merged, so the first build would be all-void. Also
-        // re-run every ~2s so newly-streamed regions show up on the map.
+        // Rebuild lazily: initializeMap() runs before tiles merge; re-run every ~2s for streamed regions.
         final long now = System.currentTimeMillis();
         if (this.dirty || (this.mapTexture == null) || (now - this.lastRebuildMs > 2000L)) {
             this.rebuildMapTexture();
@@ -411,10 +357,7 @@ public class Minimap {
         if (this.mapTexture == null) return;
 
         final float[] src = this.computeSrcRect();
-        // Map texture sub-rect requires integer src pixels; the dot math
-        // MUST use those same rounded values, otherwise the player dot
-        // drifts up to 1 tile away from where the map actually shows
-        // (visible at high zoom as the dot lagging behind the player).
+        // Dot math MUST reuse these rounded src pixels or the player dot drifts off the map.
         final int srcXi = Math.round(src[0]);
         final int srcYi = Math.round(src[1]);
         final int viewWi = Math.max(1, Math.round(src[2]));
@@ -424,29 +367,17 @@ public class Minimap {
         final float viewW = viewWi;
         final float viewH = viewHi;
 
-        // Square dark background + border, mirroring #minimap-container
-        batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(BG_COLOR);
-        shapes.rect(this.drawX - 1, this.drawY - 1, this.sizePx + 2, this.sizePx + 2);
-        shapes.end();
-        batch.begin();
+        UiRender.fillRect(batch, shapes, this.drawX - 1, this.drawY - 1,
+                this.sizePx + 2, this.sizePx + 2, BG_COLOR);
 
-        // Draw the cached map portion (whole-realm view, scaled to the panel).
-        // The HUD batch uses the y-DOWN ui camera, under which this draw
-        // overload renders the texture vertically flipped (map row 0 would land
-        // at the screen bottom). The player/other dots below are plotted top-down
-        // (drawY + (tileY - srcY)*scaleY), so pass flipY=true to make the map
-        // tiles share that orientation — otherwise the dots are mirrored on Y
-        // relative to the discovered tiles.
+        // flipY=true: the y-down UI cam flips this draw overload; matches the top-down dots below.
         batch.draw(this.mapTexture,
                 this.drawX, this.drawY, this.sizePx, this.sizePx,
                 srcXi, srcYi, viewWi, viewHi,
                 false, true);
 
-        // Player dots overlay
         batch.end();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final float scaleX = this.sizePx / viewW;
@@ -470,28 +401,17 @@ public class Minimap {
                     shapes.circle(sx, sy, 3f);
                 }
             }
-            // Server-wide global players (GlobalPlayerPositionPacket) —
-            // dotted in a slightly different shade so they're
-            // distinguishable from same-realm players, and uses the
-            // SAME (tile / srcX / scaleX) projection as local players
-            // so the dot tracks zoom correctly. The previous handler
-            // bypassed the minimap entirely (it overwrote in-realm pos
-            // instead) so these dots never moved with the camera.
+            // Server-wide global players, shaded differently; same projection as local dots.
             final NetPlayerPosition[] globals = this.playState.getMinimapPlayers();
             if (globals != null && globals.length > 0) {
                 shapes.setColor(0.55f, 0.55f, 0.85f, 0.8f);
                 final int ts = GlobalConstants.BASE_TILE_SIZE;
-                // Add half-a-default-player-size offset so the global dot
-                // sits at the player's CENTER like local player does
-                // (localPlayerTile applies +size/2). NetPlayerPosition
-                // doesn't carry per-player size, so use the default.
+                // NetPlayerPosition has no per-player size; use the default to center like local.
                 final float halfPlayer = GlobalConstants.PLAYER_SIZE / 2f;
                 for (NetPlayerPosition gp : globals) {
                     if (gp == null) continue;
                     if (local != null && gp.getPlayerId() == localId) continue;
-                    // Skip if this player is already in our local realm
-                    // (would double-render the dot). The local-realm
-                    // loop above already drew them.
+                    // Skip players already in our local realm (drawn above) to avoid double dots.
                     if (this.playState.getRealmManager().getRealm()
                             .getPlayer(gp.getPlayerId()) != null) continue;
                     final float tx = (gp.getX() + halfPlayer) / ts;
@@ -505,10 +425,7 @@ public class Minimap {
             }
         } catch (Exception ignored) { }
 
-        // Local player on top, green. computeSrcRect already centers
-        // the view on the LERPED player position, and we re-derive the
-        // dot from the SAME source so the dot is always exactly at the
-        // visual center of the viewport — no zoom-dependent drift.
+        // Local player on top, green (derived from the same src as the view center).
         if (local != null) {
             final float[] pt = localPlayerTile();
             final float sx = this.drawX + (pt[0] - srcX) * scaleX;
@@ -517,16 +434,11 @@ public class Minimap {
             shapes.circle(sx, sy, 4f);
         }
 
-        // Admin hop-mode badge — a cyan corner square so it's obvious clicks teleport.
         if (this.hopMode) {
             shapes.setColor(0.30f, 0.82f, 1.0f, 1f);
             shapes.rect(this.drawX + 3, this.drawY + 3, 10, 10);
         }
 
-        // Close the Filled pass before switching to Line — ShapeRenderer.set()
-        // requires autoShapeType to be enabled, which we don't set, so a
-        // direct .set(Line) throws IllegalStateException. End + begin is the
-        // safe transition.
         shapes.end();
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(BORDER_COLOR);

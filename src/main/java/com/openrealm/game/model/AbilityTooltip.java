@@ -17,22 +17,16 @@ import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.ability.Ability;
 import com.openrealm.game.model.ability.AbilityScaling;
 
-/**
- * Hover tooltip for an active ability cell — own hotbar or a party
- * member's cooldown strip. Port of the webclient's
- * {@code _buildAbilityTooltipHTML} (ui-widgets.js): name, subtitle,
- * description, damage breakdown with scalings, MP cost, effective
- * cooldown / cast time, SP invested.
- */
 public class AbilityTooltip {
 
     private final Ability ability;
     private final int cellIdx;            // 1..4 ("Key N" subtitle); 0 = hide
     private final int investedSp;
-    /** Optional viewer stats — used by stat-scaled DAMAGE breakdown. */
     private final Stats viewerStats;
     private final Vector2f pos;
     private final int width;
+    /** When true, {@code pos} is the anchor's BOTTOM edge and the box draws above it. */
+    private boolean anchorAbove;
 
     private static final int PADDING = 8;
     private static final int LINE_HEIGHT = 18;
@@ -60,9 +54,11 @@ public class AbilityTooltip {
         this.width = width;
     }
 
-    /** Static helper: pick the viewer's invested SP for a given ability,
-     *  or 0 when no entry exists. Mirrors webclient's
-     *  {@code window.__game.hotbarInvested[cellIdx-1]}. */
+    public AbilityTooltip anchorAbove() {
+        this.anchorAbove = true;
+        return this;
+    }
+
     public static int investedFor(Player player, Ability ability) {
         if (player == null || ability == null) return 0;
         try {
@@ -75,17 +71,15 @@ public class AbilityTooltip {
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.ability == null) return;
 
-        // Build text lines first so we can size the box before drawing chrome.
         final List<TooltipLine> lines = this.buildLines(font);
 
-        // Compute box height from line count.
         final int contentH = lines.size() * LINE_HEIGHT;
         final int boxH = contentH + PADDING * 2;
         final int boxW = this.width;
 
         // Clamp pos to keep the tooltip on-screen.
         float bx = this.pos.x;
-        float by = this.pos.y;
+        float by = this.anchorAbove ? this.pos.y - boxH - 6 : this.pos.y;
         if (bx + boxW > OpenRealmGame.width - 4) {
             bx = OpenRealmGame.width - 4 - boxW;
         }
@@ -95,7 +89,6 @@ public class AbilityTooltip {
         }
         if (by < 4) by = 4;
 
-        // Background chrome — shapes pass.
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -110,8 +103,6 @@ public class AbilityTooltip {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Lines top-down. In the project's flipped ortho cam, font.draw
-        // treats (x, y) as the top of the glyph box.
         float ty = by + PADDING + LINE_HEIGHT - 4;
         for (TooltipLine line : lines) {
             font.setColor(line.color);
@@ -125,10 +116,8 @@ public class AbilityTooltip {
         final List<TooltipLine> lines = new ArrayList<>();
         final int maxTextW = this.width - PADDING * 2;
 
-        // Header — name.
         lines.add(new TooltipLine(this.ability.getName() != null ? this.ability.getName() : "Unknown", NAME_COLOR));
 
-        // Subtitle — "Active Ability — Key N • tag1 · tag2".
         StringBuilder subtitle = new StringBuilder("Active Ability");
         if (this.cellIdx >= 1) subtitle.append(" - Key ").append(this.cellIdx);
         if (this.ability.getTags() != null && !this.ability.getTags().isEmpty()) {
@@ -144,17 +133,14 @@ public class AbilityTooltip {
         }
         lines.add(new TooltipLine(subtitle.toString(), SUB_COLOR));
 
-        // Description — word-wrapped.
         if (this.ability.getDescription() != null && !this.ability.getDescription().isEmpty()) {
             for (String l : wrapLines(font, this.ability.getDescription(), maxTextW)) {
                 lines.add(new TooltipLine(l, DESC_COLOR));
             }
         }
 
-        // Damage breakdown. Shown whenever the ability deals damage from ANY
-        // source — base, stat scaling, or both — so scaling-only abilities
-        // (e.g. Trapper, which has no baseDamage) still surface a number
-        // instead of looking damage-less despite their "damaging" description.
+        // Damage shown whenever the ability deals damage from any source
+        // (base, stat scaling, or both) so scaling-only abilities still surface a number.
         {
             long total = this.ability.getBaseDamage();
             final List<String> parts = new ArrayList<>();
@@ -187,7 +173,6 @@ public class AbilityTooltip {
             }
         }
 
-        // Effective cooldown (with SP reduction).
         if (this.ability.getBaseCooldownMs() > 0) {
             final long base = this.ability.getBaseCooldownMs();
             final long red = (long) this.investedSp * this.ability.getCdReductionPerPointMs();
@@ -197,12 +182,11 @@ public class AbilityTooltip {
             lines.add(new TooltipLine(cdText, CD_COLOR));
         }
 
-        // MP cost.
         if (this.ability.getMpCost() > 0) {
             lines.add(new TooltipLine("MP Cost: " + this.ability.getMpCost(), MP_COLOR));
         }
 
-        // Cast time (with SP reduction halved, matching webclient).
+        // SP cast-time reduction is halved, matching webclient.
         long baseCast = this.ability.getBaseCastMs();
         if (baseCast > 0) {
             final long red = (long) this.investedSp * (this.ability.getCdReductionPerPointMs() / 2);
@@ -214,16 +198,13 @@ public class AbilityTooltip {
             lines.add(new TooltipLine("Cast: Instant", CAST_COLOR));
         }
 
-        // SP invested / max.
         final int maxSp = this.ability.getMaxSkillPoints() > 0 ? this.ability.getMaxSkillPoints() : 5;
         lines.add(new TooltipLine("Skill Points: " + this.investedSp + " / " + maxSp, SP_COLOR));
 
         return lines;
     }
 
-    /** Compute a single scaling's damage contribution against the given
-     *  viewer stats and invested-SP level. Mirrors webclient
-     *  {@code _scalingContribution} (ui-widgets.js): linear-only port. */
+    /** Linear-only damage contribution of one scaling; skill-point scalings use investedSp. */
     public static int scalingContribution(AbilityScaling sc,
                                           Stats stats,
                                           int investedSp) {
@@ -252,8 +233,6 @@ public class AbilityTooltip {
         return Math.max(0, (int) contrib);
     }
 
-    /** Greedy word wrap so the description doesn't run off the chrome.
-     *  Mirrors the webclient's CSS-driven wrap behavior at a fixed width. */
     private static List<String> wrapLines(BitmapFont font, String text, int maxWidth) {
         final List<String> out = new ArrayList<>();
         if (text == null || text.isEmpty() || maxWidth <= 0) return out;

@@ -25,37 +25,22 @@ public class Projectile {
     private short amplitude;
     private short frequency;
 
-    // LINE_SEGMENT span (thickness is `size`); forced-expiry tick count (walls/homing).
+    // LINE_SEGMENT span (thickness is `size`); forced-expiry tick count (walls/homing)
     private short length;
     private int lifetimeTicks;
 
-    // Spawn position offset relative to enemy center (rotated by firing angle)
+    // spawn offset relative to enemy center, rotated by firing angle
     private float spawnOffsetX;
     private float spawnOffsetY;
 
-    // Delay in ms before this projectile spawns within its group (stagger effect)
     private int spawnDelayMs;
 
-    /**
-     * Projectile behavior flags — control HOW the projectile moves/behaves.
-     * Values are {@link ProjectileFlag} IDs: PLAYER_PROJECTILE(10), PARAMETRIC(12),
-     * INVERTED_PARAMETRIC(13), ORBITAL(20). NOT status effects.
-     */
+    // ProjectileFlag IDs (behavior, NOT status): PLAYER_PROJECTILE=10, PARAMETRIC=12, INVERTED_PARAMETRIC=13, ORBITAL=20
     private List<Short> flags;
-    /**
-     * On-hit status effects — applied to the target entity when this projectile hits.
-     * Each entry has an effectId ({@link StatusEffect}) and a duration in ms.
-     * NOT behavior flags — those go in {@link #flags}.
-     */
+    // on-hit status effects (NOT behavior flags)
     private List<ProjectileEffect> effects;
 
-    /**
-     * Optional sprite spin (purely visual). When {@code rotate} is true the
-     * sprite continuously rotates as it travels — for a LINE_SEGMENT wall, every
-     * tile that makes up the wall spins. {@code rotateDir} is "CW" or "CCW";
-     * {@code rotateRate} is radians/tick, and when 0 the rate is derived from the
-     * projectile's speed (magnitude). Defaults to no rotation (additive opt-in).
-     */
+    // rotateDir "CW"/"CCW"; rotateRate rad/tick, 0 = derive from magnitude
     private boolean rotate;
     private float rotateRate;
     private String rotateDir;

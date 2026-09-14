@@ -7,7 +7,6 @@ import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
@@ -17,12 +16,12 @@ import com.openrealm.game.OpenRealmGame;
 import com.openrealm.net.client.ClientGameLogic;
 
 /**
- * In-game lifetime-stats overlay (toggled with "."). Mirrors SkillsWindow: a
- * grid of curated metrics, each cell showing a value; hovering a cell shows
- * what the metric is and how it is counted. Fetches CharacterMetricsDto from the
- * data service on a background thread (drained in update()).
+ * In-game lifetime-stats overlay (toggled with "."). Grid of metrics; hover a
+ * cell for its description. Fetches CharacterMetricsDto off-thread (drained in update()).
  */
 public class MetricsWindow {
+
+    private static final Color TOOLTIP_BG = new Color(0.04f, 0.04f, 0.06f, 0.98f);
 
     private static final String[] LABELS = {
         "Kills", "Boss Kills", "Deaths",
@@ -49,7 +48,6 @@ public class MetricsWindow {
         "PvP matches won."
     };
 
-    private final GlyphLayout layout = new GlyphLayout();
     private final AtomicReference<CharacterMetricsDto> pendingData = new AtomicReference<>();
     private final AtomicReference<String> pendingError = new AtomicReference<>();
     private boolean visible = false;
@@ -64,7 +62,6 @@ public class MetricsWindow {
         this.visible = false;
     }
 
-    /** Toggle: hide if open, otherwise open and kick off the async metrics fetch. */
     public void toggleFor(final String characterUuid) {
         if (this.visible) {
             this.visible = false;
@@ -145,7 +142,7 @@ public class MetricsWindow {
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
         font.draw(batch, "CHARACTER STATS", x + 14, y + 22);
         font.setColor(0.53f, 0.47f, 0.41f, 1f);
-        font.draw(batch, "Lifetime totals. Press . or ESC to close", x + dialogW - 300, y + 22);
+        UiRender.drawRightAligned(batch, font, "Lifetime totals. Press . or ESC to close", x + dialogW - 14, y + 22);
 
         if (!ready) {
             font.setColor(0.80f, 0.72f, 0.55f, 1f);
@@ -166,20 +163,12 @@ public class MetricsWindow {
 
         if (hoverIdx >= 0) {
             final String desc = DESCS[hoverIdx];
-            this.layout.setText(font, desc);
-            final float tipW = this.layout.width + 16;
-            final float tipH = this.layout.height + 12;
+            final float tipW = UiRender.textWidth(font, desc) + 16;
+            final float tipH = UiRender.textHeight(font, desc) + 12;
             final int c = hoverIdx % cols, r = hoverIdx / cols;
-            final float cx = x + pad + c * (cellW + pad);
-            final float cy = y + headerH + pad + r * (cellH + pad);
-            final float tipX = cx;
-            final float tipY = cy - tipH - 4;
-            batch.end();
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0.04f, 0.04f, 0.06f, 0.98f);
-            shapes.rect(tipX, tipY, tipW, tipH);
-            shapes.end();
-            batch.begin();
+            final float tipX = x + pad + c * (cellW + pad);
+            final float tipY = (y + headerH + pad + r * (cellH + pad)) - tipH - 4;
+            UiRender.fillRect(batch, shapes, tipX, tipY, tipW, tipH, TOOLTIP_BG);
             font.setColor(Color.WHITE);
             font.draw(batch, desc, tipX + 8, tipY + tipH - 8);
         }

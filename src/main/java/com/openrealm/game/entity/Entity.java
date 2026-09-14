@@ -1,6 +1,7 @@
 package com.openrealm.game.entity;
 
 import java.time.Instant;
+import java.util.Set;
 
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
@@ -23,12 +24,9 @@ public abstract class Entity extends GameObject {
     protected boolean left = false;
     protected boolean attack = false;
     protected String lastAnimSet = "idle_side";
-    protected String lastMovementDirection = "side"; // "side", "front", or "back" - used for hysteresis
+    protected String lastMovementDirection = "side"; // "side" | "front" | "back", for hysteresis
     private static final float DIRECTION_SWITCH_THRESHOLD = 0.15f;
-    // Sprite stroke: 8 dark copies behind the body — 4 cardinal + 4 diagonal.
-    // The diagonals fill the corner pixels at concave/angled sprite edges that a
-    // cardinal-only stroke leaves as a missing sliver. Matches the webclient
-    // OUTLINE_OFFSETS + the bullet/loot stroke. Offset in world units.
+    // Sprite stroke: 8 dark copies (4 cardinal + 4 diagonal) behind the body. Offset in world units.
     private static final float STROKE_OFFSET = 1f;
     private static final float STROKE_ALPHA = 0.85f;
     private static final float[][] STROKE_OFFSETS = {
@@ -45,18 +43,14 @@ public abstract class Entity extends GameObject {
     protected boolean attacking = false;
     /** Epoch millis until which the entity is considered "attacking" for animation. */
     protected long attackingUntil = 0;
-    /** Duration in ms that the attacking flag stays true after a shot. */
     private static final long ATTACK_ANIM_DURATION_MS = 350;
     protected float aimX = 0;
     protected float aimY = 0;
-    /** aimX/aimY track the cursor for the local player and the firing angle of
-     *  the last observed shot for remote players, so both face where they fire. */
+    /** aimX/aimY: cursor for the local player, last shot's firing angle for remotes. */
     protected boolean aimControlled = false;
-    /** createdTime of the last projectile that drove this entity's firing pose,
-     *  so a multishot volley restarts the attack clip once, not once per pellet. */
+    /** createdTime of the last projectile that drove the firing pose, so a
+     *  multishot volley restarts the attack clip once, not per pellet. */
     protected long lastShotCreatedTime = 0;
-    /** True while standing on a slowing tile (water/lava); the renderer hides
-     *  the bottom third of the sprite to fake legs submerged. Set each frame. */
     protected boolean wading = false;
 
     public int health = 100;
@@ -87,13 +81,10 @@ public abstract class Entity extends GameObject {
     public void removeExpiredEffects() {
         for (int i = 0; i < this.effectIds.length; i++) {
             if (this.effectIds[i] != -1 && this.effectTimes[i] != -1) {
-                // Movement-gating effects (paralyze, slow) are cleared ONLY by the
-                // server's authoritative effect update, never by the local clock.
-                // effectTimes are ABSOLUTE server-clock timestamps; comparing them to
-                // this client's clock let client/server skew expire them early, after
-                // which prediction moved while the server kept the player locked —
-                // the rubberband. The connection is reliable, so the server's clear
-                // always arrives; hold until then.
+                // Movement-gating effects (paralyze, slow) clear ONLY on the
+                // server's authoritative update — expiring them on the local
+                // clock (skewed vs the absolute server timestamps) rubberbanded
+                // the player. The reliable connection always delivers the clear.
                 final short id = this.effectIds[i];
                 if (id == StatusEffectType.PARALYZED.effectId
                         || id == StatusEffectType.SLOWED.effectId) continue;
@@ -128,11 +119,9 @@ public abstract class Entity extends GameObject {
         this.effectTimes = new Long[] { -1l, -1l, -1l, -1l, -1l, -1l, -1l, -1l };
     }
 
-    /** Set of status effect ids that are considered debuffs — used by the
-     *  WARDED / VULNERABLE gates in addEffect. Beneficial statuses (HEALING,
-     *  SPEEDY, INVINCIBLE, PROTECTED, BRACED, ARMORED, MANA_FOUNT, etc.) are
-     *  NOT in this set so they apply normally even on warded targets. */
-    private static final java.util.Set<Short> DEBUFF_IDS = java.util.Set.of(
+    /** Status effect ids treated as debuffs by the WARDED / VULNERABLE gates in
+     *  addEffect. Beneficial statuses are absent so they apply on warded targets. */
+    private static final Set<Short> DEBUFF_IDS = Set.of(
             StatusEffectType.PARALYZED.effectId,
             StatusEffectType.STUNNED.effectId,
             StatusEffectType.DAZED.effectId,
@@ -225,26 +214,16 @@ public abstract class Entity extends GameObject {
         return -1;
     }
 
-    /**
-     * Mark this entity as attacking for ATTACK_ANIM_DURATION_MS.
-     * Used by the server when a player shoots to broadcast the attack
-     * animation state to other clients via ObjectMovePacket.
-     */
+    /** Mark attacking for ATTACK_ANIM_DURATION_MS. */
     public void triggerAttackAnimation() {
         this.attackingUntil = System.currentTimeMillis() + ATTACK_ANIM_DURATION_MS;
         this.attacking = true;
-        // Restart the clip from frame 0 on every shot so the pose cycles with
-        // the fire rate instead of looping free-running (webclient parity,
-        // main.js sets attackFrame = 0 on each shot).
+        // Restart the clip from frame 0 on every shot (webclient parity).
         this.attackFrame = 0;
         this.attackFrameTimer = 0f;
     }
 
-    /**
-     * Remote-player variant: also point the attack pose along the firing angle
-     * (sin = x, cos = y, matching the bullet's flight vector) so a stationary
-     * shooter faces where they fired, the same way the local player faces aim.
-     */
+    /** Remote-player variant: also point the attack pose along the firing angle. */
     public void triggerAttackAnimation(float fireAngle) {
         this.aimControlled = true;
         this.aimX = this.pos.x + this.size / 2f + (float) Math.sin(fireAngle) * 100f;
@@ -252,10 +231,7 @@ public abstract class Entity extends GameObject {
         this.triggerAttackAnimation();
     }
 
-    /**
-     * Override Lombok's isAttacking() — also checks the timer-based flag
-     * set by triggerAttackAnimation() for network-broadcast attack state.
-     */
+    /** Overrides Lombok isAttacking() to also honor the timer-based flag. */
     public boolean isAttacking() {
         if (this.attackingUntil > 0 && System.currentTimeMillis() > this.attackingUntil) {
             this.attacking = false;
@@ -264,18 +240,9 @@ public abstract class Entity extends GameObject {
         return this.attacking;
     }
 
-    /**
-     * Walk cycle advances per pixel of ACTUAL movement (distance-based), so the
-     * gait scales with speed — brisk while chasing, proportionally slower while
-     * orbiting/strafing at close range (the server drops close-range speed to
-     * ~30%). A frame swaps every WALK_PX_PER_FRAME px. MUST match the webclient's
-     * WALK_PX_PER_FRAME (game.js updateInterpolation) so both clients look the
-     * same. (dx/dy are px/tick at 64Hz → px/sec = ×64.)
-     * Tuned up from 24 → 28 (~15% slower gait) so high-spd classes don't look
-     * like they're sprinting in fast-forward.
-     */
+    // Walk cycle is distance-based (a frame every WALK_PX_PER_FRAME px) so gait
+    // scales with speed. MUST match the webclient's WALK_PX_PER_FRAME.
     private static final float WALK_PX_PER_FRAME = 28f;
-    /** Webclient main.js ~2160: 80ms per attack frame. */
     private static final float ATTACK_FRAME_SECONDS = 0.08f;
     private float animDistance = 0f;
     private int animFrame = 0;
@@ -286,35 +253,26 @@ public abstract class Entity extends GameObject {
         final SpriteSheet sheet = this.getSpriteSheet();
         if (sheet == null) return;
 
-        // Frame-rate independent dt from libgdx, capped to avoid massive
-        // jumps after a paused window.
+        // Frame-rate independent dt, capped to avoid jumps after a paused window.
         final float dt = Gdx.graphics != null
                 ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
                 : 1f / 60f;
 
-        // WHY: attack frames advance on their OWN wall-clock timer, NOT on
-        // movement pace. Webclient (main.js ~2158) cycles attackFrame every
-        // 80ms while shootingAnim is set — independent of dx/dy. The native
-        // previously routed every animation through the pace-driven path
-        // below, so standing-still attacks stayed stuck on frame 0.
-        // isAttacking() consults the timer-based attackingUntil flag.
+        // Attack frames advance on their own wall-clock timer, NOT movement pace
+        // (webclient parity); routing them through the pace path stuck
+        // standing-still attacks on frame 0.
         if (this.isAttacking()) {
             this.attackFrameTimer += dt;
             int frameCount = sheet.getFrameCount();
             if (frameCount < 1) frameCount = 1;
             while (this.attackFrameTimer >= ATTACK_FRAME_SECONDS) {
                 this.attackFrameTimer -= ATTACK_FRAME_SECONDS;
-                // Clamp (not modulo): play the attack clip ONCE and hold the
-                // last frame for the rest of the attack window. Looping made a
-                // single click play the 2-frame clip ~twice over the 350ms hold.
-                // Each new shot resets attackFrame to 0 (triggerAttackAnimation),
-                // so rapid fire still replays it. Webclient parity (main.js
-                // clamps fIdx = min(attackFrame, frames-1)).
+                // Clamp (not modulo): play the clip ONCE and hold the last frame
+                // for the rest of the window; each shot resets attackFrame to 0.
                 this.attackFrame = Math.min(this.attackFrame + 1, frameCount - 1);
             }
             sheet.setAnimationFrame(this.attackFrame);
-            // Keep the walk accumulator advancing while attacking so motion that
-            // resumes after the attack ends doesn't snap a stale frame.
+            // Keep the walk accumulator advancing so resuming motion doesn't snap a stale frame.
             final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
             if (pace > 0.1f) {
                 this.animDistance += pace * 64f * dt;
@@ -327,16 +285,14 @@ public abstract class Entity extends GameObject {
             }
             return;
         }
-        // Attack just ended — reset attack accumulators so next attack
-        // starts on frame 0.
+        // Attack just ended — reset so the next one starts on frame 0.
         this.attackFrame = 0;
         this.attackFrameTimer = 0f;
 
         final float pace = (float) Math.sqrt(this.dx * this.dx + this.dy * this.dy);
         if (pace > 0.1f) {
             this.animDistance += pace * 64f * dt;
-            // 'while' rather than 'if' so a single big-dt frame still advances
-            // the right number of frames after a hitch.
+            // 'while' so a single big-dt frame advances the right count after a hitch.
             int frameCount = sheet.getFrameCount();
             if (frameCount < 2) frameCount = 2;
             while (this.animDistance >= WALK_PX_PER_FRAME) {
@@ -344,14 +300,11 @@ public abstract class Entity extends GameObject {
                 this.animFrame = (this.animFrame + 1) % frameCount;
             }
         } else {
-            // Park on idle frame 0 when stationary.
             this.animDistance = 0f;
             this.animFrame = 0;
         }
 
-        // Drive the visual frame directly. SpriteSheet.animate()'s old
-        // time-based stepping is no longer called for entities — this
-        // method now owns the frame index.
+        // This method owns the frame index; SpriteSheet.animate() time-stepping isn't used for entities.
         sheet.setAnimationFrame(this.animFrame);
     }
 
@@ -378,14 +331,9 @@ public abstract class Entity extends GameObject {
         if (this.getSpriteSheet() != null && this.getSpriteSheet().hasAnimSets()) {
             String targetAnim;
             if (this.isAttacking()) {
-                // WHY: compare aim and player center in the SAME (world) space.
-                // PlayState now stores aimX/Y in world coords; player center is
-                // pos + size/2 (world coords). Previous code mixed screen-pixel
-                // aim with world-relative center which inverted the sign of
-                // relX/relY when the cursor sat near the player's on-screen
-                // position, picking the wrong attack direction.
-                // Remote players broadcast no aim, so fall back to velocity
-                // direction (webclient parity) instead of a garbage rel vector.
+                // Compare aim and player center in the SAME (world) space —
+                // mixing screen-pixel aim with a world center inverted relX/relY.
+                // Remote players broadcast no aim, so fall back to velocity.
                 float relX, relY;
                 if (this.aimControlled) {
                     float worldCenterX = this.pos.x + this.size / 2f;
@@ -396,7 +344,6 @@ public abstract class Entity extends GameObject {
                     relX = this.dx;
                     relY = this.dy;
                 }
-                // Determine if aim is more horizontal or vertical
                 if (Math.abs(relX) > Math.abs(relY)) {
                     targetAnim = "attack_side";
                 } else if (relY > 0) {
@@ -404,7 +351,6 @@ public abstract class Entity extends GameObject {
                 } else {
                     targetAnim = "attack_up";
                 }
-                // Flip sprite based on horizontal aim direction
                 if (relX < 0) {
                     this.left = true;
                     this.right = false;
@@ -413,7 +359,7 @@ public abstract class Entity extends GameObject {
                     this.left = false;
                 }
             } else if ((this.left || this.right) && (this.up || this.down)) {
-                // Diagonal movement: use hysteresis to prevent rapid animation switching.
+                // Diagonal: hysteresis prevents rapid animation switching.
                 float absDx = Math.abs(this.dx);
                 float absDy = Math.abs(this.dy);
                 if ("side".equals(this.lastMovementDirection)) {
@@ -424,7 +370,6 @@ public abstract class Entity extends GameObject {
                     if (absDx > absDy * (1.0f + DIRECTION_SWITCH_THRESHOLD)) {
                         this.lastMovementDirection = "side";
                     } else {
-                        // Vertical still dominates — update up/front based on current dy
                         this.lastMovementDirection = this.dy < 0 ? "back" : "front";
                     }
                 }
@@ -436,7 +381,6 @@ public abstract class Entity extends GameObject {
                 this.lastMovementDirection = this.dy < 0 ? "back" : "front";
                 targetAnim = getWalkAnim(this.lastMovementDirection);
             } else {
-                // Idle: keep facing the same direction as last movement
                 targetAnim = getIdleAnim(this.lastMovementDirection);
             }
             this.lastAnimSet = targetAnim;
@@ -460,30 +404,20 @@ public abstract class Entity extends GameObject {
         }
     }
 
-    /**
-     * Update the sprite sheet's visual effect based on active status effects.
-     * Override in subclasses for class-specific effect mappings.
-     */
+    /** Update the sprite sheet's visual effect from active statuses; subclasses override. */
     public void updateEffectState() {
-        // Default: no effect mapping. Subclasses override.
     }
 
     /**
-     * Outline pass: shader-based 1px black outline (PixiJS OutlineFilter
-     * equivalent). Caller is responsible for setting/clearing the outline
-     * shader around a batched run of these calls.
-     *
-     * The quad is enlarged by ~1 sprite-pixel on each side so the new
-     * fragments outside the original geometry edge get filled by the
-     * shader's neighbor-sampling logic.
+     * Shader-based 1px outline pass. Caller sets/clears the outline shader
+     * around a batched run. Quad enlarged by ~1 source-pixel so the shader's
+     * neighbor sampling fills the new edge fragments.
      */
     public void renderOutline(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
         final TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
-        // Match the body draw rect (see renderBody for anchor convention) so
-        // the outline stays aligned with wide / tall attack frames; expand by
-        // 1 source-pixel of padding for the outline shader's neighbor sample.
+        // Match the body draw rect (see renderBody); pad 1 source-pixel for the shader sample.
         final int refW = this.getSpriteSheet().getSpriteImageWidth();
         final int refH = this.getSpriteSheet().getSpriteImageHeight();
         final int rw = frame.getRegionWidth();
@@ -493,7 +427,7 @@ public abstract class Entity extends GameObject {
         final float unitY = (float) this.size / refH;
         final float drawW = rw * unitX;
         final float drawH = rh * unitY;
-        final float padX = unitX;       // 1 source-pixel
+        final float padX = unitX;
         final float padY = unitY;
         final float wx = this.pos.getWorldVar().x;
         final float wy = this.pos.getWorldVar().y;
@@ -507,19 +441,15 @@ public abstract class Entity extends GameObject {
         }
     }
 
-    /** Returns the current visible texture region (or null), used by the
-     *  outline pass to set per-region UV bounds on the outline shader. */
+    /** Current visible texture region (or null) for the outline shader's UV bounds. */
     public TextureRegion getCurrentFrame() {
         if (this.getSpriteSheet() == null) return null;
         return this.getSpriteSheet().getCurrentFrame();
     }
 
     /**
-     * Dark silhouette stroke: 4 cardinal-offset copies of the body drawn behind
-     * it, matching the webclient's per-entity outline and the bullet/loot
-     * stroke style. Sets its own dark tint (save/restore), so the caller must
-     * run this with the default (non-effect) shader active. Geometry mirrors
-     * {@link #renderBody} exactly so the stroke tracks wide/tall attack frames.
+     * Dark silhouette stroke: offset copies behind the body. Sets its own dark
+     * tint, so the caller must run this with the default (non-effect) shader.
      */
     public void renderStroke(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
@@ -551,29 +481,21 @@ public abstract class Entity extends GameObject {
         batch.setPackedColor(prevColor);
     }
 
-    /**
-     * Draw only the main sprite body with its current effect.
-     * Called during the batched body pass (caller manages shader).
-     */
+    /** Draw the main sprite body with its current effect (caller manages shader). */
     public void renderBody(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
         float wx = this.pos.getWorldVar().x;
         float wy = this.pos.getWorldVar().y;
-        // Scale the draw rect by the FRAME's region size relative to the
-        // sheet's reference cell, so a "wide attack" frame extends past the
-        // body's right edge instead of being squished into a square. Anchor
-        // convention: body occupies the bottom-left of the frame, so wider
-        // frames extend RIGHT (mirrored when facing left) and taller frames
-        // extend UP. Matches the RotMG-style sheet authoring assumption.
+        // Scale draw rect by frame region vs reference cell: body anchored at
+        // bottom-left, so wider frames extend right (mirrored left) and taller up.
         final int refW = this.getSpriteSheet().getSpriteImageWidth();
         final int refH = this.getSpriteSheet().getSpriteImageHeight();
         final int rw = frame.getRegionWidth();
         final int rh = frame.getRegionHeight();
         if (refW <= 0 || refH <= 0 || rw <= 0 || rh <= 0) {
-            // Defensive: if the sheet is mid-load, fall back to the legacy
-            // square draw rather than zero-sizing.
+            // Sheet mid-load: fall back to a square draw.
             if (this.left) batch.draw(frame, wx, wy, this.size * 0.5f, this.size * 0.5f, this.size, this.size, -1f, 1f, 0f);
             else           batch.draw(frame, wx, wy, this.size * 0.5f, this.size * 0.5f, this.size, this.size, 1f, 1f, 0f);
             return;
@@ -582,19 +504,14 @@ public abstract class Entity extends GameObject {
         final float unitY = (float) this.size / refH;
         final float drawW = rw * unitX;
         final float drawH = rh * unitY;
-        // Body bottom stays at wy + size regardless of frame height.
         final float drawY = wy + this.size - drawH;
         if (this.left) {
-            // Mirror: right edge of body stays at wx + size.
             batch.draw(frame, wx + this.size - drawW, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, -1f, 1f, 0f);
         } else {
             batch.draw(frame, wx, drawY, drawW * 0.5f, drawH * 0.5f, drawW, drawH, 1f, 1f, 0f);
         }
     }
 
-    /**
-     * Returns the current visual effect for this entity's sprite.
-     */
     public Sprite.EffectEnum getCurrentEffect() {
         if (this.getSpriteSheet() == null) return Sprite.EffectEnum.NORMAL;
         return this.getSpriteSheet().getCurrentEffect();
@@ -604,17 +521,9 @@ public abstract class Entity extends GameObject {
     public abstract void render(SpriteBatch batch);
 
     /**
-     * Lifecycle hook invoked when the entity is removed from a Realm
-     * (death, despawn, viewport unload). Drops references to per-instance
-     * heap state so the GC can reclaim it even if some short-lived closure
-     * (e.g. an in-flight async attack callback, a packet handler iterator)
-     * still pins the Entity for a few more ticks.
-     *
-     * <p>The shared {@link com.badlogic.gdx.graphics.Texture} the SpriteSheet
-     * points at is owned by GameSpriteManager — never disposed here.
-     * What we ARE freeing is the per-instance SpriteSheet wrapper itself
-     * (TextureRegion[][] arrays, animSets HashMaps, Sprite lists), which
-     * for a fully-loaded enemy adds up to a few KB of heap each.
+     * Removal hook (death, despawn, viewport unload): drops the per-instance
+     * SpriteSheet wrapper for GC. The shared Texture is owned by
+     * GameSpriteManager and never disposed here.
      */
     public void onRemoved() {
         this.setSpriteSheet(null);

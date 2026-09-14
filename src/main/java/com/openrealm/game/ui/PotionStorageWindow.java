@@ -22,44 +22,24 @@ import com.openrealm.net.server.packet.ItemStoreMovePacket;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * Native-client UI for the per-player Potion Storage container (32 slots,
- * stackables + gems only). All layout is driven by the canonical UI atlas
- * (openrealm-data/.../ui/ui-components.json + Open_Realm_User_Interface_V1.png):
- *
- *   - Parent chrome:   panel.hud.chat.text_area (the user reuses the chat
- *                      textarea panel as the storage dialog background)
- *   - Two slot grids:  panel.hud.inv_only.grid rendered twice, side-by-side
- *                      (16 cells each = 32 total)
- *
- * displayScale=2 means every source-coord dimension is doubled when
- * rendered to screen. Cell positions come from UiAtlas.gridCells, with
- * source-relative offsets translated to dialog-relative screen offsets.
- *
- * Server flow (unchanged from initial draft):
- *   - F-key on tile 328 in vault -> InteractTilePacket -> server replies
- *     with OpenItemStorePacket carrying the 32-slot snapshot.
- *   - Drag-drop sends ItemStoreMovePacket; server validates whitelist
- *     (item.stackable || category=="gem"), bounds, and stack semantics.
- *   - ItemStoreUpdatePacket from server triggers refresh().
- */
+/** Per-player Potion Storage container (32 slots, stackables + gems only), atlas-driven.
+ *  Two panel.hud.inv_only.grid grids (16 cells each) sit inside panel.hud.chat.text_area chrome.
+ *  Drag-drop emits ItemStoreMovePacket; the server validates the whitelist and stack semantics. */
 @Slf4j
 public class PotionStorageWindow {
     public static final int SIZE = 32;
 
-    /** Horizontal gap between the two side-by-side grids inside the dialog. */
     private static final int GRID_GAP_PX = 12;
 
     private boolean visible = false;
     private final GameItem[] items = new GameItem[SIZE];
-    /** Which store this window is showing; echoed in every move (ItemStoreKind.POTION = 0). */
+    // Which store this window shows; echoed in every move (ItemStoreKind.POTION = 0).
     private byte storeKind = 0;
 
     @Setter private RealmManagerClient realmManager;
     @Setter private PlayState playState;
 
-    /** Storage-side drag state. -1 = no drag. Drags from inventory go
-     *  through PlayerUI.executeDrop -> tryAcceptDrop. */
+    // -1 = no storage-side drag. Inventory drags route through PlayerUI.executeDrop -> tryAcceptDrop.
     private int dragStorageIdx = -1;
     private boolean mouseDownPrev = false;
 
@@ -87,11 +67,7 @@ public class PotionStorageWindow {
     public byte getStoreKind() { return this.storeKind; }
 
     private static GameItem fromNet(NetGameItem net) {
-        // Empty slots arrive as `new NetGameItem()` with default fields:
-        // itemId=0, uid="", name="". CANNOT key off itemId because Potion
-        // of Defense is legitimately itemId 0 — uid is empty for empties
-        // and randomly generated for real items, so it's the correct
-        // discriminator here.
+        // Discriminate empties by uid, NOT itemId: Potion of Defense is legitimately itemId 0.
         if (net == null) return null;
         if (net.getUid() == null || net.getUid().isEmpty()) return null;
         final GameItem template = GameDataManager.GAME_ITEMS.get(net.getItemId());
@@ -108,21 +84,12 @@ public class PotionStorageWindow {
             this.hide();
             return;
         }
-        // Storage-internal drag: press starts on a non-empty cell, release
-        // routes the move. Inventory→storage drops are handled by PlayerUI's
-        // executeDrop -> tryAcceptDrop, so we don't intercept those here.
-        //
-        // Guard: if PlayerUI is mid-inventory-drag (user is dragging an item
-        // FROM the inventory bag), don't latch onto a storage cell that
-        // happens to sit under the cursor. Without this guard, an inventory
-        // drag whose first frame lands on a non-empty storage cell would
-        // accidentally start a storage→storage drag at the same time.
+        // Guard against latching a storage cell while PlayerUI is mid-inventory-drag
+        // (that would start a spurious storage->storage drag on the same press).
         final boolean invDragActive = this.playState != null
                 && this.playState.getPui() != null
                 && this.playState.getPui().isDragging();
         final boolean down = Gdx.input.isButtonPressed(Input.Buttons.LEFT);
-        // Close × hit-test on press: clicking the X in the top-right
-        // corner hides the modal, matching the webclient's close button.
         if (down && !this.mouseDownPrev && this.dragStorageIdx < 0 && !invDragActive) {
             final PotionStorageLayout layoutForClose = computeLayout();
             if (layoutForClose != null) {
@@ -181,11 +148,6 @@ public class PotionStorageWindow {
         }
     }
 
-    // ----------------------------------------------------------------------
-    // Layout — entirely atlas-driven. All screen rects derive from UiAtlas
-    // entries; nothing in this section uses hardcoded panel dimensions.
-    // ----------------------------------------------------------------------
-
     private PotionStorageLayout computeLayout() {
         if (!UiAtlas.isReady()) return null;
         final UiComponent text = UiAtlas.componentOf("panel.hud.chat.text_area");
@@ -196,15 +158,11 @@ public class PotionStorageWindow {
 
         final int s = UiAtlas.getDisplayScale();
 
-        // The two grids stand side-by-side. Grid w in screen px:
         final int gridW = grid.getW() * s;
         final int gridH = grid.getH() * s;
 
-        // Dialog has to be at least wide enough for two grids + gap, and
-        // at least tall enough for a header band + the grid. Take the max
-        // of (text_area scaled) and (content needs) so the chrome stretches
-        // when the source rect is smaller than the content.
-        final int contentW = gridW * 2 + GRID_GAP_PX + 32;   // 16 px padding L/R
+        // Stretch chrome to fit two grids + gap when the source rect is smaller than the content.
+        final int contentW = gridW * 2 + GRID_GAP_PX + 32;
         final int headerH  = 28;
         final int contentH = headerH + gridH + 24;
         final int chromeW  = text.getW() * s;
@@ -219,15 +177,11 @@ public class PotionStorageWindow {
         L.dialogW = dialogW;
         L.dialogH = dialogH;
 
-        // Center the two grids horizontally inside the dialog, anchored
-        // below the header band.
         final int gridsTotalW = gridW * 2 + GRID_GAP_PX;
         L.leftGridScreenX  = L.dialogX + (dialogW - gridsTotalW) / 2;
         L.rightGridScreenX = L.leftGridScreenX + gridW + GRID_GAP_PX;
         L.gridScreenY      = L.dialogY + headerH;
 
-        // Grid source origin is the panel's own (x, y). Per-cell rects in
-        // gridCells use these as their base — translated to screen below.
         L.gridSrcX_left = L.gridSrcX_right = grid.getX();
         L.gridSrcY_left = L.gridSrcY_right = grid.getY();
         L.cells = cells;
@@ -260,9 +214,7 @@ public class PotionStorageWindow {
         return -1;
     }
 
-    /** Close-× button rect at the top-right of the header band. Sized to
-     *  fit comfortably inside the 28-px header above the grids. Returns
-     *  {x, y, w, h} in flipped-ortho screen coords. */
+    /** Close-x button rect at the top-right of the header band; {x, y, w, h} in flipped-ortho coords. */
     private int[] closeButtonRect(PotionStorageLayout L) {
         final int w = 18;
         final int h = 18;
@@ -271,9 +223,7 @@ public class PotionStorageWindow {
         return new int[] { x, y, w, h };
     }
 
-    /** Public cell rect lookup for tooltip / external hit-tests. Returns
-     *  {x, y, w, h} for the given storage slot in flipped-ortho screen
-     *  coords, or null when the modal is hidden / atlas not ready. */
+    /** Cell rect {x, y, w, h} for tooltip / external hit-tests, or null when hidden / atlas not ready. */
     public int[] getCellRect(int slot) {
         if (!this.visible || slot < 0 || slot >= SIZE) return null;
         final PotionStorageLayout L = computeLayout();
@@ -300,11 +250,7 @@ public class PotionStorageWindow {
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (!this.visible) return;
         final PotionStorageLayout L = computeLayout();
-        if (L == null) {
-            // Atlas not yet bound — show nothing so we don't paint stale
-            // hardcoded rects on top of the HUD.
-            return;
-        }
+        if (L == null) return;
 
         // Dimmed backdrop.
         batch.end();
@@ -316,8 +262,6 @@ public class PotionStorageWindow {
         shapes.end();
         batch.begin();
 
-        // panel.hud.chat.text_area chrome stretched to dialog dimensions.
-        // The atlas region is already y-flipped by UiAtlas.region().
         final TextureRegion textArea = UiAtlas.region("panel.hud.chat.text_area");
         if (textArea != null) {
             batch.draw(textArea, L.dialogX, L.dialogY, L.dialogW, L.dialogH);
@@ -330,20 +274,13 @@ public class PotionStorageWindow {
             batch.begin();
         }
 
-        // Title in the header band — y=12 (was 20) so the baseline clears
-        // the grids that sit at L.dialogY + 28. At y=20 the descenders
-        // were ducking under the left grid's first cell.
         font.setColor(Color.WHITE);
         font.draw(batch, "POTION STORAGE", L.dialogX + 14, L.dialogY + 14);
 
-        // Close × at top-right corner. Hit-tested in update() via
-        // closeButtonRect(L). Rendered as a single character so font
-        // scaling matches the surrounding header text.
+        // Close-x hit-tested in update() via closeButtonRect(L).
         final int[] xr = closeButtonRect(L);
-        font.draw(batch, "x", xr[0] + 4, L.dialogY + 14);
+        UiRender.drawCenteredIn(batch, font, "x", xr[0], xr[1], xr[2], xr[3]);
 
-        // Render the two grids: blit panel.hud.inv_only.grid chrome under
-        // each, then per-cell content (item sprite + stack badge).
         final TextureRegion gridChrome = UiAtlas.region("panel.hud.inv_only.grid");
         if (gridChrome != null) {
             final int gw = L.gridDef.getW() * L.s;
@@ -352,7 +289,6 @@ public class PotionStorageWindow {
             batch.draw(gridChrome, L.rightGridScreenX, L.gridScreenY, gw, gh);
         }
 
-        // Per-cell content + drag-source dimming.
         for (int i = 0; i < SIZE; i++) {
             final int[] r = cellRectFor(i, L);
             if (r == null) continue;

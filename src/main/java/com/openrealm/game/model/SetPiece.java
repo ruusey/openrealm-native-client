@@ -6,11 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Placement reference for a setpiece within a terrain definition.
- * Points to a {@link SetPieceModel} by ID and carries placement rules
- * (how many instances, which zones).
- */
+// placement reference to a SetPieceModel by id, with count/zone rules
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

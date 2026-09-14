@@ -42,8 +42,7 @@ public class NetLootContainer extends SerializableFieldType<NetLootContainer>{
     private long spawnedTime;
 	@SerializableField(order = 7, type = SerializableBoolean.class)
     private boolean contentsChanged;
-	// Soulbound loot: -1 means public (anyone can see/pickup),
-	// otherwise the playerId this loot is bound to (for client display purposes)
+	// soulboundPlayerId: -1 = public, otherwise the playerId this loot is bound to.
 	@SerializableField(order = 8, type = SerializableLong.class)
     private long soulboundPlayerId;
 	
@@ -53,11 +52,7 @@ public class NetLootContainer extends SerializableFieldType<NetLootContainer>{
 		container.setUid(this.uid);
 		final LootTier resolvedTier = LootTier.valueOf(this.tier);
 		container.setTier(resolvedTier);
-		// Sprite must be set explicitly — the no-arg ctor leaves it null,
-		// and LootContainer.render() early-returns on null sprite, so
-		// without this, non-chest bags from the wire are invisible.
-		// Chests get re-wrapped below via the 3-arg LootContainer ctor
-		// which sets sprite from LootTier.CHEST itself.
+		// Set sprite explicitly or non-chest bags render invisible (chests re-wrapped below).
 		container.setSprite(LootTier.getLootSprite(this.tier));
 		GameItem[] itemsMapped = new GameItem[items.length];
 		for(int i = 0 ; i < items.length ; i++) {
@@ -91,52 +86,5 @@ public class NetLootContainer extends SerializableFieldType<NetLootContainer>{
         }
         return basic && loot && tierMatch;
     }
-   
-    
-//	@Override
-//	public LootContainer read(DataInputStream stream) throws Exception {
-//        final long lootContainerId = stream.readLong();
-//        final String uid = stream.readUTF();
-//        final boolean isChest = stream.readBoolean();
-//        final byte tier = stream.readByte();
-//        final int itemsSize = stream.readInt();
-//        final GameItem[] items = new GameItem[8];
-//        for (int i = 0; i < itemsSize; i++) {
-//            items[i] = new GameItem().read(stream);
-//        }
-//        final float posX = stream.readFloat();
-//        final float posY = stream.readFloat();
-//
-//        final long spawnedTime = stream.readLong();
-//        final boolean contentsChanged = stream.readBoolean();
-//        final LootContainer container = LootContainer.builder().lootContainerId(lootContainerId).tier(LootTier.valueOf(tier))
-//                .uid(uid).items(items).pos(new Vector2f(posX, posY)).spawnedTime(spawnedTime)
-//                .contentsChanged(contentsChanged).sprite(null).build();
-//        if (isChest) {
-//        	final Chest chest = new Chest(container);
-//            chest.setPos(new Vector2f(posX, posY));
-//            return chest;
-//        }
-//        return container;
-//	}
-//
-//	@Override
-//	public void write(LootContainer value, DataOutputStream stream) throws Exception {
-//        stream.writeLong(value.getLootContainerId());
-//        stream.writeUTF(value.getUid());
-//        stream.writeBoolean(value instanceof Chest);
-//        stream.writeByte(value.getTier().tierId);
-//        final GameItem[] toWrite = LootContainer.getCondensedItems(value);
-//        stream.writeInt(toWrite.length);
-//        for (int i = 0; i < toWrite.length; i++) {
-//            toWrite[i].write(stream);
-//        }
-//
-//        stream.writeFloat(value.getPos().x);
-//        stream.writeFloat(value.getPos().y);
-//        stream.writeLong(value.getSpawnedTime());
-//        stream.writeBoolean(value.getContentsChanged());
-//		
-//	}
 
 }

@@ -10,11 +10,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * A hand-authored dungeon room loaded from dungeon-rooms.json. Tile layers
- * mirror {@link SetPieceModel} ("0" = base, "1" = collision; tileId 0 = void).
- * The client only reads the dimensions; assembly happens server-side.
- */
+/** Dungeon room from dungeon-rooms.json. Layer keys: "0" = base, "1" = collision; tileId 0 = void. */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

@@ -33,19 +33,14 @@ public class PacketCompression {
         return (byte) (packetId | COMPRESSION_FLAG);
     }
 
-    /**
-     * Compress a serialized frame. Returns the original frame if below threshold
-     * or if compression doesn't save space.
-     */
+    // Returns the original frame unchanged if below threshold or if compression doesn't shrink it.
     public static byte[] compressFrame(byte[] frame) {
         if (frame.length <= COMPRESSION_THRESHOLD + 5) {
             return frame;
         }
-        // Extract header parts
         byte packetId = frame[0];
         int payloadLen = frame.length - 5;
 
-        // Compress just the payload
         Deflater deflater = DEFLATER.get();
         deflater.reset();
         deflater.setInput(frame, 5, payloadLen);
@@ -59,13 +54,12 @@ public class PacketCompression {
         }
         byte[] compressed = baos.toByteArray();
 
-        // Only use compression if it actually saves space
         if (compressed.length >= payloadLen) {
             return frame;
         }
 
-        // Build compressed frame: [packetId | 0x80][4-byte total length][4-byte original payload size][compressed payload]
-        int compressedFrameLen = 5 + 4 + compressed.length; // header + original size + compressed data
+        // Compressed frame: [packetId|0x80][4-byte total length][4-byte original payload size][compressed payload]
+        int compressedFrameLen = 5 + 4 + compressed.length;
         byte[] result = new byte[compressedFrameLen];
         result[0] = markCompressed(packetId);
         int totalLen = compressedFrameLen;
@@ -73,7 +67,7 @@ public class PacketCompression {
         result[2] = (byte) ((totalLen >> 16) & 0xFF);
         result[3] = (byte) ((totalLen >> 8) & 0xFF);
         result[4] = (byte) (totalLen & 0xFF);
-        // Original payload size (for inflate buffer allocation)
+        // Original payload size, used to size the inflate buffer.
         result[5] = (byte) ((payloadLen >> 24) & 0xFF);
         result[6] = (byte) ((payloadLen >> 16) & 0xFF);
         result[7] = (byte) ((payloadLen >> 8) & 0xFF);
@@ -82,13 +76,8 @@ public class PacketCompression {
         return result;
     }
 
-    /**
-     * Decompress a payload from a compressed packet.
-     * @param compressedPayload the bytes after the 5-byte header
-     * @return the original uncompressed payload
-     */
+    // compressedPayload = bytes after the 5-byte header; first 4 bytes are the original payload size.
     public static byte[] decompressPayload(byte[] compressedPayload) throws Exception {
-        // First 4 bytes are original payload size
         int originalSize = ((compressedPayload[0] & 0xFF) << 24)
                          | ((compressedPayload[1] & 0xFF) << 16)
                          | ((compressedPayload[2] & 0xFF) << 8)

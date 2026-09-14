@@ -66,7 +66,6 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 	@SerializableField(order = 17, type = SerializableByte.class)
 	private byte forgeSlotId;
 	private List<NetEnchantment> enchantments;
-	// Appended fields (wire layout extended for rarity + modifiers + gem template).
 	private byte rarity;
 	private List<NetAttributeModifier> attributeModifiers;
 	private byte gemstoneType;
@@ -96,8 +95,7 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		return new String(bytes, StandardCharsets.UTF_8);
 	}
 
-	/** Hand-coded write bypassing IOService reflection. Wire layout MUST match
-	 *  the server's NetGameItem.write byte-for-byte or inventory packets desync. */
+	// Wire layout MUST match server NetGameItem.write byte-for-byte or inventory packets desync.
 	@Override
 	public int write(NetGameItem value, DataOutputStream stream) throws Exception {
 		final NetGameItem v = (value == null ? new NetGameItem() : value);
@@ -138,7 +136,6 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		return written;
 	}
 
-	/** Hand-coded read bypassing IOService reflection */
 	@Override
 	public NetGameItem read(DataInputStream stream) throws Exception {
 		final NetGameItem item = new NetGameItem();
@@ -186,12 +183,6 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 		item.setDescription(this.description);
 		item.setStats(IOService.mapModel(this.stats, Stats.class));
 		item.setDamage(IOService.mapModel(this.damage, Damage.class));
-		// Was mistakenly mapping `this.stats` to Effect.class (copy-paste
-		// of the line above). For trade-overlay partner items + any
-		// item that ships through asGameItem, this dropped the
-		// projectile/on-hit effect entirely (status effects, applyDamage
-		// etc) — and on the receiving side the item rendered as if it
-		// had no special behavior.
 		item.setEffect(IOService.mapModel(this.effect, Effect.class));
 		item.setConsumable(this.consumable);
 		item.setTier(this.tier);

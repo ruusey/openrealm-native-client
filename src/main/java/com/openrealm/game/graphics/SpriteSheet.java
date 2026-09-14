@@ -25,12 +25,7 @@ import com.badlogic.gdx.Gdx;
 public class SpriteSheet {
     private Texture spriteSheetTexture;
     private int animationFrame = 0;
-    // Wall-clock animation accumulator. Incremented in animate() by
-    // dt * 60 so that animationFrames durations (originally tuned in
-    // 60-FPS frame counts) advance at the same wall-clock rate
-    // regardless of render fps. At 144 fps the per-frame increment
-    // is ~0.417 instead of 1, so a "duration 6" frame still takes
-    // ~100 ms instead of running 2.4× too fast.
+    // Wall-clock accumulator: animate() adds dt*60 so 60-FPS-tuned durations advance fps-independently.
     private float elapsedFrames = 0f;
     private TextureRegion[][] spriteSheetRegions;
     private List<Sprite> sprites;
@@ -52,9 +47,7 @@ public class SpriteSheet {
         this.spriteSheetTexture = texture;
         this.sprites = new ArrayList<>();
         if (texture == null) {
-            // Stay alive in a degraded state — the renderer skips frames that
-            // come back null, so a missing sheet shows blank tiles instead of
-            // crashing the whole client. Caller already logged the cause.
+            // Missing sheet renders blank rather than crashing; renderer skips null frames.
             this.spriteSheetRegions = new TextureRegion[0][0];
             return;
         }
@@ -145,8 +138,6 @@ public class SpriteSheet {
         if (this.spriteSheetRegions == null
                 || y >= this.spriteSheetRegions.length
                 || x >= (this.spriteSheetRegions.length == 0 ? 0 : this.spriteSheetRegions[0].length)) {
-            // Texture missing or out-of-range — return an empty Sprite so the
-            // caller's null-check on getRegion() short-circuits cleanly.
             return new Sprite();
         }
         return new Sprite(this.spriteSheetRegions[y][x]);
@@ -187,11 +178,7 @@ public class SpriteSheet {
                 }
             }
         }
-        // Advance by wall-clock time scaled to a 60-FPS reference. dt here
-        // is the LibGDX frame delta (capped at 1/30 to avoid huge jumps
-        // after a paused window). At 60 FPS this contributes ~1.0 per frame
-        // (matching legacy behavior); at 144 FPS it's ~0.417 per frame so
-        // animations no longer play 2.4× too fast.
+        // dt capped at 1/30 so a paused window doesn't jump the animation.
         float dt = Gdx.graphics != null
                 ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
                 : 1f / 60f;
@@ -271,10 +258,8 @@ public class SpriteSheet {
             List<Integer> durations = entry.getValue();
             boolean isAttack = name.startsWith("attack_");
             boolean isIdle = name.startsWith("idle_");
-            if (isIdle) continue; // idle durations stay at 999
+            if (isIdle) continue;
 
-            // Base duration at stat=0 is 12 frames, at stat=75 is 3 frames
-            // Linear interpolation: duration = max(3, 12 - stat * 0.12)
             float stat = isAttack ? dexterity : speed;
             int dur = Math.max(3, Math.round(12.0f - stat * 0.12f));
             for (int i = 0; i < durations.size(); i++) {
@@ -285,10 +270,7 @@ public class SpriteSheet {
 
     public TextureRegion getCurrentFrame() {
         if (this.sprites == null || this.sprites.isEmpty()) return null;
-        // Bounds-check the frame index — Entity.update now drives this
-        // directly from animFrame % frameCount, but a setAnimSet() swap
-        // can shrink the frame list mid-cycle, leaving the index past
-        // the end for one render frame. Clamp instead of crashing.
+        // A setAnimSet() swap can shrink the list mid-cycle, so clamp the index.
         int idx = this.animationFrame;
         if (idx < 0 || idx >= this.sprites.size()) idx = 0;
         Sprite sprite = this.sprites.get(idx);
@@ -297,8 +279,6 @@ public class SpriteSheet {
         return null;
     }
 
-    /** Number of frames in the current animation set. Used by the web-
-     *  parity walk cycle in Entity.update to mod animFrame correctly. */
     public int getFrameCount() {
         return this.sprites != null ? this.sprites.size() : 0;
     }

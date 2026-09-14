@@ -12,13 +12,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Server -> Client: acknowledges the last processed input sequence and sends
- * the server's authoritative position. The client uses this to reconcile
- * its predicted position by replaying unacknowledged inputs from the
- * server's position. Sent every tick for the local player only.
- * Total wire size: 5 (header) + 4 (seq) + 4 (posX) + 4 (posY) = 17 bytes.
- */
+// Acks last-processed input seq + authoritative position for client reconciliation.
+// Wire size: 5 (header) + 4 (seq) + 4 (posX) + 4 (posY) = 17 bytes.
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable

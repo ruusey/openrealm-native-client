@@ -28,16 +28,10 @@ public class PlayerAccountDto extends TemporalDto {
     private String accountUuid;
     private String accountName;
 
-    // Lifetime fame banked from dead characters. Mirrors the field on the data
-    // service's PlayerAccountDto so this DTO round-trips through the data API
-    // without dropping it on the floor. Server doesn't write this directly —
-    // banking happens in the data service when characters are deleted with
-    // the bankFame flag (see RealmManagerServer.playerDeath).
+    // Lifetime fame banked by the data service on character delete (bankFame flag), not written by the server.
     private Long accountFame;
 
     private List<ChestDto> playerVault;
-    // Potion-storage containers (32 slots each, stackables + gems only).
-    // Mirrors the server / data-service DTO so this round-trips correctly.
     private List<ChestDto> playerPotionStorage;
     private List<CharacterDto> characters;
 }

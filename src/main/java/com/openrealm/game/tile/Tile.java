@@ -12,23 +12,23 @@ import com.openrealm.game.contants.GlobalConstants;
 @Data
 @NoArgsConstructor
 public class Tile {
-	private short tileId;
-	private short row;
-	private short col;
-	private short tileSize = (short) GlobalConstants.BASE_TILE_SIZE;
-	// Pack collision/slows/damaging/isWall/noBlend into a single byte to eliminate
-	// the TileData object per tile. This byte is in-memory only (NetTile carries
-	// just tileId); flags are rebuilt from the tile definition on mergeMap.
-	// Bit 0 = collision, bit 1 = slows, bit 2 = damaging, bit 3 = isWall, bit 4 = noBlend
-	private byte flags;
-
-	// Shared TileData instances — 32 possible flag combinations (5 bits)
+	// flags bit-packing: bit0=collision, bit1=slows, bit2=damaging, bit3=isWall,
+	// bit4=noBlend. In-memory only (NetTile carries just tileId); rebuilt on mergeMap.
 	private static final TileData[] SHARED_DATA = new TileData[32];
+	// Whole-pixel offset (= 2 screen px at WORLD_SCALE); a sub-pixel one thins the fringe to nothing.
+	private static final float OUTLINE_OFFSET = 1f;
+	private static final float OUTLINE_ALPHA = 0.85f;
 	static {
 		for (int i = 0; i < 32; i++) {
 			SHARED_DATA[i] = new TileData((byte)(i & 1), (byte)((i >> 1) & 1), (byte)((i >> 2) & 1), (byte)((i >> 3) & 1), (byte)((i >> 4) & 1));
 		}
 	}
+
+	private short tileId;
+	private short row;
+	private short col;
+	private short tileSize = (short) GlobalConstants.BASE_TILE_SIZE;
+	private byte flags;
 
 	public Tile(short tileId, Vector2f pos, TileData data, short size, boolean discovered) {
 		this.tileId = tileId;
@@ -108,14 +108,7 @@ public class Tile {
 		}
 	}
 
-	// Dark outline for collision-layer tiles: four tinted copies of the
-	// sprite offset by 1 world px (= 2 screen px at WORLD_SCALE) behind the
-	// main draw, matching the webclient's addSpriteWithOutline. A whole-pixel
-	// offset keeps the fringe from thinning into invisibility the way a
-	// sub-pixel one does. Caller draws the real sprite on top afterwards.
-	private static final float OUTLINE_OFFSET = 1f;
-	private static final float OUTLINE_ALPHA = 0.85f;
-
+	// Caller draws the real sprite on top after this.
 	public void renderOutline(SpriteBatch batch) {
 		TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) this.tileId);
 		if (region == null) return;
@@ -134,11 +127,8 @@ public class Tile {
 		batch.setPackedColor(prev);
 	}
 
-	/** Bottom silhouette outline drawn ON TOP (after the wall re-stamp). The
-	 *  in-place renderOutline bottom copy is covered by the opaque tile in the
-	 *  row below, so re-stamp it here: a dark copy of the sprite offset DOWN,
-	 *  then the body on top, leaving only the bottom fringe of the VISIBLE
-	 *  pixels dark — a real silhouette outline, not a full-cell bar. */
+	// Re-stamped after the wall pass: the renderOutline bottom copy is covered by
+	// the tile in the row below, so draw a dark copy offset down then the body on top.
 	public void renderBottomOutline(SpriteBatch batch) {
 		TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) this.tileId);
 		if (region == null) return;

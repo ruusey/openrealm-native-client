@@ -2,7 +2,6 @@ package com.openrealm.game.ui;
 
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.data.GameDataManager;
@@ -24,6 +23,9 @@ public class FillBars {
     private Color bgColor;
     private Color fgColor;
 
+    private float cachedEnergy = 0f;
+    private String cachedValueText = "";
+
     public FillBars(Player e, Vector2f pos, int barWidth, int barHeight, String field, Color bgColor, Color fgColor) {
         this.e = e;
         this.pos = pos;
@@ -33,9 +35,6 @@ public class FillBars {
         this.bgColor = bgColor;
         this.fgColor = fgColor;
     }
-
-    private float cachedEnergy = 0f;
-    private String cachedValueText = "";
 
     private void updateValues() {
         try {
@@ -63,43 +62,38 @@ public class FillBars {
         }
     }
 
-    /** Render bar shapes. Call while ShapeRenderer is active. */
-    public void renderShapes(ShapeRenderer shapes) {
-        this.updateValues();
+    private void drawBarShapes(ShapeRenderer shapes) {
         shapes.setColor(this.bgColor);
         shapes.rect(this.pos.x, this.pos.y, this.barWidth, this.barHeight);
         shapes.setColor(this.fgColor);
         shapes.rect(this.pos.x, this.pos.y, this.barWidth * this.cachedEnergy, this.barHeight);
     }
 
+    private void drawBarText(SpriteBatch batch, BitmapFont font) {
+        if (this.cachedValueText.isEmpty()) return;
+        font.setColor(Color.WHITE);
+        UiRender.drawCenteredIn(batch, font, this.cachedValueText,
+                this.pos.x, this.pos.y, this.barWidth, this.barHeight);
+    }
+
+    /** Render bar shapes. Call while ShapeRenderer is active. */
+    public void renderShapes(ShapeRenderer shapes) {
+        this.updateValues();
+        this.drawBarShapes(shapes);
+    }
+
     /** Render bar text. Call while SpriteBatch is active. */
     public void renderText(SpriteBatch batch, BitmapFont font) {
-        if (!this.cachedValueText.isEmpty()) {
-            font.setColor(Color.WHITE);
-            GlyphLayout layout = new GlyphLayout(font, this.cachedValueText);
-            float textX = this.pos.x + (this.barWidth - layout.width) / 2f;
-            float textY = this.pos.y + (this.barHeight - layout.height) / 2f;
-            font.draw(batch, this.cachedValueText, textX, textY);
-        }
+        this.drawBarText(batch, font);
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         this.updateValues();
         batch.end();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(this.bgColor);
-        shapes.rect(this.pos.x, this.pos.y, this.barWidth, this.barHeight);
-        shapes.setColor(this.fgColor);
-        shapes.rect(this.pos.x, this.pos.y, this.barWidth * this.cachedEnergy, this.barHeight);
+        this.drawBarShapes(shapes);
         shapes.end();
         batch.begin();
-
-        if (!this.cachedValueText.isEmpty()) {
-            font.setColor(Color.WHITE);
-            GlyphLayout layout = new GlyphLayout(font, this.cachedValueText);
-            float textX = this.pos.x + (this.barWidth - layout.width) / 2f;
-            float textY = this.pos.y + (this.barHeight - layout.height) / 2f;
-            font.draw(batch, this.cachedValueText, textX, textY);
-        }
+        this.drawBarText(batch, font);
     }
 }

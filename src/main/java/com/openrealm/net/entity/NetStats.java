@@ -46,7 +46,7 @@ public class NetStats extends SerializableFieldType<NetStats> {
 		this.wis = 0;
 	}
 
-	/** Hand-coded write: 18 bytes (1 int + 7 shorts), bypasses reflection */
+	// Wire: 18 bytes (1 int + 7 shorts).
 	@Override
 	public int write(NetStats value, DataOutputStream stream) throws Exception {
 		final NetStats v = value == null ? new NetStats() : value;
@@ -61,7 +61,6 @@ public class NetStats extends SerializableFieldType<NetStats> {
 		return 18;
 	}
 
-	/** Hand-coded read: 18 bytes, bypasses reflection */
 	@Override
 	public NetStats read(DataInputStream stream) throws Exception {
 		return new NetStats(

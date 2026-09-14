@@ -17,34 +17,24 @@ import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.ability.PassiveAbility;
 
-/**
- * Hover tooltip for the class-passive cell (slot 0 in the hotbar). Mirror
- * of the webclient's _buildAbilityTooltipHTML when kind === 'passive':
- * name, "Class Passive - always on" subtitle, description with live
- * {STAT}/{STAT/N}/{STAT*N}/{STAT+N}/{STAT-N} substitution against the
- * viewer's current stats.
- *
- * Kept structurally parallel to {@link AbilityTooltip} (same chrome,
- * same per-line rendering loop) so the two surfaces feel identical on
- * screen even though their content differs.
- */
 public class PassiveTooltip {
 
     private final PassiveAbility passive;
     private final Stats viewerStats;
     private final Vector2f pos;
     private final int width;
+    /** When true, {@code pos} is the anchor's BOTTOM edge and the box floats above it. */
+    private boolean anchorAbove;
 
     private static final int PADDING = 8;
     private static final int LINE_HEIGHT = 18;
     private static final Color BG_COLOR     = new Color(0.12f, 0.12f, 0.15f, 0.95f);
     private static final Color BORDER_COLOR = new Color(0.4f,  0.4f,  0.5f,  1f);
-    private static final Color NAME_COLOR   = new Color(0.85f, 0.85f, 1f,    1f); // pale blue tint distinguishes passive from active
+    private static final Color NAME_COLOR   = new Color(0.85f, 0.85f, 1f,    1f);
     private static final Color SUB_COLOR    = new Color(0.78f, 0.66f, 0.43f, 1f);
     private static final Color DESC_COLOR   = new Color(0.85f, 0.85f, 0.85f, 1f);
 
-    // Same syntax as webclient ui-widgets._substituteStatTemplates:
-    //   {STAT}, {STAT/N}, {STAT*N}, {STAT+N}, {STAT-N}.
+    // Template syntax: {STAT}, {STAT/N}, {STAT*N}, {STAT+N}, {STAT-N}.
     private static final Pattern STAT_TEMPLATE =
             Pattern.compile("\\{([A-Za-z]{2,3})\\s*(?:([/*+\\-])\\s*(\\d+))?\\}");
 
@@ -56,6 +46,11 @@ public class PassiveTooltip {
         this.width = width;
     }
 
+    public PassiveTooltip anchorAbove() {
+        this.anchorAbove = true;
+        return this;
+    }
+
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.passive == null) return;
 
@@ -65,9 +60,8 @@ public class PassiveTooltip {
         final int boxH = contentH + PADDING * 2;
         final int boxW = this.width;
 
-        // Clamp on-screen — same logic as AbilityTooltip.
         float bx = this.pos.x;
-        float by = this.pos.y;
+        float by = this.anchorAbove ? this.pos.y - boxH - 6 : this.pos.y;
         if (bx + boxW > OpenRealmGame.width  - 4) bx = OpenRealmGame.width  - 4 - boxW;
         if (bx < 4) bx = 4;
         if (by + boxH > OpenRealmGame.height - 4) by = OpenRealmGame.height - 4 - boxH;
@@ -115,8 +109,7 @@ public class PassiveTooltip {
         return lines;
     }
 
-    /** Live-substitute {STAT} placeholders. Unknown stat names are left
-     *  intact so designer typos remain visible. */
+    /** Unknown stat names are left intact so designer typos stay visible. */
     public static String substituteStatTemplates(String desc, Stats stats) {
         if (desc == null || desc.isEmpty()) return desc;
         if (stats == null) return desc;
@@ -129,7 +122,6 @@ public class PassiveTooltip {
             final Integer raw = lookupStat(stats, statName);
             final String replacement;
             if (raw == null) {
-                // Leave the placeholder so the typo is visible.
                 replacement = Matcher.quoteReplacement(m.group(0));
             } else if (op == null) {
                 replacement = Integer.toString(raw);

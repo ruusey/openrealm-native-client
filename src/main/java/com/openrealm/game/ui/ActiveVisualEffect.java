@@ -8,10 +8,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Client-side visual effect spawned by CreateEffectPacket.
- * Each effect has a type, position, duration, and tracks its own lifecycle.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -23,17 +19,11 @@ public class ActiveVisualEffect {
     private float radius;
     private float targetPosX;
     private float targetPosY;
-    /** Total duration in milliseconds */
     private short duration;
-    /** Casting entity id (mirrors CreateEffectPacket.ownerId). Lets renderers
-     *  attribute an effect to its caster — e.g. tinting a melee swing green while
-     *  the swinger has IMBUED_POISON. */
     private long ownerId;
-    /** Mirrors CreateEffectPacket.tier — recolor sentinel for renderers that
-     *  reuse one effect type across multiple palettes (e.g. assassin tiers
-     *  0-6 stay green, boss-grenade tier=10 paints red). */
+    /** Recolor sentinel for renderers that reuse one effect type across palettes
+     *  (e.g. assassin tiers 0-6 green, boss-grenade tier=10 red). */
     private byte tier;
-    /** Time elapsed in milliseconds */
     @Builder.Default
     private float elapsed = 0f;
     @Builder.Default

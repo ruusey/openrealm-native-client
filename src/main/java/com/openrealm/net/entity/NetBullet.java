@@ -93,24 +93,13 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 	@SerializableField(order = 28, type = SerializableInt.class)
 	private int overrideSpriteHeight;
 
-	// Section-presence bits, packed into a byte after the always-present base +
-	// flags array. Order and bit values MUST match the server + webclient
-	// NetBullet serializers. Absent sections default to 0/empty.
+	// Section-presence bit mask; bit values MUST match server + webclient NetBullet serializers.
 	private static final byte SECT_WAVY   = 0x01;
 	private static final byte SECT_ORBIT  = 0x02;
 	private static final byte SECT_HOMING = 0x04;
 	private static final byte SECT_SPRITE = 0x08;
 	private static final Short[] EMPTY_FLAGS = new Short[0];
 
-	/**
-	 * Hand-rolled construction from a server-side Bullet — bypasses
-	 * ModelMapper reflection. ModelMapper.map() walks all 20 fields via
-	 * reflection per call; with ~200 visible bullets x 11 viewers x 32Hz
-	 * that's 70K reflective maps/sec, which was eating significant CPU
-	 * during ability spam and contributing to the TPS drop.
-	 *
-	 * Direct field copy is 10-100x faster than reflection-based mapping.
-	 */
 	public static NetBullet fromBullet(Bullet b) {
 		final NetBullet n = new NetBullet();
 		n.id = b.getId();
@@ -167,9 +156,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		bullet.setLifetimeTicks(this.lifetimeTicks);
 		bullet.setLength(this.length);
 		bullet.setTargetEntityId(this.targetEntityId);
-		// Per-ability sprite override: when set, build the sprite sheet from the
-		// override sprite instead of the projectile group's own. Motion/rotation
-		// still come from the projectile group in Bullet.render().
+		// Per-ability sprite override: motion/rotation still come from the projectile group.
 		if (this.overrideSpriteKey != null && !this.overrideSpriteKey.isBlank()) {
 			final ProjectileGroup override = new ProjectileGroup();
 			override.setSpriteKey(this.overrideSpriteKey);
@@ -186,9 +173,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 			log.warn("[BULLET] override sprite failed for projectileId={} spriteKey={}",
 					this.projectileId, this.overrideSpriteKey);
 		}
-		// Web-parity sprite resolution: projectileId -> ProjectileGroup -> spriteKey.
-		// Without this, Bullet.render() short-circuits at its null-check and
-		// every projectile is invisible.
+		// Resolve projectileId -> ProjectileGroup -> spriteKey; without a sprite Bullet.render() bails.
 		final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS != null
 				? GameDataManager.PROJECTILE_GROUPS.get(this.projectileId)
 				: null;
@@ -206,11 +191,7 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		return bullet;
 	}
 
-	/**
-	 * Hand-coded conditional write — must byte-match the server + webclient
-	 * NetBullet serializers. Base fields + flags are always present; the
-	 * orbit/wavy/homing/sprite-override groups ride only when non-default.
-	 */
+	// Conditional write MUST byte-match server + webclient NetBullet serializers.
 	@Override
 	public int write(NetBullet value, DataOutputStream stream) throws Exception {
 		final NetBullet v = (value == null) ? new NetBullet() : value;

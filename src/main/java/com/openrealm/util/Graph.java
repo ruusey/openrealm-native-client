@@ -10,16 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class Graph<T> {
 
-	// We use Hashmap to store the edges in the graph
 	private Map<T, List<T>> map = new HashMap<>();
 
-	// This function adds a new vertex to the graph
 	public void addVertex(T s) {
 		map.put(s, new LinkedList<T>());
 	}
 
-	// This function adds the edge
-	// between source to destination
 	public void addEdge(T source, T destination, boolean bidirectional) {
 
 		if (!map.containsKey(source))
@@ -34,12 +30,10 @@ public class Graph<T> {
 		}
 	}
 
-	// This function gives the count of vertices
 	public void getVertexCount() {
 		System.out.println("The graph has " + map.keySet().size() + " vertex");
 	}
 
-	// This function gives the count of edges
 	public void getEdgesCount(boolean bidirection) {
 		int count = 0;
 		for (T v : map.keySet()) {
@@ -51,8 +45,6 @@ public class Graph<T> {
 		System.out.println("The graph has " + count + " edges.");
 	}
 
-	// This function gives whether
-	// a vertex is present or not.
 	public void hasVertex(T s) {
 		if (map.containsKey(s)) {
 			System.out.println("The graph contains " + s + " as a vertex.");
@@ -61,8 +53,6 @@ public class Graph<T> {
 		}
 	}
 
-	// This function gives whether an edge is present or
-	// not.
 	public void hasEdge(T s, T d) {
 		if (map.get(s).contains(d)) {
 			System.out.println("The graph has an edge between " + s + " and " + d + ".");
@@ -79,7 +69,6 @@ public class Graph<T> {
 			System.out.print(w + ",");
 	}
 
-	// Prints the adjancency list of each vertex.
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder();
@@ -95,5 +84,3 @@ public class Graph<T> {
 		return (builder.toString());
 	}
 }
-
-// Driver Code

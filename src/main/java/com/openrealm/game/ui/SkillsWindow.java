@@ -8,30 +8,24 @@ import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
 import com.openrealm.game.OpenRealmGame;
 
-/**
- * Account-wide skills panel (toggled with M). Renders the 9 skills as a 3x3
- * grid; each cell shows the skill name, its derived level (0-99), and a small
- * blue progress bar toward the next level. Hovering the bar shows current XP
- * and the XP remaining until the next level. Read-only.
- */
+/** Read-only account-wide skills panel (toggled with M): 9 skills as a 3x3 grid. */
 public class SkillsWindow {
 
     // Mirrors the server curve (PlayerSkillHelper): totalXp(L) = CURVE_K * L^2.
     private static final long CURVE_K = 510L;
     private static final int MAX_LEVEL = 99;
+    private static final Color TOOLTIP_BG = new Color(0.04f, 0.04f, 0.06f, 0.98f);
 
     private static final String[] SKILL_NAMES = {
         "Ranged Combat", "Melee Combat", "Magic Combat",
         "Heavy Armor", "Light Armor", "Cloak Armor",
         "Support Caster", "Impairment Caster", "DPS Caster"
     };
-    // Description, passive effect, and XP rule per skill (mirrors server PlayerSkillHelper).
     private static final String[] SKILL_DESC = {
         "Damage with ranged (light) weapons.",
         "Damage with melee (heavy) weapons.",
@@ -65,7 +59,6 @@ public class SkillsWindow {
         "15 XP/sec of debuff applied to an enemy",
         "0.5 XP per ability damage dealt"
     };
-    // Per-level bonus rate (percent) + the stat it boosts, for the "current bonus" hover line.
     private static final float[] SKILL_EFFECT_PCT = {
         0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.15f, 0.15f, 0.1f
     };
@@ -75,7 +68,6 @@ public class SkillsWindow {
         "ally buff duration", "enemy debuff duration", "ability damage"
     };
 
-    private final GlyphLayout layout = new GlyphLayout();
     private boolean visible = false;
 
     public boolean isVisible() {
@@ -151,7 +143,6 @@ public class SkillsWindow {
             shapes.setColor(0.16f, 0.14f, 0.18f, 1f);
             shapes.rect(cx, cy, cellW, cellH);
 
-            // Progress bar at the bottom of the cell.
             final long xp = skillXp != null && i < skillXp.length ? skillXp[i] : 0L;
             final int level = levelForXp(xp);
             final long base = totalXpForLevel(level);
@@ -177,7 +168,7 @@ public class SkillsWindow {
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
         font.draw(batch, "SKILLS", x + 14, y + 22);
         font.setColor(0.53f, 0.47f, 0.41f, 1f);
-        font.draw(batch, "Press M or ESC to close", x + dialogW - 190, y + 22);
+        UiRender.drawRightAligned(batch, font, "Press M or ESC to close", x + dialogW - 14, y + 22);
 
         for (int i = 0; i < SKILL_NAMES.length; i++) {
             final int c = i % cols, r = i / cols;
@@ -213,20 +204,14 @@ public class SkillsWindow {
             final float lineH = font.getLineHeight();
             float maxLineW = 0f;
             for (final String l : lines) {
-                this.layout.setText(font, l);
-                if (this.layout.width > maxLineW) maxLineW = this.layout.width;
+                maxLineW = Math.max(maxLineW, UiRender.textWidth(font, l));
             }
             final float tipW = maxLineW + 16;
             final float tipH = lineH * lines.length + 12;
             final float tipX = hoverBarX;
             final float tipY = hoverBarY - tipH - 4;
 
-            batch.end();
-            shapes.begin(ShapeRenderer.ShapeType.Filled);
-            shapes.setColor(0.04f, 0.04f, 0.06f, 0.98f);
-            shapes.rect(tipX, tipY, tipW, tipH);
-            shapes.end();
-            batch.begin();
+            UiRender.fillRect(batch, shapes, tipX, tipY, tipW, tipH, TOOLTIP_BG);
             font.setColor(Color.WHITE);
             for (int li = 0; li < lines.length; li++) {
                 font.draw(batch, lines[li], tipX + 8, tipY + tipH - 8 - li * lineH);

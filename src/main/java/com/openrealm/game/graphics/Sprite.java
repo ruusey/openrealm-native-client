@@ -7,22 +7,20 @@ import lombok.Data;
 @Data
 public class Sprite {
 
-    public TextureRegion region;
-
-    private int w;
-    private int h;
-    private float angleOffset;
-
     public static enum EffectEnum {
         NORMAL, SEPIA, REDISH, GRAYSCALE, NEGATIVE, DECAY, SILHOUETTE, STASIS, CURSED, POISONED, ARMORED, INVINCIBLE, ARMOR_BROKEN,
         STUNNED, BERSERK, DAMAGING, DAZED
     }
 
+    public TextureRegion region;
+
+    private int w;
+    private int h;
+    private float angleOffset;
     private EffectEnum currentEffectEnum = EffectEnum.NORMAL;
 
+    // region stays null when the texture is missing so renderers can null-check.
     public Sprite() {
-        // Empty sprite returned when the underlying texture is missing.
-        // region stays null so renderers can short-circuit with a null-check.
     }
 
     public Sprite(TextureRegion region) {

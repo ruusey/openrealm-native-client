@@ -11,12 +11,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Server -> client acknowledgement that the player can open the Exchange Market
- * UI. Sent in response to InteractTilePacket on a tile whose interactionType ==
- * "exchange_market". The client builds the exchange UI from its local inventory
- * and game-items data; the ExchangeItemsPacket it sends back is authoritative.
- */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable

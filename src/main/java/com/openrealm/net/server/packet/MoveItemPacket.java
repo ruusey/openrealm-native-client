@@ -22,9 +22,8 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 @PacketId(packetId = (byte)12)
 public class MoveItemPacket extends Packet {
-	// Slot-index regions — must match the server's MoveItemPacket EXACTLY (raw
-	// bytes over the wire). Derived from the inventory + loot sizes:
-	//   equipment 0..4, backpack 5..24, ground loot 25..34, potion slots 35/36.
+	// Slot-index regions MUST match the server EXACTLY (raw byte over the wire):
+	// equipment 0..4, backpack 5..24, ground loot 25..34, potion slots 35/36.
 	private static final int BACKPACK_START = Player.EQUIPMENT_SLOT_COUNT;
 	private static final int GROUND_LOOT_START = Player.INVENTORY_SIZE;
 	private static final int GROUND_LOOT_SIZE = 10;

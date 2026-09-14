@@ -6,6 +6,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublisher;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.Collections;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,7 +24,6 @@ import com.openrealm.account.dto.SessionTokenDto;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import java.util.Collections;
 
 @AllArgsConstructor
 @Data
@@ -32,22 +33,13 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
     // and expose public routine specific methods.
     // eg. getPlayerAccount(String accountUuid)
     private static final transient ObjectMapper REQUEST_MAPPER = new ObjectMapper();
-    // WHY: per-request hard cap so a hung HTTP/2 stream or a server that
-    // accepts the TCP connection but never writes a response can't pin a
-    // worker thread (or the GL thread, on legacy paths) indefinitely.
-    private static final java.time.Duration REQ_TIMEOUT = java.time.Duration.ofSeconds(15);
+    // Per-request cap so a hung/never-answering connection can't pin a thread indefinitely.
+    private static final Duration REQ_TIMEOUT = Duration.ofSeconds(15);
     private HttpClient httpClient;
     private String baseUrl;
     private String sessionToken;
 
-    /**
-     * Log the elapsed time for a single REST round-trip. Format chosen so log
-     * lines can be grep'd downstream (e.g. <code>grep '\[DATA-CALL\]' app.log
-     * | sort -k? -n</code>) and so the client-side and server-side numbers
-     * line up — the data service uses the same prefix in its request filter.
-     * Slow calls (&gt;250 ms) escalate to WARN so they stand out without
-     * needing to scan INFO output.
-     */
+    // [DATA-CALL] prefix matches the data service request filter for cross-log grep. Slow (>250ms) -> WARN.
     private static void logTiming(String method, String path, int status, long startNanos) {
         final long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
         if (elapsedMs >= 250) {
@@ -164,12 +156,9 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         }
     }
 
-    // ----- High-level account API (mirrors webclient/js/api.js) -----
-    // These wrappers exist so the UI layer never has to assemble path strings
-    // or DTOs by hand. Keeping the contract here also makes it easy to spot
-    // drift from the web client's API surface during regressions.
+    // High-level account API (mirrors webclient/js/api.js).
 
-    /** POST /admin/account/login — sets sessionToken on success. */
+    /** POST /admin/account/login - sets sessionToken on success. */
     public SessionTokenDto login(String email, String password) throws Exception {
         SessionTokenDto resp = this.executePost("/admin/account/login",
                 new LoginRequestDto(email, password), SessionTokenDto.class);
@@ -177,28 +166,28 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         return resp;
     }
 
-    /** GET /admin/account/token/resolve — returns the auth'd account. */
+    /** GET /admin/account/token/resolve - returns the auth'd account. */
     public AccountDto getMyAccount() throws Exception {
         return this.executeGet("/admin/account/token/resolve", null, AccountDto.class);
     }
 
-    /** GET /data/account/{accountUuid} — full PlayerAccountDto with characters + chests. */
+    /** GET /data/account/{accountUuid} - full PlayerAccountDto with characters + chests. */
     public PlayerAccountDto getAccount(String accountGuid) throws Exception {
         return this.executeGet("/data/account/" + accountGuid, null, PlayerAccountDto.class);
     }
 
-    /** GET /admin/account/terms — true when the auth'd account must (re)accept the current Terms version. */
+    /** GET /admin/account/terms - true when the auth'd account must (re)accept the current Terms version. */
     public boolean needsTermsAcceptance() throws Exception {
         final Map<?, ?> body = this.executeGet("/admin/account/terms", null, Map.class);
         return Boolean.TRUE.equals(body.get("needsAcceptance"));
     }
 
-    /** POST /admin/account/terms/accept — stamp the auth'd account as accepting the current Terms version. */
+    /** POST /admin/account/terms/accept - stamp the auth'd account as accepting the current Terms version. */
     public void acceptTerms() throws Exception {
         this.executePost("/admin/account/terms/accept", Collections.emptyMap(), Map.class);
     }
 
-    /** POST /admin/account/register — guest creates DEMO account; otherwise standard PLAYER. */
+    /** POST /admin/account/register - guest creates DEMO account; otherwise standard PLAYER. */
     public AccountDto register(String email, String password, String accountName, boolean guest) throws Exception {
         AccountDto body = AccountDto.builder()
                 .email(email)
@@ -211,29 +200,29 @@ public class OpenRealmClientDataService implements OpenRealmDataService{
         return this.executePost("/admin/account/register", body, AccountDto.class);
     }
 
-    /** POST /data/account/{accountUuid}/character?classId={classId} — server picks UUID. */
+    /** POST /data/account/{accountUuid}/character?classId={classId} - server picks UUID. */
     public JsonNode createCharacter(String accountUuid, int classId) throws Exception {
         return this.executePost(
                 "/data/account/" + accountUuid + "/character?classId=" + classId, null, JsonNode.class);
     }
 
-    /** DELETE /data/account/character/{characterUuid} — soft-delete (sets `deleted` for graveyard). */
+    /** DELETE /data/account/character/{characterUuid} - soft-delete (sets `deleted` for graveyard). */
     public JsonNode deleteCharacter(String characterUuid) throws Exception {
         return this.executeDelete("/data/account/character/" + characterUuid, JsonNode.class);
     }
 
-    /** GET /data/account/character/{characterUuid}/metrics — lifetime stats report (owner-or-admin). */
+    /** GET /data/account/character/{characterUuid}/metrics - lifetime stats report (owner-or-admin). */
     public CharacterMetricsDto getCharacterMetrics(String characterUuid) throws Exception {
         return this.executeGet(
                 "/data/account/character/" + characterUuid + "/metrics", null, CharacterMetricsDto.class);
     }
 
-    /** POST /data/account/{accountUuid}/chest/new — appends a chest, capped server-side. */
+    /** POST /data/account/{accountUuid}/chest/new - appends a chest, capped server-side. */
     public JsonNode createChest(String accountUuid) throws Exception {
         return this.executePost("/data/account/" + accountUuid + "/chest/new", null, JsonNode.class);
     }
 
-    /** POST /admin/account/password — server uses bearer-token caller id, body is just the passwords. */
+    /** POST /admin/account/password - server uses bearer-token caller id, body is just the passwords. */
     public JsonNode changePassword(String currentPassword, String newPassword) throws Exception {
         ObjectNode body = new ObjectNode(JsonNodeFactory.instance);
         body.put("currentPassword", currentPassword);

@@ -45,12 +45,11 @@ public class AttackPattern {
     @Builder.Default
     private int sourceNoise = 0;
 
-    // Spiral: angle added to base angle each time this attack fires (accumulates over firings)
+    // Accumulates across firings (spiral).
     @Builder.Default
     @JsonDeserialize(using = RadianAngleDeserializer.class)
     private float angleIncrementPerFiring = 0f;
 
-    // Speed stacking: fire multiple bullets at same angle with different speeds
     @Builder.Default
     private int speedCount = 1;
     @Builder.Default

@@ -23,9 +23,9 @@ public class CharacterClassModel {
     private Stats baseStats;
     private Stats maxStats;
     private Map<Integer, Integer> startingEquipment;
-    /** Phase 1B bridge: itemId of the class's bound ability (mirrors server). */
+    /** itemId of the class's bound ability. */
     private int classAbilityId;
-    /** Phase 2A: 4-active + 1-passive kit reference (mirrors server). May be null. */
+    /** May be null. */
     private AbilityTree abilityTree;
 
     public Stats getRandomLevelUpStats() {
@@ -52,8 +52,7 @@ public class CharacterClassModel {
         int vitRange = (difference.getVit() / expModel.maxLevel()) + 1;
         if (vitRange < 0)
             vitRange = 1;
-        // Guarantee at least 1/3 of each range as a minimum gain per level,
-        // so players never get a "dead" level-up with +0 to important stats.
+        // Floor each gain at 1/3 of its range so no level-up rolls +0.
         int randomHp = hpRange / 3 + Realm.RANDOM.nextInt(hpRange - hpRange / 3 + 1);
         int randomMp = mpRange / 3 + Realm.RANDOM.nextInt(mpRange - mpRange / 3 + 1);
         int randomSpd = Math.max(1, spdRange / 3) + Realm.RANDOM.nextInt(Math.max(1, spdRange - spdRange / 3));
@@ -62,7 +61,7 @@ public class CharacterClassModel {
         int randomWis = Math.max(1, wisRange / 3) + Realm.RANDOM.nextInt(Math.max(1, wisRange - wisRange / 3));
         int randomVit = Math.max(1, vitRange / 3) + Realm.RANDOM.nextInt(Math.max(1, vitRange - vitRange / 3));
 
-        // Return a random stat increase with the defense always being 0
+        // Defense stays 0.
         return new Stats((short) randomHp, (short) randomMp, (short) 0, (short) randomStr, (short) randomSpd,
                 (short) randomDex, (short) randomVit, (short) randomWis);
     }

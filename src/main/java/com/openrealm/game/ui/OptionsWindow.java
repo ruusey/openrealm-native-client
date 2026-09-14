@@ -11,19 +11,24 @@ import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.Settings;
 
 /**
- * In-game options menu modeled after the web client's settings drawer.
- *
- * Three tabs: Graphics / Controls / Audio. Settings are mutated against the
- * shared {@link Settings} singleton; closing the window persists to disk.
- *
- * The "Controls" tab supports keybind rebinding: click a binding row to enter
- * "listening" mode, press a key to assign it. ESC cancels the bind.
- *
- * This is a self-contained imperative UI — no Scene2D — to match the rest of
- * the native client's rendering style.
+ * In-game options menu: Graphics / Controls / Audio tabs against the shared
+ * {@link Settings} singleton. Controls-tab rows rebind on click (ESC cancels).
  */
 public class OptionsWindow {
     public enum Tab { GRAPHICS, CONTROLS, AUDIO }
+
+    private static final String[] BINDABLE_ACTIONS = {
+        "moveUp", "moveDown", "moveLeft", "moveRight",
+        "rotateLeft", "rotateRight", "toggleChat",
+        "lootPickup", "usePortal", "goNexus", "chat",
+        "skillsMenu", "metricsMenu"
+    };
+
+    private static final String[] GRAPHICS_ROWS = {
+        "renderOtherPlayers", "showPlayerNames", "showStatusBubbles", "showChatBubbles",
+        "showDamageNumbers", "playAbilityAnimations", "spriteStroke", "lootBagPreview",
+        "hideOtherPlayerBullets", "hideAllyEffects", "showRealmTransition"
+    };
 
     private boolean visible = false;
     private Tab activeTab = Tab.GRAPHICS;
@@ -31,17 +36,8 @@ public class OptionsWindow {
     /** When non-null, the next key press is captured and bound to this action. */
     private String pendingBindAction = null;
 
-    /** Mouse coordinates from the last update, in screen-space (LibGDX origin = bottom-left). */
     private int mouseX, mouseY;
     private boolean mouseDown, mouseDownPrev;
-
-    /** Action list shown in the Controls tab. Order matches display order. */
-    private static final String[] BINDABLE_ACTIONS = {
-        "moveUp", "moveDown", "moveLeft", "moveRight",
-        "rotateLeft", "rotateRight", "toggleChat",
-        "lootPickup", "usePortal", "goNexus", "chat",
-        "skillsMenu", "metricsMenu"
-    };
 
     public boolean isVisible() {
         return this.visible;
@@ -55,7 +51,6 @@ public class OptionsWindow {
     public void hide() {
         this.visible = false;
         this.pendingBindAction = null;
-        // Persist on close so a crash mid-session doesn't lose user changes.
         Settings.get().save();
     }
 
@@ -64,10 +59,6 @@ public class OptionsWindow {
         else this.show();
     }
 
-    /**
-     * Called every frame from the game loop. Captures keypresses while a
-     * rebind is pending and updates mouse-derived state for the next render.
-     */
     public void update() {
         if (!this.visible) return;
 
@@ -77,12 +68,10 @@ public class OptionsWindow {
         this.mouseDown = Gdx.input.isButtonPressed(Input.Buttons.LEFT);
 
         if (this.pendingBindAction != null) {
-            // ESC cancels the rebind without changing the binding.
             if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
                 this.pendingBindAction = null;
                 return;
             }
-            // Capture the first non-modifier key that's just been pressed.
             for (int code = 0; code < 256; code++) {
                 if (Gdx.input.isKeyJustPressed(code) && code != Input.Keys.ESCAPE) {
                     Settings.get().setKeybind(this.pendingBindAction, code);
@@ -134,12 +123,10 @@ public class OptionsWindow {
 
         font.setColor(Color.WHITE);
         for (int i = 0; i < 3; i++) {
-            Tab t = Tab.values()[i];
-            String label = t.name();
-            font.draw(batch, label, x + i * tabW + 16, tabY + tabH - 10);
+            UiRender.drawCenteredIn(batch, font, Tab.values()[i].name(),
+                    x + i * tabW, tabY, tabW, tabH);
         }
 
-        // Tab body
         int bodyX = x + 16;
         int bodyY = tabY - 24;
         int lineH = 22;
@@ -149,7 +136,6 @@ public class OptionsWindow {
             case AUDIO:    this.renderAudioTab(batch, font, bodyX, bodyY, lineH); break;
         }
 
-        // Footer
         font.setColor(Color.LIGHT_GRAY);
         font.draw(batch, "Press Esc to close", x + 16, y + 18);
 
@@ -158,15 +144,6 @@ public class OptionsWindow {
             this.handleClick(x, y, dialogW, dialogH, tabW, tabH, tabY, bodyX, bodyY, lineH);
         }
     }
-
-    /** Graphics checkbox rows, in display order. Each renders as a checkbox and
-     *  toggles on click (see the row switch in handleClick). Wall detail is the
-     *  one cycle row and sits last. */
-    private static final String[] GRAPHICS_ROWS = {
-        "renderOtherPlayers", "showPlayerNames", "showStatusBubbles", "showChatBubbles",
-        "showDamageNumbers", "playAbilityAnimations", "spriteStroke", "lootBagPreview",
-        "hideOtherPlayerBullets", "hideAllyEffects", "showRealmTransition"
-    };
 
     private static String graphicsLabel(String key) {
         switch (key) {
@@ -219,7 +196,6 @@ public class OptionsWindow {
         }
     }
 
-    /** Friendly labels for the controls tab. */
     private static String controlLabel(String action) {
         switch (action) {
             case "moveUp":      return "Move Up";
@@ -274,7 +250,6 @@ public class OptionsWindow {
 
     private void handleClick(int x, int y, int dialogW, int dialogH, int tabW, int tabH, int tabY,
                              int bodyX, int bodyY, int lineH) {
-        // Tab strip click
         if (this.mouseY >= tabY && this.mouseY <= tabY + tabH
                 && this.mouseX >= x && this.mouseX <= x + dialogW) {
             int idx = (this.mouseX - x) / tabW;
@@ -315,8 +290,7 @@ public class OptionsWindow {
     }
 
     private static float clamp01(float v) {
-        // Wrap audio sliders so a click on a maxed slider drops to zero,
-        // letting the user cycle through values without a separate slider UI.
+        // Wraps a maxed audio slider back to zero so a click cycles values.
         if (v > 1.001f) return 0f;
         return Math.max(0f, Math.min(1f, v));
     }

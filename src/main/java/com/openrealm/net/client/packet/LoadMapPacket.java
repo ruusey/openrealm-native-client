@@ -29,8 +29,7 @@ public class LoadMapPacket extends Packet {
     private long realmId;
 	@SerializableField(order = 1, type = SerializableShort.class)
     private short mapId;
-	// -1 for static/terrain maps; the dungeon id when the realm is an assembled
-	// dungeon, so the client resolves its grid dimensions from DUNGEONS instead.
+	// -1 for static/terrain maps; else the dungeon id (client resolves grid dims from DUNGEONS).
 	@SerializableField(order = 2, type = SerializableShort.class)
     private short dungeonId;
 	@SerializableField(order = 3, type = SerializableShort.class)
@@ -52,13 +51,7 @@ public class LoadMapPacket extends Packet {
     	return new LoadMapPacket(realmId, mapId, dungeonId, mapWidth, mapHeight, tiles);
     }
 
-    /**
-     * Pack a NetTile's identifying fields (tileId, layer, x, y) into a single
-     * long for O(1) Set lookup. Avoids the per-comparison reflection / equals
-     * overhead and lets diff() / equals() run in O(N) instead of O(N²).
-     * Layout: [tileId 16 | layer 8 | x 20 | y 20] — 64 bits total.
-     * Sign-extension safe for tileId (short) and layer (byte).
-     */
+    // Bit layout: [tileId 16 | layer 8 | x 20 | y 20] = 64 bits; sign-extension safe.
     private static long packTileKey(NetTile t) {
         return ((long) (t.getTileId() & 0xFFFF) << 48)
              | ((long) (t.getLayer() & 0xFF) << 40)
@@ -70,11 +63,6 @@ public class LoadMapPacket extends Packet {
         // If the player is changing realms, force the new tiles to be sent
         if (this.realmId != other.getRealmId())
             return other;
-        // Build a hash set of THIS packet's tile keys ONCE, then check each
-        // tile in `other` in O(1). Was O(N²): with 40 viewers x ~628 tiles
-        // per viewport at 4 Hz LoadMap rate, the old linear scan was costing
-        // ~63 M comparisons/sec — the dominant CPU sink in 40-player
-        // scenarios on a 2-vCPU box (TPS dropped to 7).
         final NetTile[] myTiles = this.getTiles();
         final Set<Long> myKeys = new HashSet<>(myTiles.length * 2);
         for (final NetTile t : myTiles) myKeys.add(packTileKey(t));
@@ -101,11 +89,7 @@ public class LoadMapPacket extends Packet {
         final NetTile[] otherTiles = other.getTiles();
         if (myTiles.length != otherTiles.length) return false;
 
-        // Set-based content equality. Order doesn't matter — getLoadMapTiles
-        // re-iterates the player viewport every call so even an unchanged
-        // player position can produce arrays in slightly different order if
-        // anything in the realm shifts. Set comparison correctly returns
-        // true for "same tiles, any order".
+        // Set-based, order-independent: the viewport can emit the same tiles in any order.
         final Set<Long> myKeys = new HashSet<>(myTiles.length * 2);
         for (final NetTile t : myTiles) myKeys.add(packTileKey(t));
         for (final NetTile t : otherTiles) {
@@ -114,8 +98,6 @@ public class LoadMapPacket extends Packet {
         return true;
     }
 
-    /** Kept for backward-compatibility callers; new code should use the
-     *  Set-based {@link #difference(LoadMapPacket)} which is O(N) total. */
     public static boolean tilesContains(NetTile tile, NetTile[] array) {
         for (NetTile netTile : array) {
             if (tile.equals(netTile))

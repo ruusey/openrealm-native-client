@@ -29,20 +29,16 @@ public class MapModel {
     private Map<String, int[][]> data;
     private DungeonGenerationParams dungeonParams;
     private List<StaticSpawn> staticSpawns;
-    private List<float[]> spawnPoints; // [[x,y], [x,y], ...] — player spawn positions, picked randomly
-    private List<PortalModel> staticPortals; // Permanent portals placed on the map
-    private float difficulty; // Map-level difficulty for static maps (fallback when no terrain)
-    /** Phase 4 — max simultaneous parties allowed in this map instance.
-     *  0 / <0 = unlimited (overworld). 1 = single-party dungeon. */
+    private List<float[]> spawnPoints;
+    private List<PortalModel> staticPortals;
+    private float difficulty;
+    // 0 / <0 = unlimited (overworld), 1 = single-party dungeon
     private int maxPartyCount;
 
     public Vector2f getCenter() {
         return new Vector2f((this.width / 2) * this.tileSize, ((this.height / 2) * (this.tileSize)));
     }
 
-    /**
-     * Returns a random spawn point if defined, otherwise the map center.
-     */
     public Vector2f getRandomSpawnPoint() {
         if (this.spawnPoints != null && !this.spawnPoints.isEmpty()) {
             float[] sp = this.spawnPoints.get(new Random().nextInt(this.spawnPoints.size()));

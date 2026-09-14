@@ -14,11 +14,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Lightweight packet for frequently-changing player/enemy state:
- * HP, MP, and active status effects. Sent at higher frequency than
- * the full UpdatePacket which carries inventory/stats/XP.
- */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable
@@ -56,10 +51,7 @@ public class PlayerStatePacket extends Packet {
 		return packet;
 	}
 
-	/**
-	 * Compare only the fields that matter for delta detection.
-	 * Effect durations are ignored (they tick every frame).
-	 */
+	// Delta detection ignores effect durations (they tick every frame).
 	public boolean equalsState(PlayerStatePacket other) {
 		if (other == null) return false;
 		if (this.playerId != other.playerId) return false;

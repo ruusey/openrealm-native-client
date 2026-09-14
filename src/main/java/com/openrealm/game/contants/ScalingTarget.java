@@ -1,13 +1,6 @@
 package com.openrealm.game.contants;
 
-/**
- * What an {@link com.openrealm.game.model.ability.AbilityScaling} contribution
- * is applied to on an Ability or PassiveAbility. Backed by string names so the
- * JSON data files stay readable; resolved to enum at load time.
- *
- * Keep in sync with the design doc (combat-rework.md §3.3) — every new target
- * needs the ability-resolution code path that consumes it.
- */
+/** What an AbilityScaling contribution is applied to; every target needs a consuming code path. */
 public enum ScalingTarget {
     /** Pre-mitigation damage roll added to the ability's base damage. */
     DAMAGE,

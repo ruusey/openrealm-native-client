@@ -21,4 +21,7 @@ public class PartyUpdatePacket extends Packet {
     private long partyId;
     @SerializableField(order = 1, type = NetPartyMember.class, isCollection = true)
     private NetPartyMember[] members;
+    // Party leader id. Wire order MUST match the server's PartyUpdatePacket.
+    @SerializableField(order = 2, type = SerializableLong.class)
+    private long leaderId;
 }

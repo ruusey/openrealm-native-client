@@ -5,11 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * An on-hit status effect applied by a projectile when it hits a target.
- * Separate from projectile flags (PARAMETRIC, PLAYER_PROJECTILE, etc.)
- * which control projectile behavior, not hit effects.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

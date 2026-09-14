@@ -12,8 +12,7 @@ public class TileData {
     private byte slows;
     private byte damaging;
     private byte isWall;
-    // Purely visual: suppresses terrain edge-feathering on this tile (e.g.
-    // carpets). Comes from tiles.json only — never sent over the wire.
+    // Visual only: suppresses edge-feathering (e.g. carpets). From tiles.json, never on the wire.
     private byte noBlend;
 
     public TileData(byte hasCollision, byte slows, byte damaging) {

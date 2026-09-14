@@ -24,13 +24,7 @@ public class OpenRealmServerDataService implements OpenRealmDataService{
     private HttpClient httpClient;
     private String baseUrl;
 
-    /**
-     * Log elapsed time for a single REST round-trip from the game server to
-     * the data service. Mirrors the format used by OpenRealmClientDataService
-     * so log lines are filterable with the same grep, and matches the
-     * server-side request filter in openrealm-data. Slow calls (&gt;250 ms)
-     * escalate to WARN.
-     */
+    // [DATA-CALL] prefix matches the data service request filter for cross-log grep. Slow (>250ms) -> WARN.
     private static void logTiming(String method, String path, int status, long startNanos) {
         final long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
         if (elapsedMs >= 250) {

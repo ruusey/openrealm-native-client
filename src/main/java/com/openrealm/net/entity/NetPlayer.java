@@ -35,19 +35,14 @@ public class NetPlayer extends SerializableFieldType<NetPlayer>{
 	private float dX;
 	@SerializableField(order = 8, type = SerializableFloat.class)
 	private float dY;
-	// Compact short ID for bandwidth-efficient movement packets.
-	// Assigned by ShortIdAllocator when entity enters a realm.
 	@SerializableField(order = 9, type = SerializableShort.class)
 	private short shortId;
 	@SerializableField(order = 10, type = SerializableString.class)
 	private String chatRole;
-	// Cosmetic dye id (0 = no dye). Resolved client-side via dye-assets.json
-	// to a recolor strategy (solid color, patterned cloth, etc.).
+	// Cosmetic dye id (0 = no dye), resolved client-side via dye-assets.json.
 	@SerializableField(order = 11, type = SerializableInt.class)
 	private int dyeId;
 
-	/** Hand-rolled construction from Player — bypasses ModelMapper reflection
-	 *  on the LoadPacket build hot path. */
 	public static NetPlayer fromPlayer(Player p) {
 		final NetPlayer n = new NetPlayer();
 		n.id = p.getId();
@@ -61,7 +56,6 @@ public class NetPlayer extends SerializableFieldType<NetPlayer>{
 		n.dY = p.getDy();
 		n.chatRole = p.getChatRole();
 		n.dyeId = p.getDyeId();
-		// shortId is populated by the LoadPacket.from(...allocator) overload.
 		return n;
 	}
 
@@ -78,11 +72,7 @@ public class NetPlayer extends SerializableFieldType<NetPlayer>{
 		p.setDy(this.dY);
 		p.setChatRole(this.chatRole);
 		p.setDyeId(this.dyeId);
-		// Load the class sprite sheet so other players actually render.
-		// Entity.renderBody short-circuits when spriteSheet is null, so
-		// without this all remote players would be invisible (only their
-		// projectiles / chat names appeared). Mirrors the local-player
-		// handling in ClientGameLogic.handleUpdateClient (line ~677).
+		// Load the class sprite sheet or Entity.renderBody bails and the player is invisible.
 		try {
 			final CharacterClass cls = CharacterClass.valueOf(this.classId);
 			if (cls != null) {

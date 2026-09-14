@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.utils.Align;
 import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.Settings;
 import com.openrealm.game.state.PlayState;
@@ -29,71 +30,35 @@ import com.openrealm.game.entity.Player;
 @Data
 @Slf4j
 public class PlayerChat {
-    // Web parity: webclient caps at 50 (game.js:1027). 15 was way too small —
-    // a few SYSTEM lines on map load pushed everything else off-screen.
     private static final int CHAT_SIZE = 50;
-    /** Hard cap on outgoing chat character count. The input renders with
-     *  word-wrap so longer messages would still display, but uncapped
-     *  input lets a player paste an essay that grows the box tall enough
-     *  to eat the rest of the panel. 200 is generous for normal chat
-     *  and matches what most MMOs ship. */
     private static final int MAX_INPUT_CHARS = 200;
-    /** When collapsed, only this many trailing messages are shown so the
-     *  log doesn't take up half the screen. Toggle with the BACKTICK key
-     *  (or the click target rendered above the chat panel). */
     private static final int COLLAPSED_VISIBLE = 3;
-    /** Reusable layout for measuring prefix/body widths. Allocating a fresh
-     *  GlyphLayout per draw was the previous footgun: the old code measured
-     *  prefix width as `length * 7f`, which is far too tight for this font,
-     *  so the body text was positioned underneath the closing bracket of
-     *  "[SYSTEM]: ". A single reused layout avoids per-frame churn. */
+
     private final GlyphLayout layout = new GlyphLayout();
-    /** Append-only chat log. Switched from LinkedHashMap<String,TextPacket>
-     *  keyed on the formatted message: identical repeat messages (common
-     *  for SYSTEM notifications) were silently overwriting each other,
-     *  collapsing N messages into a single visible row. */
+    // Per-render scratch, cleared each frame to avoid per-frame allocation.
+    private final List<TextPacket> wrapPickedScratch = new ArrayList<>(CHAT_SIZE);
+    private final List<Integer> wrapRowCountsScratch = new ArrayList<>(CHAT_SIZE);
+
     private List<TextPacket> playerChat;
     private String currentMessage;
     private boolean chatOpen;
     private boolean releasedEnter;
     private boolean pressedEnter;
-    /** True = only show the last COLLAPSED_VISIBLE messages. False = show
-     *  all CHAT_SIZE. Defaults to collapsed so chat is unobtrusive. */
     private boolean collapsed = false;
     private boolean lastTildeDown = false;
     private boolean lastChatToggleDown = false;
-    /** Edge-detect mouse-left for the toggle-button click handler. Webclient
-     *  ships a click-target on the chat panel (style.css #chat-toggle); user
-     *  reported the native client had only the BACKTICK key, which was easy
-     *  to miss. Tracking the previous down-state here keeps a held left-mouse
-     *  drag (common in combat) from re-toggling every frame. */
+    // Edge-detect so a held left-mouse drag doesn't re-toggle every frame.
     private boolean lastChatMouseDown = false;
     private PlayState state;
-    // WHY: stash the KeyHandler from input() so render() can read caret/selection without changing the call signature.
+    // Stashed from input() so render() can read caret/selection without a signature change.
     private KeyHandler lastKey;
 
-    /** Per-render scratch buffers for the wrap-aware message layout pass.
-     *  Allocated once and cleared every render — previously these were
-     *  fresh ArrayLists per frame, which on a 60-FPS render loop was a
-     *  small but unnecessary GC steady drip. */
-    private final List<TextPacket> wrapPickedScratch = new ArrayList<>(CHAT_SIZE);
-    private final List<Integer> wrapRowCountsScratch = new ArrayList<>(CHAT_SIZE);
-
-    /** Optional override layout — when set (non-null), the chat panel
-     *  ignores its hardcoded 10-px-margin / 360-px-wide constants and
-     *  instead positions itself inside this rectangle. Used by the sprite
-     *  HUD to mount chat inside panel.container.large. Width should be at
-     *  least 200 px to avoid pathological wrap. */
+    // When non-null the panel positions itself inside this rect (sprite HUD mount)
+    // instead of the legacy bottom-left float. Keep width >= 200px to avoid bad wrap.
     private Integer overrideX = null;
     private Integer overrideY = null;
     private Integer overrideW = null;
     private Integer overrideH = null;
-    public void setLayout(int x, int y, int w, int h) {
-        this.overrideX = x;
-        this.overrideY = y;
-        this.overrideW = w;
-        this.overrideH = h;
-    }
 
     public PlayerChat(PlayState state) {
         this.currentMessage = "";
@@ -104,9 +69,14 @@ public class PlayerChat {
         this.playerChat = new ArrayList<TextPacket>(CHAT_SIZE);
     }
 
-    /** Wipe the chat log. Called on realm transitions to mirror the web
-     *  client's clean-slate-per-realm behavior so chat doesn't carry a
-     *  history from a previous map / instance. */
+    public void setLayout(int x, int y, int w, int h) {
+        this.overrideX = x;
+        this.overrideY = y;
+        this.overrideW = w;
+        this.overrideH = h;
+    }
+
+    /** Wipe the chat log. Called on realm transitions for a clean slate per realm. */
     public void clearChat() {
         this.playerChat.clear();
     }
@@ -114,7 +84,6 @@ public class PlayerChat {
     public void addChatMessage(final TextPacket packet) {
         if (packet == null) return;
         this.playerChat.add(packet);
-        // Trim to bounded history (oldest first).
         while (this.playerChat.size() > CHAT_SIZE) {
             this.playerChat.remove(0);
         }
@@ -122,9 +91,7 @@ public class PlayerChat {
 
     public void input(MouseHandler mouse, KeyHandler key, SocketClient client) {
         this.lastKey = key;
-        // Backtick (`) toggles collapsed/expanded. Edge-detected so holding
-        // the key doesn't flicker. Suppressed while typing a message so the
-        // user can include backticks in chat.
+        // Backtick toggles collapsed/expanded; suppressed in captureMode so it can be typed.
         boolean tildeDown = !key.captureMode
                 && Gdx.input.isKeyPressed(Input.Keys.GRAVE);
         if (tildeDown && !this.lastTildeDown) {
@@ -132,9 +99,6 @@ public class PlayerChat {
         }
         this.lastTildeDown = tildeDown;
 
-        // Rebindable open/close key (default C) — same collapse toggle as the
-        // backtick, edge-detected. Suppressed while typing so the key can be
-        // entered into a message.
         boolean chatToggleDown = !key.captureMode
                 && Gdx.input.isKeyPressed(Settings.get().getKeybind("toggleChat"));
         if (chatToggleDown && !this.lastChatToggleDown) {
@@ -142,12 +106,8 @@ public class PlayerChat {
         }
         this.lastChatToggleDown = chatToggleDown;
 
-        // Mouse click on the toggle button — same toggle as backtick. Bounds
-        // must mirror the rect drawn in render(); kept in sync via the
-        // identical PANEL_X / PANEL_W / TOGGLE_W / TOGGLE_H constants below.
-        // Mouse coords from Gdx.input.getY() are already in flipped-ortho
-        // (y=0 at top), the same basis render() draws in, so we compare
-        // directly without inverting.
+        // Toggle-button click. These bounds MUST mirror the rect drawn in render().
+        // Mouse coords are already flipped-ortho (y=0 top), the same basis render() uses.
         boolean mouseDown = mouse != null && mouse.isPressed(1);
         if (mouseDown && !this.lastChatMouseDown) {
             final boolean override = this.overrideX != null;
@@ -166,8 +126,7 @@ public class PlayerChat {
             final float screenBottom   = OpenRealmGame.height - PANEL_BOTTOM_MARGIN;
             final float inputBoxTop    = screenBottom - INPUT_H;
             final float msgBoxTop      = inputBoxTop - MSG_H;
-            // Collapsed: pin the toggle to the bottom of the screen so it
-            // doesn't float where the (hidden) panel top used to be.
+            // Collapsed: pin the toggle to the screen bottom, not the hidden panel top.
             final float toggleBoxTop   = this.collapsed
                     ? (screenBottom - TOGGLE_H)
                     : (msgBoxTop - TOGGLE_H);
@@ -176,8 +135,7 @@ public class PlayerChat {
             final int my = mouse.getY();
             final boolean inToggleRow = my >= toggleBoxTop && my <= toggleBoxTop + TOGGLE_H;
             if (this.collapsed) {
-                // Whole collapsed bar expands — a forgiving target (the caret
-                // alone is tiny and shifts left when the panel narrows).
+                // Whole collapsed bar is the expand target (forgiving hit-box).
                 if (inToggleRow && mx >= PANEL_X && mx <= PANEL_X + PANEL_W) {
                     this.collapsed = false;
                 }
@@ -189,8 +147,6 @@ public class PlayerChat {
 
         if (key.captureMode) {
             String captured = key.getContent();
-            // Hard-cap at MAX_INPUT_CHARS so a runaway paste can't grow
-            // the input box past the visible chat panel.
             if (captured != null && captured.length() > MAX_INPUT_CHARS) {
                 captured = captured.substring(0, MAX_INPUT_CHARS);
                 key.setContent(captured);
@@ -204,8 +160,7 @@ public class PlayerChat {
 
         if (this.pressedEnter && this.releasedEnter) {
             this.chatOpen = !this.chatOpen;
-            // Opening chat force-expands the panel so the input box and
-            // recent history are visible while typing.
+            // Opening chat force-expands the panel so input + history are visible.
             if (this.chatOpen) this.collapsed = false;
             key.setCaptureMode(this.chatOpen);
             this.pressedEnter = false;
@@ -264,26 +219,11 @@ public class PlayerChat {
     }
 
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
-        // ============================================================
-        // Direct port of webclient's #chat-panel layout (style.css ~825):
-        //   width:  360 px, anchored bottom-left with 10 px margin.
-        //   #chat-messages: 140 px tall, dark bg #1a1218aa, border #3a2a38,
-        //                   font 12px @ line-height 1.5 (≈18 px per row),
-        //                   padding 6 px / 8 px, latest msg at bottom.
-        //   #chat-input:    appended directly below, 100 % width, 28 px tall.
-        //   #chat-toggle:   18 px square at top-right of panel, collapses
-        //                   the messages box (input stays visible).
-        //
-        // Y axis is flipped (setToOrtho true) so y=0 is screen top,
-        // y=height is screen bottom. We compute box positions from the
-        // bottom upward to match the CSS anchor.
-        // ============================================================
+        // Y axis is flipped (setToOrtho true): y=0 is screen top; box positions
+        // are computed from the bottom upward to match the webclient CSS anchor.
         float originalScale = font.getData().scaleX;
         font.getData().setScale(1.0f);
 
-        // Layout overrides take precedence — sprite HUD uses them to mount
-        // chat inside its bottom-left panel. Otherwise fall back to the
-        // legacy bottom-left float position.
         final boolean override = this.overrideX != null;
         final int PANEL_X      = override ? this.overrideX : 10;
         final int PANEL_W      = override ? this.overrideW
@@ -292,39 +232,30 @@ public class PlayerChat {
                 ? (OpenRealmGame.height - (this.overrideY + this.overrideH))
                 : 10;
         final int INPUT_H      = 28;
-        // Messages box height: when overriding, fill the panel from top
-        // to just above the input box (no extra gap so the messages box
-        // truly fills the container chrome). Otherwise legacy 220 default.
         final int MSG_H        = override
                 ? Math.max(60, this.overrideH - INPUT_H)
                 : 220;
         final int TOGGLE_W     = 22;
         final int TOGGLE_H     = 18;
-        final float LINE_H     = font.getLineHeight();           // matches web's line-height:1.5
+        final float LINE_H     = font.getLineHeight();
         final int TEXT_PAD_X   = 8;
         final int TEXT_PAD_Y   = 6;
 
-        // Y of the BOTTOM edge of each box (in flipped-ortho coords).
         final float screenBottom = OpenRealmGame.height - PANEL_BOTTOM_MARGIN;
         final float inputBoxBottom = screenBottom;
         final float inputBoxTop    = inputBoxBottom - INPUT_H;
-        final float msgBoxBottom   = inputBoxTop;                // boxes share an edge
+        final float msgBoxBottom   = inputBoxTop;
         final float msgBoxTop      = msgBoxBottom - MSG_H;
-        // Collapsed: pin the toggle to the bottom of the screen so it
-        // doesn't float where the (hidden) panel top used to be.
+        // Collapsed: pin the toggle to the screen bottom, not the hidden panel top.
         final float toggleBoxTop   = this.collapsed
                 ? (screenBottom - TOGGLE_H)
                 : (msgBoxTop - TOGGLE_H);
 
-        // ---- Shapes pass: backgrounds + borders ----
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // When collapsed, render ONLY the toggle button so the rest of
-        // the chat panel disappears entirely (user can still click to
-        // re-expand). When expanded, draw all three boxes as before.
         if (!this.collapsed) {
             shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0xaa / 255f);
             shapes.rect(PANEL_X, msgBoxTop, PANEL_W, MSG_H);
@@ -332,9 +263,7 @@ public class PlayerChat {
             shapes.rect(PANEL_X, inputBoxTop, PANEL_W, INPUT_H);
         }
 
-        // Toggle button always shown so the player can re-expand chat. When
-        // collapsed it spans the whole panel width to give an obvious, large
-        // click target (matches the expand hit-box in input()).
+        // Collapsed: the toggle spans the whole width as a large click target.
         final float barX = this.collapsed ? PANEL_X : (PANEL_X + PANEL_W - TOGGLE_W);
         final float barW = this.collapsed ? PANEL_W : TOGGLE_W;
         shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 1f);
@@ -342,7 +271,6 @@ public class PlayerChat {
 
         shapes.end();
 
-        // 1 px border #3a2a38 around the visible pieces.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
         if (!this.collapsed) {
@@ -355,26 +283,18 @@ public class PlayerChat {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // ---- Toggle button glyph (▼ expanded, ▲ collapsed) ----
-        font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f); // hover-style accent
+        font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
         String toggleGlyph = this.collapsed ? "^" : "v";
         font.draw(batch, toggleGlyph,
                 PANEL_X + PANEL_W - TOGGLE_W + 8,
                 toggleBoxTop + TOGGLE_H - 4);
 
-        // ---- Messages, only rendered when expanded ----
         if (!this.collapsed) {
-            // Two-pass render. We allow wrapping on the body, so a single
-            // message can occupy 1..N rows. Walk the chat NEWEST-first,
-            // accumulating row counts, until we've used up the available
-            // vertical space. Then render forward (oldest of the picked
-            // window first) bottom-up.
+            // Body wraps, so a message spans 1..N rows. Walk newest-first
+            // accumulating rows until the box fills, then render forward.
             final int maxRows = Math.max(1, (int) ((MSG_H - 2 * TEXT_PAD_Y) / LINE_H));
             final int totalMessages = this.playerChat.size();
 
-            // Walk newest -> oldest, build the list of messages that fit.
-            // Reuse the per-instance scratch lists rather than allocating
-            // fresh per render frame.
             final List<TextPacket> picked = this.wrapPickedScratch;
             final List<Integer> rowCounts = this.wrapRowCountsScratch;
             picked.clear();
@@ -388,13 +308,9 @@ public class PlayerChat {
                 this.layout.setText(font, prefix);
                 final float prefixWidth = this.layout.width;
                 final float bodyMaxWidth = PANEL_W - prefixWidth - 2 * TEXT_PAD_X;
-                // setText with wrap=true splits body across as many lines
-                // as needed. layout.runs.size is unreliable for run count;
-                // count newline characters in the formatted text via the
-                // public glyph runs list size.
                 this.layout.setText(font, body, 0, body.length(), font.getColor(),
                         Math.max(1f, bodyMaxWidth),
-                        com.badlogic.gdx.utils.Align.left, true, null);
+                        Align.left, true, null);
                 final int wrapLines = Math.max(1, this.layout.runs.size);
                 if (rowsAccum + wrapLines > maxRows && !picked.isEmpty()) break;
                 picked.add(pkt);
@@ -403,13 +319,7 @@ public class PlayerChat {
                 if (rowsAccum >= maxRows) break;
             }
 
-            // Anchor messages to the TOP of the box (console-style fill).
-            // First message lands at the top edge with new ones stacking
-            // below until the box is full; once full, the picked window
-            // slides forward (newest still wins) but stays anchored to
-            // the top so the visible block grows down from `msgBoxTop`,
-            // not up from `msgBoxBottom`. Y-flipped ortho: y increases
-            // downward, font.draw grows downward for multi-line layouts.
+            // Anchor to the top of the box; blocks grow downward (y-flipped ortho).
             float topOfNextBlock = msgBoxTop + TEXT_PAD_Y + LINE_H;
             for (int idx = picked.size() - 1; idx >= 0; idx--) {
                 final TextPacket pkt = picked.get(idx);
@@ -417,21 +327,15 @@ public class PlayerChat {
                 final String fromName = pkt != null && pkt.getFrom() != null ? pkt.getFrom() : "";
                 final String body     = pkt != null && pkt.getMessage() != null ? pkt.getMessage() : "";
                 final String prefix   = "[" + fromName + "]: ";
-
-                // Top line y for this message block.
                 final float blockTopY = topOfNextBlock;
 
-                // Prefix in role color.
                 final Color nameColor = roleColorByName(fromName);
                 font.setColor(nameColor);
                 this.layout.setText(font, prefix);
                 final float prefixWidth = this.layout.width;
                 font.draw(batch, this.layout, PANEL_X + TEXT_PAD_X, blockTopY);
 
-                // Body wrapped, starting on the SAME line as the prefix and
-                // continuing below if needed. font.draw of a multi-line
-                // GlyphLayout grows downward in flipped-ortho — same direction
-                // we lay out subsequent rows.
+                // Body wraps starting on the prefix line, growing downward.
                 if ("SYSTEM".equalsIgnoreCase(fromName)) {
                     font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
                 } else {
@@ -440,18 +344,14 @@ public class PlayerChat {
                 final float bodyMaxWidth = PANEL_W - prefixWidth - 2 * TEXT_PAD_X;
                 this.layout.setText(font, body, 0, body.length(), font.getColor(),
                         Math.max(1f, bodyMaxWidth),
-                        com.badlogic.gdx.utils.Align.left, true, null);
+                        Align.left, true, null);
                 font.draw(batch, this.layout,
                         PANEL_X + TEXT_PAD_X + prefixWidth, blockTopY);
 
-                // Walk DOWN by this message's height so the next (newer)
-                // message sits flush below this one. Y-flipped ortho means
-                // "down" is += LINE_H, not -=.
                 topOfNextBlock += rows * LINE_H;
             }
         }
 
-        // ---- Input field (always visible — web parity) ----
         if (this.chatOpen) {
             font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
             final String prompt = "> ";
@@ -464,22 +364,16 @@ public class PlayerChat {
             if (caret < 0) caret = 0;
             if (caret > this.currentMessage.length()) caret = this.currentMessage.length();
 
-            // Wrap the typed message inside the input box, just like the
-            // already-sent message rows wrap. Long input grows the input
-            // box upward so the bottom edge stays anchored to the screen
-            // bottom (where the user's eye expects it). MAX_INPUT_CHARS
-            // caps the text well before the box could eat the whole
-            // chat panel — this is enforced again in the send path.
+            // Typed message wraps; the box grows upward, bottom edge anchored to screen bottom.
             final float bodyMaxW = Math.max(1f, PANEL_W - 2 * TEXT_PAD_X - 4 - promptWidth);
             this.layout.setText(font, this.currentMessage, 0, this.currentMessage.length(),
                     font.getColor(), bodyMaxW,
-                    com.badlogic.gdx.utils.Align.left, true, null);
+                    Align.left, true, null);
             final int wrapLines = Math.max(1, this.layout.runs.size);
             final float inputWrapH = INPUT_H + (wrapLines - 1) * LINE_H;
             final float wrappedInputBoxTop = inputBoxBottom - inputWrapH;
 
-            // Repaint the box and border at its grown height so the
-            // multi-line text is fully framed.
+            // Repaint the box + border at the grown height so multi-line text is framed.
             if (wrapLines > 1) {
                 batch.end();
                 Gdx.gl.glEnable(GL20.GL_BLEND);
@@ -497,58 +391,37 @@ public class PlayerChat {
                 font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
             }
 
-            // Vertically center the FIRST line of text inside what was
-            // the original 28-px input box; subsequent wrapped lines
-            // grow upward via the inflated wrappedInputBoxTop above.
             final float firstLineY = inputBoxBottom - 9 - (wrapLines - 1) * LINE_H;
 
-            // Caret position inside a wrapped layout: re-layout the
-            // sub-string up to the caret with the same wrap settings.
-            // Its (last-line-x-extent, runs.size) maps directly to the
-            // caret's column and row within the input.
+            // Caret column/row: re-layout the substring up to the caret with the same wrap.
             this.layout.setText(font, this.currentMessage.substring(0, caret),
                     0, caret, font.getColor(), bodyMaxW,
-                    com.badlogic.gdx.utils.Align.left, true, null);
+                    Align.left, true, null);
             final int caretLines = Math.max(1, this.layout.runs.size);
             final float caretXOnLine = this.layout.runs.size == 0
                     ? 0f : this.layout.runs.get(this.layout.runs.size - 1).width;
 
-            // Re-layout the full message for the actual draw call.
             this.layout.setText(font, this.currentMessage, 0, this.currentMessage.length(),
                     font.getColor(), bodyMaxW,
-                    com.badlogic.gdx.utils.Align.left, true, null);
+                    Align.left, true, null);
 
             font.draw(batch, prompt, textOriginX, firstLineY);
-            // For wrapped content, font.draw of a multi-line layout grows
-            // downward in flipped ortho — we want the LAST line aligned
-            // with the input baseline, so anchor at firstLineY.
             font.draw(batch, this.layout, textOriginX + promptWidth, firstLineY);
 
             final float caretX = textOriginX + promptWidth + caretXOnLine;
             final float caretY = firstLineY + (caretLines - 1) * LINE_H;
             font.draw(batch, "|", caretX, caretY);
         } else if (!this.collapsed) {
-            // Placeholder text — web ships "Press Enter to chat...". Only
-            // shown when expanded; when collapsed the input box isn't drawn,
-            // so the text would otherwise float at the screen bottom with
-            // nothing behind it.
             font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
             font.draw(batch, "Press Enter to chat...",
                     PANEL_X + TEXT_PAD_X + 2,
                     inputBoxBottom - 9);
         }
         font.setColor(Color.WHITE);
-
-        // Restore original scale
         font.getData().setScale(originalScale);
     }
 
-    /**
-     * Look up the chatRole of a player by name and return the matching
-     * Color. Mirrors the web client's GameRenderer.getNameColorHex.
-     * Falls back to the default off-white for system messages or unknown
-     * senders.
-     */
+    /** Role color for a player by name; off-white for SYSTEM or unknown senders. */
     private Color roleColorByName(String name) {
         if (name == null || name.isEmpty()) return new Color(0.93f, 0.93f, 0.93f, 1f);
         try {

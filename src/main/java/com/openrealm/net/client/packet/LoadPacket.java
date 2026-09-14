@@ -57,14 +57,7 @@ public class LoadPacket extends Packet {
             Portal[] portals) throws Exception {
     	 LoadPacket load = null;
     	try {
-            // Hand-rolled mapping for all entity types — replaces
-            // IOService.mapModel(...) which used ModelMapper reflection.
-            // ModelMapper walks 10-20 fields per entity reflectively per
-            // call; with ~200 visible bullets + 11 players + 50 enemies +
-            // 6 portals x 11 viewers x 32 Hz that was 90K+ reflective
-            // mappings/sec — the dominant CPU sink during ability spam
-            // and the cause of the TPS drop on a 2-vCPU instance. Direct
-            // field copy is 10-100x faster.
+            // Hand-rolled field copy (not ModelMapper reflection) - hot path.
             final NetPlayer[] mappedPlayers = new NetPlayer[players.length];
             for (int i = 0; i < players.length; i++) {
                 mappedPlayers[i] = NetPlayer.fromPlayer(players[i]);
@@ -77,17 +70,8 @@ public class LoadPacket extends Packet {
             for (int i = 0; i < bullets.length; i++) {
                 mappedBullets[i] = NetBullet.fromBullet(bullets[i]);
             }
-            // Loot containers retain ModelMapper for now — they have nested
-            // NetGameItem arrays whose mapping is more involved, and they're
-            // low-volume (typically 0-5 per realm) so reflection cost is
-            // negligible.
             final NetLootContainer[] mappedLoot = IOService.mapModel(loot, NetLootContainer[].class);
-            // ModelMapper has no source field for `isChest` — LootContainer
-            // has no isChest property; Chest is a subclass — so it silently
-            // leaves the flag false for actual chests. Without this patch the
-            // client's NetLootContainer.asLootContainer() never wraps as a
-            // Chest, vault chests render as empty (no sprite), and the
-            // webclient never selects the chest sprite at all.
+            // ModelMapper can't map isChest (Chest is a subclass); set it explicitly or chests render empty.
             for (int i = 0; i < loot.length; i++) {
                 if (mappedLoot[i] != null) {
                     mappedLoot[i].setChest(loot[i] instanceof Chest);
@@ -104,10 +88,7 @@ public class LoadPacket extends Packet {
         return load;
     }
 
-    /**
-     * Build a LoadPacket with compact short IDs populated from the allocator.
-     * Clients use these short IDs to resolve CompactMovePacket entries.
-     */
+    // Short IDs let clients resolve CompactMovePacket entries.
     public static LoadPacket from(Player[] players, LootContainer[] loot, Bullet[] bullets, Enemy[] enemies,
             Portal[] portals, ShortIdAllocator allocator) throws Exception {
         LoadPacket load = from(players, loot, bullets, enemies, portals);
@@ -126,14 +107,7 @@ public class LoadPacket extends Packet {
     	if(other == null) {
     		return false;
     	}
-        // Visibility-set equality must be ORDER-INDEPENDENT. The spatial grid
-        // stores cells as ConcurrentHashMap.newKeySet(), whose iteration order
-        // is not stable — when ANY entity (most often a bullet) is added or
-        // removed from a cell, the rebucketing can shuffle the iteration
-        // order of OTHER entities in that cell. Comparing as Lists then
-        // returned false even when the visible entity SETS were identical,
-        // forcing a full LoadPacket on every tick (~140 kbit/s of redundant
-        // player snapshots for 6 stationary test bots). Sets fix that.
+        // Visibility-set equality MUST be order-independent (spatial-grid iteration order is unstable).
         final Set<Long> playerIdsThis = Stream.of(this.players).map(NetPlayer::getId)
                 .collect(Collectors.toSet());
         final Set<Long> playerIdsOther = Stream.of(other.getPlayers()).map(NetPlayer::getId)
@@ -174,16 +148,7 @@ public class LoadPacket extends Packet {
 
     }
 
-    /**
-     * Returns true if the visible *entity set* (players, enemies, portals)
-     * is identical between this and other — IGNORING bullets and loot.
-     *
-     * This is the "is anything besides bullets/loot interesting" check that
-     * lets the call site take a much cheaper path when only bullets cycled.
-     * Without this split, every shot fired anywhere in the visible radius
-     * forced a full per-player+enemy+portal snapshot to every nearby client
-     * (~1.8 Mbit/s with 6 spam-shooting wizard bots).
-     */
+    // True if the player/enemy/portal set matches, ignoring bullets and loot.
     public boolean entitySetEquals(LoadPacket other) {
         if (other == null) return false;
         final Set<Long> playerIdsThis = Stream.of(this.players).map(NetPlayer::getId)
@@ -201,8 +166,6 @@ public class LoadPacket extends Packet {
         final Set<Long> portalIdsOther = Stream.of(other.getPortals()).map(NetPortal::getId)
                 .collect(Collectors.toSet());
         if (!portalIdsThis.equals(portalIdsOther)) return false;
-        // Loot ID set + contentsChanged: track loot churn here too so the fast
-        // path still flushes loot updates without forcing a full snapshot.
         final Set<Long> lootIdsThis = Stream.of(this.containers).map(NetLootContainer::getLootContainerId)
                 .collect(Collectors.toSet());
         final Set<Long> lootIdsOther = Stream.of(other.getContainers()).map(NetLootContainer::getLootContainerId)
@@ -214,13 +177,7 @@ public class LoadPacket extends Packet {
         return true;
     }
 
-    /**
-     * Build a minimal LoadPacket containing only bullet+loot deltas with
-     * empty players/enemies/portals arrays. The client's handleLoad iterates
-     * packet.players etc. and merges entries into existing state — it does
-     * NOT delete entries missing from the packet (UnloadPacket handles
-     * removal). So empty arrays are safe and skipped client-side.
-     */
+    // Bullet+loot deltas only; empty entity arrays are merged, not deleted (UnloadPacket removes).
     public LoadPacket bulletAndLootDelta(final LoadPacket other) throws Exception {
         if (other == null) return this;
         final Set<Long> bulletIdsThis = Stream.of(this.bullets).map(NetBullet::getId)
@@ -241,12 +198,7 @@ public class LoadPacket extends Packet {
                 new NetPortal[0], other.getDifficulty());
     }
 
-    /**
-     * Build an UnloadPacket containing only the bullets that despawned —
-     * paired with bulletAndLootDelta() above. Players/enemies/portals/loot
-     * are intentionally empty because the entity set is unchanged; the
-     * full difference() path handles those when entitySetEquals == false.
-     */
+    // Despawned bullets only; pairs with bulletAndLootDelta().
     public UnloadPacket bulletUnloadDifference(final LoadPacket other) throws Exception {
         if (other == null) return UnloadPacket.from(new Long[0], new Long[0],
                 new Long[0], new Long[0], new Long[0]);
@@ -264,18 +216,8 @@ public class LoadPacket extends Packet {
     	if(other==null) {
     		return this;
     	}
-        // Players, enemies, and portals: always send the full set.
-        // These are low-count entities and the delta was causing state desync
-        // where the server believed the client had entities it never received
-        // (the moment any LoadPacket failed to reach the client, those entities
-        // were permanently invisible — they never reappeared in subsequent
-        // diffs because the server's cached state already "had" them). Sending
-        // the full snapshot every tick lets the client self-heal from any
-        // dropped/corrupted packet within one tick.
-        //
-        // Bullets and loot containers DO use deltas: bullets are high-volume
-        // and self-heal via natural expiration; loot containers re-sync via
-        // the contentsChanged override.
+        // Players/enemies/portals: full set every tick (deltas caused permanent-invisible desync).
+        // Bullets/loot: deltas (bullets self-heal on expiry, loot via contentsChanged).
         final List<Long> bulletIdsThis = Stream.of(this.bullets).map(NetBullet::getId).collect(Collectors.toList());
         final List<Long> lootIdsThis = Stream.of(this.containers).map(NetLootContainer::getLootContainerId)
                 .collect(Collectors.toList());
@@ -299,17 +241,8 @@ public class LoadPacket extends Packet {
                 other.getPortals(), other.getDifficulty());
     }
 
-    /**
-     * Like combine() but emits ONLY entities new to the client (delta) for
-     * players/enemies/portals — instead of the full snapshot. This is the
-     * default path for entity-set-change events (e.g. a bot walked into
-     * another player's viewport). The full-snapshot self-heal is preserved
-     * by the caller's periodic 3s refresh which routes through combine().
-     *
-     * Cuts slow-path bandwidth from ~6.6 KB (11-player snapshot) to typically
-     * ~600 B (just the entity that crossed the boundary). With 11 viewers all
-     * walking around, this saves the bulk of LoadPacket bandwidth.
-     */
+    // Like combine() but emits only NEW player/enemy/portal entities; full-snapshot self-heal
+    // comes from the caller's periodic 3s refresh via combine().
     public LoadPacket combineDelta(final LoadPacket other) throws Exception {
         if (other == null) return this;
 
@@ -355,7 +288,6 @@ public class LoadPacket extends Packet {
     }
 
     public UnloadPacket difference(LoadPacket other) throws Exception {
-    	//if(other==null)
         final List<Long> playerIdsOther = Stream.of(other.getPlayers()).map(NetPlayer::getId).collect(Collectors.toList());
         final List<Long> lootIdsOther = Stream.of(other.getContainers()).map(NetLootContainer::getLootContainerId)
                 .collect(Collectors.toList());
@@ -369,9 +301,6 @@ public class LoadPacket extends Packet {
         final List<NetEnemy> enemies = Arrays.asList(this.getEnemies());
         final List<NetPortal> portals = Arrays.asList(this.getPortals());
 
-        // Unload bullets that the server removed (hit entity, hit wall, expired).
-        // Dead reckoning is disabled so all nearby bullets are always sent — no
-        // non-deterministic subset selection to cause flickering.
         final List<Long> bulletsDiff = new ArrayList<>();
         for (final NetBullet b : bullets) {
             if (!bulletIdsOther.contains(b.getId())) {

@@ -61,28 +61,21 @@ public class Player extends Entity {
 	private String characterUuid;
 	private long experience;
 	private Stats stats;
-	// True once an UpdatePacket has populated this.stats. The server packs
-	// getComputedStats() onto the wire (base + equipment + enchantments + gems
-	// + active buffs), so a client that received it must NOT re-sum equipment
-	// in getComputedStats() — doing so double-counts every equipped item's
-	// stats (and the per-stat scaling gems baked into them). The embedded
-	// server role leaves this false: there this.stats is the raw base loaded
-	// from the DB, so re-summing is correct.
+	// True once an UpdatePacket populated this.stats: the wire value is already
+	// getComputedStats() (base+equipment+enchants+gems+buffs), so getComputedStats()
+	// must NOT re-sum equipment or it double-counts. The embedded server role
+	// leaves this false (this.stats is raw base, re-summing is correct).
 	private transient boolean statsServerComputed = false;
 	private boolean headless;
 	@Builder.Default
 	private boolean bot = false;
-	// Chat role prefix cached at login for name coloring in chat.
-	// Values: "sysadmin", "admin", "mod", "editor", or null (regular player)
+	// "sysadmin" | "admin" | "mod" | "editor" | "" — chat name coloring.
 	@Builder.Default
 	private String chatRole = "";
-	// Last input sequence number processed by the server (for client reconciliation)
 	@Builder.Default
 	private int lastInputSeq = 0;
-	// Sequence-numbered input queue fields for new movement netcode
 	@Builder.Default
 	private int lastProcessedInputSeq = 0;
-	// Last move direction observed from client (unit vector). (0,0) = stopped.
 	@Builder.Default
 	private float currentVx = 0f;
 	@Builder.Default
@@ -91,7 +84,6 @@ public class Player extends Entity {
 	@Builder.Default
 	private transient Queue<float[]> inputQueue = new ConcurrentLinkedQueue<>();
 
-	// Consumable potion storage (separate from inventory)
 	public static final int MAX_CONSUMABLE_POTIONS = 6;
 	public static final int HP_POTION_ITEM_ID = 296;
 	public static final int MP_POTION_ITEM_ID = 297;
@@ -100,39 +92,28 @@ public class Player extends Entity {
 	@Builder.Default
 	private int mpPotions = 0;
 
-	// Cosmetic dye id keyed in the client's dye-assets.json registry. 0 = no
-	// dye. Renderer resolves the id to a recolor strategy (solid color today;
-	// patterned cloths in the future). Persisted on the character so it
-	// survives logout but is implicitly cleared on permadeath (character is
-	// deleted, fresh char starts at dyeId=0).
+	// Cosmetic dye id in dye-assets.json; 0 = none. Persisted on the character,
+	// implicitly cleared on permadeath (fresh char starts at 0).
 	@Builder.Default
 	private int dyeId = 0;
 
-	// Last known account fame for this player, refreshed at login and after
-	// each fame-shop purchase. NOT serialized to other clients; only used by
-	// the server to validate purchases without re-fetching the account on
-	// every request. Source of truth is the data service.
+	// Account fame refreshed at login + after each fame-shop purchase. NOT
+	// serialized to clients; server uses it to validate purchases without a refetch.
 	@Builder.Default
 	private transient long cachedAccountFame = 0L;
 
-	// Visual interpolation override. The simulation position (this.pos) advances
-	// in 1/64 s tick steps; rendering THAT directly at 144 FPS produces a
-	// per-tick "lurch" because the camera (lerped) and the sprite (postTick)
-	// disagree by up to one tick distance every render frame between ticks.
-	// Web client mirrors this by exposing _renderX / _renderY and rendering
-	// both camera AND player at the same lerped value. Set NaN means "use
-	// pos.x / pos.y" (default for non-local players or before first tick).
-	// Declared BEFORE abilityCooldowns/currentCast/hotbarBindings so Lombok's
-	// generated ctor matches the explicit all-args ctor signature below.
+	// Visual interpolation override; NaN means "use pos.x/pos.y". pos advances
+	// in 1/64s tick steps and rendering that directly lurches against the lerped
+	// camera. Declared BEFORE abilityCooldowns/currentCast/hotbarBindings so
+	// Lombok's generated ctor matches the explicit all-args ctor below.
 	@Builder.Default
 	private transient float renderX = Float.NaN;
 	@Builder.Default
 	private transient float renderY = Float.NaN;
 
-	// Phase 2A runtime state (mirrors server-side Player). Hotbar bindings
-	// inherit from CharacterClassModel.abilityTree.defaultHotbar on spawn;
-	// runtime mutations come from HotbarSwapPacket. Transient — re-seeds on
-	// login until Phase 2B persists them.
+	// Phase 2A runtime state. Hotbar seeds from
+	// CharacterClassModel.abilityTree.defaultHotbar on spawn; mutations via
+	// HotbarSwapPacket. Transient — re-seeds on login until Phase 2B persists.
 	@Builder.Default
 	private transient long[] abilityCooldowns = new long[4];
 	@Builder.Default
@@ -140,10 +121,8 @@ public class Player extends Entity {
 	@Builder.Default
 	private transient int[] hotbarBindings = new int[]{0, 0, 0, 0};
 
-	// Phase 2D — skill-point pool + per-ability investment. Earned 1 per 2
-	// levels from L2 to L20 (10 total). Caps per ability come from
-	// Ability.maxSkillPoints (5 for non-ults, 3 for ults). Persisted via
-	// CharacterStatsDto.
+	// Phase 2D — skill-point pool + per-ability investment (1 per even level
+	// L2..L20, 10 total). Per-ability caps from Ability.maxSkillPoints.
 	@Builder.Default
 	private int availableSkillPoints = 0;
 	@Builder.Default
@@ -164,16 +143,9 @@ public class Player extends Entity {
 
 	public Player() {
 		super(0, null, 0);
-		// CRITICAL: explicitly initialise renderX/Y to NaN here. The field
-		// declarations have `= Float.NaN` inline, but Lombok's
-		// @Builder.Default annotation captures that initialiser for the
-		// generated builder and strips the inline init from the class
-		// itself. With the no-arg ctor invoked via NetPlayer.toPlayer,
-		// renderX/Y end up at Java's float default of 0.0f, not NaN —
-		// which made getEffectiveRenderX() return 0.0 instead of pos.x
-		// for every remote player. Result: every other player rendered
-		// at world (0, 0). Fix: set the canonical default in the ctor
-		// body so it's not at the mercy of Lombok's processor.
+		// @Builder.Default strips the inline `= Float.NaN` from the class, so
+		// the no-arg ctor (NetPlayer.toPlayer) would leave renderX/Y at 0.0f
+		// and draw every remote player at world (0,0). Set NaN explicitly here.
 		this.renderX = Float.NaN;
 		this.renderY = Float.NaN;
 	}
@@ -244,13 +216,8 @@ public class Player extends Entity {
 				this.hotbarBindings[i] = src[i];
 			}
 		}
-		// Same Lombok-strips-inline-init dance as the no-arg ctor: without
-		// these, the local player's renderX/Y starts at 0 (Java default)
-		// instead of NaN, so getEffectiveRenderX returns 0 on the very
-		// first render frame before PlayState's lerp pipeline writes a
-		// real value. The minimap reads getEffectiveRenderX → 0, plots
-		// the local dot at world (0, 0) → top-left corner of the
-		// overworld minimap until the player presses a movement key.
+		// Same @Builder.Default inline-init strip as the no-arg ctor: set NaN
+		// so the first-frame minimap doesn't plot the local dot at (0,0).
 		this.renderX = Float.NaN;
 		this.renderY = Float.NaN;
 	}
@@ -310,13 +277,8 @@ public class Player extends Entity {
 		return v == null ? 0 : v;
 	}
 
-	/**
-	 * Try to invest one skill point into {@code abilityId}. Returns true on
-	 * success. Fails if no points available, the ability id is unknown, or
-	 * the per-ability cap is already met. Client-side mirror — the server
-	 * is authoritative; this just keeps the local Player consistent until
-	 * the InvestSkillPointPacket round-trip lands.
-	 */
+	/** Invest one skill point into {@code abilityId} (client mirror; server is
+	 *  authoritative). Fails on no points, unknown ability, or cap reached. */
 	public boolean investSkillPoint(int abilityId) {
 		if (this.availableSkillPoints <= 0) return false;
 		final Ability ab = GameDataManager.ABILITIES == null ? null
@@ -339,7 +301,7 @@ public class Player extends Entity {
 	public int awardSkillPointsForLevels(int prevLevel, int newLevel) {
 		int granted = 0;
 		for (int lvl = Math.max(prevLevel + 1, 2); lvl <= newLevel && lvl <= 20; lvl++) {
-			if ((lvl & 1) == 0) {  // even level
+			if ((lvl & 1) == 0) {
 				this.availableSkillPoints++;
 				granted++;
 			}
@@ -355,8 +317,7 @@ public class Player extends Entity {
 	// Backpack is two 20-slot pages (Main 5..24, Backpack 25..44) shown as tabs.
 	public static final int BACKPACK_SIZE = 40;
 	public static final int INVENTORY_SIZE = EQUIPMENT_SLOT_COUNT + BACKPACK_SIZE; // 45
-	// Only the Main page (the first 20 backpack slots) is tradeable; the
-	// second Backpack page stays out of trades.
+	// Only the Main page (first 20 backpack slots) is tradeable.
 	public static final int TRADE_SLOT_COUNT = 20;
 
 	private void resetInventory() {
@@ -414,11 +375,7 @@ public class Player extends Entity {
 		return weapon == null ? -1 : weapon.getDamage().getProjectileGroupId();
 	}
 
-	/**
-	 * Phase 1B: ability is now class-bound, not equipped. Look up via
-	 * CharacterClassModel.classAbilityId — Phase 2 replaces this with the
-	 * full ability tree.
-	 */
+	/** Class-bound ability (not equipped) via CharacterClassModel.classAbilityId. */
 	public GameItem getAbility() {
 		final CharacterClassModel cls = GameDataManager.CHARACTER_CLASSES.get(this.classId);
 		if (cls == null) return null;
@@ -498,11 +455,7 @@ public class Player extends Entity {
 	public Stats getComputedStats() {
 		if (this.stats == null)
 			return new Stats();
-		// The server already sent fully-computed stats (base + equipment +
-		// enchantments + scaling gems + buffs) and applyUpdate stored them in
-		// this.stats. Re-summing equipment here would double-count it, which is
-		// why the native client read a higher DEX than the server/webclient.
-		// Mirror the webclient: trust the wire value.
+		// statsServerComputed => the wire value already folded in equipment; re-summing double-counts.
 		if (this.statsServerComputed)
 			return this.stats.clone();
 		Stats stats = this.stats.clone();
@@ -510,8 +463,7 @@ public class Player extends Entity {
 		for (GameItem item : equipment) {
 			if (item != null) {
 				stats = stats.concat(item.getStats());
-				// Pixel-forge enchantments: each entry adds +deltaValue to the
-				// matching stat. statId order: 0=VIT 1=WIS 2=HP 3=MP 4=STR 5=DEF 6=SPD 7=DEX
+				// Enchantment statId order: 0=VIT 1=WIS 2=HP 3=MP 4=STR 5=DEF 6=SPD 7=DEX
 				if (item.getEnchantments() != null && !item.getEnchantments().isEmpty()) {
 					for (Enchantment e : item.getEnchantments()) {
 						final short delta = e.getDeltaValue();
@@ -540,11 +492,9 @@ public class Player extends Entity {
 		return stats;
 	}
 
-	/** Total stat contribution of equipped items (item stats + affix attribute
-	 *  modifiers + pixel-forge enchantments). Must mirror the additive deltas in
-	 *  the server's getComputedStats so the reconstructed base reads maxed off the
-	 *  leveled stat alone. Percentage scaling gems and transient buffs aren't
-	 *  representable as a flat sum and are left out. */
+	/** Additive equipment contribution (item stats + attribute modifiers +
+	 *  enchantments). Must mirror the server so the reconstructed base reads
+	 *  maxed off the leveled stat alone. Scaling gems / buffs are left out. */
 	public Stats getEquipmentBonus() {
 		Stats bonus = new Stats();
 		final GameItem[] equipment = this.getSlots(0, EQUIPMENT_SLOT_COUNT);
@@ -579,13 +529,11 @@ public class Player extends Entity {
 		}
 	}
 
-	/** Leveled/allocated stats (the wire value minus equipment). A stat is
-	 *  "maxed" when this base hits the class cap — equipment that pushes the
-	 *  effective stat over the cap must NOT read as maxed. */
+	/** Leveled stats (wire value minus equipment); a stat is "maxed" only when
+	 *  this base hits the cap, not when equipment pushes it over. */
 	public Stats getBaseStats() {
 		if (this.stats == null) return new Stats();
-		// Embedded-server role stores raw base stats; only the networked client
-		// receives equipment-folded stats that must be subtracted back out.
+		// Embedded-server role stores raw base; only the networked client folds equipment in.
 		if (!this.statsServerComputed) return this.stats.clone();
 		return this.stats.subtract(this.getEquipmentBonus());
 	}
@@ -643,10 +591,7 @@ public class Player extends Entity {
 	public void updateEffectState() {
 		if (this.getSpriteSheet() == null)
 			return;
-		// Priority order matches the web client: more "loud" / overriding
-		// effects take precedence over passive ones. INVINCIBLE / STASIS /
-		// BERSERK win over things like POISONED so the player can read at a
-		// glance what's most impactful.
+		// Priority order matches the web client: louder effects win over passive ones.
 		final Sprite.EffectEnum target;
 		if (this.hasEffect(StatusEffectType.INVINCIBLE))      target = Sprite.EffectEnum.INVINCIBLE;
 		else if (this.hasEffect(StatusEffectType.STASIS))     target = Sprite.EffectEnum.STASIS;
@@ -672,29 +617,15 @@ public class Player extends Entity {
 
 	@Override
 	public void render(SpriteBatch batch) {
-		// PlayState's batched world render calls renderBody(batch) on each
-		// entity, NOT render(). This method is kept for direct callers
-		// (e.g. char-select preview) but the in-world player draw goes
-		// through renderBody() below, which is where the lerped render
-		// position MUST be applied to fix the per-tick lurch.
+		// For direct callers (e.g. char-select preview); the in-world draw goes
+		// through renderBody(), where the lerped render position is applied.
 		if (this.getSpriteSheet() == null) return;
 		this.updateEffectState();
 		this.renderBody(batch);
 	}
 
-	/**
-	 * Override Entity.renderBody so the LOCAL player draws at its lerped
-	 * render position (set every frame in PlayState.input()) rather than
-	 * pos.x / pos.y (which advances in 1/64s tick steps and causes a
-	 * visible per-tick "lurch" between camera and sprite).
-	 *
-	 * Non-local players have renderX=NaN -> effective position falls back
-	 * to pos.x / pos.y, identical to the old behaviour.
-	 */
-	/** One-shot warn log per (player-id, state-bit) so the diagnostic
-	 *  output is bounded. Static map keeps Player free of an extra
-	 *  Lombok-tracked field that would otherwise propagate into
-	 *  @AllArgsConstructor. */
+	/** One-shot warn log per (player-id, state-bit); static so it isn't a
+	 *  Lombok-tracked field feeding @AllArgsConstructor. */
 	private static final ConcurrentHashMap<Long, Byte> RENDER_DBG =
 			new ConcurrentHashMap<>();
 	private static final byte DBG_NULL_SHEET   = 1;
@@ -717,10 +648,7 @@ public class Player extends Entity {
 		final int rw = frame.getRegionWidth();
 		final int rh = frame.getRegionHeight();
 		if (rw <= 0 || rh <= 0) return;
-		// Scale visual render size proportionally with collision size so the
-		// /size command actually resizes the character. Default ratio
-		// (PLAYER_RENDER_SIZE / PLAYER_SIZE = 32/28) is preserved when size
-		// is at its baseline of 28.
+		// Scale render size with collision size so /size resizes the character.
 		final float sizeScale = (float) this.size / GlobalConstants.PLAYER_SIZE;
 		final int rs = Math.round(GlobalConstants.PLAYER_RENDER_SIZE * sizeScale);
 		final float offset = (rs - this.size) / 2f;
@@ -728,9 +656,7 @@ public class Player extends Entity {
 		final float py = this.getEffectiveRenderY();
 		final float wx = (px - Vector2f.worldX) - offset;
 		final float wy = (py - Vector2f.worldY) - offset;
-		// Match body draw rect (see renderBody) so the outline aligns with
-		// wide/tall attack frames. 1 source-pixel padding around the rect
-		// gives the outline shader its neighbor sample.
+		// Match body draw rect (see renderBody); 1 source-pixel padding for the shader sample.
 		final int refW = this.getSpriteSheet().getSpriteImageWidth();
 		final int refH = this.getSpriteSheet().getSpriteImageHeight();
 		if (refW <= 0 || refH <= 0) return;
@@ -750,13 +676,8 @@ public class Player extends Entity {
 		}
 	}
 
-	/**
-	 * No-op: the player draws its own dark outline halo inside
-	 * {@link #renderBody} at the lerped render position. The base
-	 * {@link Entity#renderStroke} would redraw that halo from the
-	 * tick-stepped simulation position ({@code pos}), lagging a frame
-	 * behind the body and reading as a detached black shadow.
-	 */
+	/** No-op: the player draws its own outline in renderBody at the lerped
+	 *  position; the base renderStroke would lag it by a frame (detached shadow). */
 	@Override
 	public void renderStroke(SpriteBatch batch) {
 	}
@@ -779,10 +700,7 @@ public class Player extends Entity {
 			}
 			return;
 		}
-		// Scale visual render size proportionally with collision size so the
-		// /size command actually resizes the character. Default ratio
-		// (PLAYER_RENDER_SIZE / PLAYER_SIZE = 32/28) is preserved when size
-		// is at its baseline of 28.
+		// Scale render size with collision size so /size resizes the character.
 		final float sizeScale = (float) this.size / GlobalConstants.PLAYER_SIZE;
 		final int rs = Math.round(GlobalConstants.PLAYER_RENDER_SIZE * sizeScale);
 		final float offset = (rs - this.size) / 2f;
@@ -799,22 +717,15 @@ public class Player extends Entity {
 					this.renderX, this.renderY,
 					this.size, rs);
 		}
-		// Mask-based dye recolor (web parity: renderer.js getDyedRegion).
-		// We replace the rendered TextureRegion outright with a recolored
-		// copy that has only the masked clothing/accessory pixels shifted
-		// to the dye color, luminance preserved. Falls back to the raw
-		// frame when the dye is 0, the dye registry hasn't loaded, or
-		// this particular cell has no mask entry — so a missing mask
-		// degrades to the un-dyed sprite instead of crashing.
+		// Mask-based dye recolor (web parity). Falls back to the raw frame when
+		// dye is 0, the registry hasn't loaded, or the cell has no mask entry.
 		TextureRegion drawFrame = frame;
 		if (this.dyeId > 0) {
 			final TextureRegion dyed = resolveDyedRegion(frame);
 			if (dyed != null) drawFrame = dyed;
 		}
-		// Scale draw rect by frame region vs reference cell so a wide
-		// attack frame extends past the body's right edge instead of being
-		// squished. Body anchored at bottom-left of the frame; wider frames
-		// extend right (mirrored when facing left), taller frames extend up.
+		// Scale draw rect by frame region vs reference cell: body anchored at
+		// bottom-left, so wider frames extend right (mirrored left), taller up.
 		final int refW = this.getSpriteSheet().getSpriteImageWidth();
 		final int refH = this.getSpriteSheet().getSpriteImageHeight();
 		final int rw = frame.getRegionWidth();
@@ -832,21 +743,16 @@ public class Player extends Entity {
 		final float drawX = this.left ? (wx + rs - drawW) : wx;
 		final float flipX = this.left ? -1f : 1f;
 
-		// Water-sink: while standing on a slowing tile, draw only the top
-		// portion of the frame so the bottom third reads as submerged legs
-		// (web parity: renderer.js wadingClip = 0.30, masked sprite).
+		// Water-sink: draw only the top of the frame so the bottom reads as submerged legs.
 		TextureRegion bodyRegion = drawFrame;
 		float bodyH = drawH;
 		float bodyDrawY = drawY;
 		if (this.wading) {
 			final float keep = 1f - WADING_CLIP_FRACTION;
 			final int keepRows = Math.max(1, Math.round(rh * keep));
-			// drawFrame is Y-flipped by SpriteSheet, so the cell's display top is
-			// its low-V pixel edge. Slice keepRows from that edge in unflipped
-			// pixel space (a sub-region built off the flipped region's coords
-			// would slice the wrong band and lose the flip — that was the garble),
-			// then restore the flip. Anchoring the kept top at the sprite's
-			// original top sinks the clipped bottom below the waterline.
+			// drawFrame is Y-flipped, so its display top is the low-V edge. Slice
+			// keepRows from that edge in UNFLIPPED pixel space then restore the
+			// flip — slicing off the flipped coords picks the wrong band (garble).
 			final int texH = drawFrame.getTexture().getHeight();
 			final int cellTopY = Math.min(Math.round(drawFrame.getV() * texH),
 					Math.round(drawFrame.getV2() * texH));
@@ -857,11 +763,8 @@ public class Player extends Entity {
 			bodyDrawY = drawY + (drawH - bodyH);
 		}
 
-		// Outline: 8 dark offset copies (4 cardinal + 4 diagonal) behind the body,
-		// matching the webclient's addSpriteWithOutline halo. The diagonals fill the
-		// corner pixels a cardinal-only stroke misses. The bottom copies (+Y) are
-		// skipped while wading so the waterline edge stays a clean cut, not an
-		// outlined rim.
+		// Outline: 8 dark offset copies behind the body; the bottom (+Y) copies
+		// are skipped while wading so the waterline edge stays a clean cut.
 		final float prevColor = batch.getPackedColor();
 		batch.setColor(0f, 0f, 0f, BODY_OUTLINE_ALPHA);
 		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY,                      drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
@@ -881,14 +784,10 @@ public class Player extends Entity {
 
 	/** Fraction of the sprite hidden at the bottom while wading (web parity). */
 	private static final float WADING_CLIP_FRACTION = 0.30f;
-	/** Player body outline offset (world px → 2 screen px at WORLD_SCALE). */
 	private static final float BODY_OUTLINE_OFFSET = 1f;
 	private static final float BODY_OUTLINE_ALPHA = 0.85f;
 
-	/** Resolve the current sprite cell to a dyed TextureRegion. The
-	 *  cell coordinates come from the source TextureRegion's region
-	 *  bounds — libGDX flips the Y axis when the SpriteSheet is built,
-	 *  so we read regionY relative to the texture height. */
+	/** Resolve the current sprite cell to a dyed TextureRegion. */
 	private TextureRegion resolveDyedRegion(TextureRegion frame) {
 		final AnimationModel anim = GameDataManager.getAnimation("player", this.classId);
 		if (anim == null) {
@@ -900,16 +799,9 @@ public class Player extends Entity {
 		final int spW = anim.getSpriteSize() > 0 ? anim.getSpriteSize() : 8;
 		final int spH = anim.getEffectiveSpriteHeight() > 0 ? anim.getEffectiveSpriteHeight() : spW;
 		if (frame == null || frame.getTexture() == null) return null;
-		// SpriteSheet calls TextureRegion.flip(false, true) on every cell so
-		// the image renders right-side-up against our Y-down ortho camera.
-		// As a side effect getRegionY() returns the BOTTOM edge of the
-		// original cell (= (i+1)*spH) instead of the top. Reading it
-		// directly off-by-ones every row -> CLASS_MASK_FRAMES lookup
-		// missed and dyeing silently fell back to the un-recolored sprite.
-		// Compensate by subtracting regionHeight on flipped regions
-		// (same idea for X if anyone ever flips horizontally — unflipped
-		// regions are unaffected because the subtract collapses to 0
-		// when the flag is false).
+		// SpriteSheet flips each cell, so getRegionY() returns the cell's BOTTOM
+		// edge, not the top; subtract regionHeight on flipped regions to recover
+		// the row (unflipped regions collapse the subtract to 0).
 		final int spX = frame.isFlipX()
 				? frame.getRegionX() - frame.getRegionWidth()
 				: frame.getRegionX();
@@ -918,11 +810,8 @@ public class Player extends Entity {
 				: frame.getRegionY();
 		final int col = spX / spW;
 		final int row = spY / spH;
-		// Frame dims come from the current TextureRegion: idle frames match
-		// the cell, attack frames may be wider/taller. Passing them through
-		// keeps the dyed Pixmap the same size as the source slice so the
-		// renderer's drawW/drawH math doesn't stretch a cell-sized region
-		// across a frame-sized destination rect.
+		// Pass the frame's own dims (attack frames differ from the cell) so the
+		// dyed Pixmap matches the source slice and isn't stretched on draw.
 		final int frameW = frame.getRegionWidth();
 		final int frameH = frame.getRegionHeight();
 		final TextureRegion dyed = SpriteRecolorCache.getDyedRegion(
@@ -940,8 +829,7 @@ public class Player extends Entity {
 	}
 
 	/** One-shot diagnostic logger to keep the hot render path quiet. */
-	private static final java.util.Set<String> DYE_WARNED =
-			java.util.concurrent.ConcurrentHashMap.newKeySet();
+	private static final Set<String> DYE_WARNED = ConcurrentHashMap.newKeySet();
 	private static void dyeWarnOnce(String key, String fmt, Object... args) {
 		if (DYE_WARNED.add(key)) log.warn(fmt, args);
 	}
@@ -1020,17 +908,12 @@ public class Player extends Entity {
 		final CharacterClassModel classModel = GameDataManager.CHARACTER_CLASSES.get(this.getClassId());
 		final int levelsGained = newLevel - currentLevel;
 		if (levelsGained > 0) {
-			// Apply random stat increases for EACH level gained
 			for (int i = 0; i < levelsGained; i++) {
 				this.setStats(this.getStats().concat(classModel.getRandomLevelUpStats()));
 			}
-			// Restore health and mana to new max after all stat increases
 			this.setHealth(this.stats.getHp());
 			this.setMana(this.stats.getMp());
-			// Phase 2D — award skill points for every even level reached in
-			// (currentLevel, newLevel]. Server is authoritative; this is a
-			// local mirror so the HUD pip count tracks the level-up in real
-			// time before the next stats sync lands.
+			// Local mirror of the server's skill-point award so the HUD tracks it immediately.
 			this.awardSkillPointsForLevels(currentLevel, newLevel);
 		}
 		this.setExperience(newExperience);
@@ -1052,9 +935,7 @@ public class Player extends Entity {
 		}
 		this.health = packet.getHealth();
 		this.mana = packet.getMana();
-		// Server-authoritative potion counts. Without these the local count was only
-		// ever set at login + local pickup/drink prediction, so a realm switch (press-R
-		// nexus) left it reading 0 until you picked another up.
+		// Server-authoritative potion counts (a realm switch otherwise left the local count stale).
 		this.hpPotions = packet.getHpPotions();
 		this.mpPotions = packet.getMpPotions();
 		if (packet.getPlayerId() == state.getPlayerId()) {
@@ -1087,9 +968,7 @@ public class Player extends Entity {
 	public boolean isStatMaxed(int statIdx) {
 		final CharacterClassModel characterClass = GameDataManager.CHARACTER_CLASSES.get(this.classId);
 		final Stats maxStats = characterClass.getMaxStats();
-		// Compare the BASE (leveled) stat to the cap, not the equipment-folded
-		// wire value — equipment that pushes the effective stat over the cap must
-		// not read as maxed.
+		// Compare the BASE (leveled) stat to the cap, not the equipment-folded wire value.
 		final Stats s = this.getBaseStats();
 		boolean maxed = false;
 		switch (statIdx) {
@@ -1204,10 +1083,8 @@ public class Player extends Entity {
 		for (GameItem item : items) {
 			if (item == null)
 				continue;
-			// Stackable items (shards, essence) merge into existing stacks of
-			// the same itemId before spilling into a free slot, mirroring the
-			// pickup logic in ServerItemHelper. This keeps trade-received
-			// stacks consistent with how loot pickups behave.
+			// Stackable items merge into existing same-itemId stacks before
+			// spilling into a free slot (mirrors ServerItemHelper pickup).
 			if (item.isStackable()) {
 				int remaining = item.getStackCount();
 				for (int i = EQUIPMENT_SLOT_COUNT; i < this.inventory.length && remaining > 0; i++) {
@@ -1237,11 +1114,9 @@ public class Player extends Entity {
 	}
 
 	public void removeItems(GameItem[] items) {
-		// Remove exactly ONE inventory slot per item handed in. selectGameItems
-		// returns the live inventory objects, so match by reference identity
-		// first; the UID fallback also stops at its first hit. Matching every
-		// UID-equal slot would wipe a whole row of items that share a UID —
-		// and clone() copies the uid, so trades routinely create duplicates.
+		// Remove exactly ONE slot per item: match by reference then UID, stopping
+		// at the first hit. clone() copies the uid, so UID-equal slots are common
+		// — matching all of them would wipe a whole row.
 		for (GameItem toRemove : items) {
 			if (toRemove == null)
 				continue;

@@ -16,11 +16,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class EffectText {
-    // Both the float-up speed AND the lifetime are driven by this single
-    // constant — animationDistance starts at 45 and counts down by velY/tick,
-    // so a smaller magnitude buys longer read time without changing the visual
-    // range. -0.72f (was -1.00f) is another ~40% read time so damage + the
-    // status it applied can both be read before they fade.
+    // Drives both float-up speed and lifetime: animationDistance counts down by velY/tick.
     private static final float velY = -0.72f;
 
     private Vector2f sourcePos;
@@ -30,10 +26,7 @@ public class EffectText {
     private boolean remove = false;
     @Builder.Default
     private float animationDistance = 45.0f;
-    // Vertical separation (world px, float-up direction) applied on top of the
-    // float animation. Status labels get a lane above the damage numbers so a
-    // projectile's damage and the status it applies never overlap; same-lane
-    // bursts also stack via this offset. Set at spawn in ClientGameLogic.
+    // World-px lane offset so status labels don't overlap damage numbers. Set at spawn.
     @Builder.Default
     private float laneOffset = 0.0f;
 
@@ -54,8 +47,6 @@ public class EffectText {
             color = Color.GREEN;
             break;
         case ARMOR_BREAK:
-            // Bright, saturated blue for armor-piercing/armor-broken hits.
-            // Color.BLUE (0,0,255) is too dark to read on dungeon floors.
             color = new Color(0.30f, 0.55f, 1f, 1f);
             break;
         case ENVIRONMENT:

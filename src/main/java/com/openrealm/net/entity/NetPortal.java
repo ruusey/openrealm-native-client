@@ -54,7 +54,6 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 	@SerializableField(order = 12, type = SerializableString.class)
 	private String targetModifiers;
 
-	/** Hand-rolled construction from Portal — bypasses ModelMapper reflection. */
 	public static NetPortal fromPortal(Portal p) {
 		final NetPortal n = new NetPortal();
 		n.id = p.getId();
@@ -88,9 +87,7 @@ public class NetPortal extends SerializableFieldType<NetPortal> {
 		p.setTargetPurificationGoal(this.getTargetPurificationGoal());
 		p.setTargetTier(this.getTargetTier());
 		p.setTargetModifiers(this.getTargetModifiers());
-		// Load sprite — Portal.render() short-circuits when sprite is null,
-		// so without this every portal stays invisible despite being in the
-		// realm. Mirrors NetEnemy / NetBullet sprite resolution.
+		// Load sprite or Portal.render() short-circuits and the portal is invisible.
 		try {
 			PortalModel model =
 					GameDataManager.PORTALS != null

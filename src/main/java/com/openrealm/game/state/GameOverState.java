@@ -5,13 +5,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.account.dto.PlayerAccountDto;
 import com.openrealm.account.service.OpenRealmClientDataService;
 import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.SessionStore;
+import com.openrealm.game.ui.UiRender;
 import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.util.KeyHandler;
 import com.openrealm.util.MouseHandler;
@@ -19,23 +19,14 @@ import com.openrealm.util.MouseHandler;
 import lombok.extern.slf4j.Slf4j;
 import com.badlogic.gdx.Gdx;
 
-/**
- * Death overlay. Mirrors the web client's {@code death-overlay} flow: the
- * player can return to character select to pick a different character or
- * quit the launcher. The legacy "ENTER restarts the same character" path
- * is gone — once a character is dead the server has soft-deleted them so
- * restarting them is meaningless.
- */
 @Slf4j
 public class GameOverState extends GameState {
 
     private boolean prevMouseDown = false;
 
-    // WHY: returnToCharSelect used to do a synchronous svc.getAccount() on
-    // the GL thread. HttpClient.newHttpClient() ships with NO request
-    // timeout, so a slow/unreachable data service hung the renderer
-    // indefinitely and the user was stuck on a frozen "GAME OVER" overlay.
-    // Same staged-teardown approach as PauseState.
+    // Staged teardown (matches PauseState): the GL thread must not block on
+    // the untimed getAccount() HTTP call, so a worker fills these and update()
+    // applies the transition next frame.
     private boolean returnPending = false;
     private final AtomicReference<PlayerAccountDto> returnAcctResult = new AtomicReference<>();
     private final AtomicReference<String> returnError = new AtomicReference<>();
@@ -71,7 +62,7 @@ public class GameOverState extends GameState {
         key.escape.tick();
         key.enter.tick();
 
-        // Layout matches render() — buttons centered horizontally, stacked.
+        // Layout must match render().
         int w = OpenRealmGame.width;
         int h = OpenRealmGame.height;
         int btnW = 280;
@@ -112,8 +103,6 @@ public class GameOverState extends GameState {
         ClientGameLogic.GAME_OVER = false;
         final SessionStore store = SessionStore.get();
         final OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
-        // Tear down the live socket immediately; the slot swap waits for
-        // the account refresh worker so the GL thread doesn't block.
         try {
             PlayState play = this.gsm.getPlayState();
             if (play != null && play.getRealmManager() != null) {
@@ -154,15 +143,15 @@ public class GameOverState extends GameState {
         batch.begin();
 
         font.setColor(Color.RED);
-        font.draw(batch, "GAME OVER", OpenRealmGame.width / 2f - 60, OpenRealmGame.height / 2f - 32);
+        UiRender.drawCentered(batch, font, "GAME OVER", OpenRealmGame.width / 2f, OpenRealmGame.height / 2f - 32);
         if (this.returnPending) {
             font.setColor(0.78f, 0.66f, 0.43f, 1f);
-            font.draw(batch, "Returning to character select...",
-                    OpenRealmGame.width / 2f - 150, OpenRealmGame.height / 2f - 8);
+            UiRender.drawCentered(batch, font, "Returning to character select...",
+                    OpenRealmGame.width / 2f, OpenRealmGame.height / 2f - 8);
         }
         font.setColor(Color.WHITE);
-        font.draw(batch, "Your character has fallen. Choose your next path.",
-                OpenRealmGame.width / 2f - 220, OpenRealmGame.height / 2f);
+        UiRender.drawCentered(batch, font, "Your character has fallen. Choose your next path.",
+                OpenRealmGame.width / 2f, OpenRealmGame.height / 2f);
 
         int w = OpenRealmGame.width;
         int h = OpenRealmGame.height;
@@ -179,19 +168,9 @@ public class GameOverState extends GameState {
 
     private void drawButton(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
                             int x, int y, int w, int h, String label, boolean primary) {
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        if (primary) shapes.setColor(0.55f, 0.40f, 0.18f, 1f);
-        else shapes.setColor(0.20f, 0.18f, 0.22f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.78f, 0.66f, 0.43f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        batch.begin();
+        Color fill = primary ? new Color(0.55f, 0.40f, 0.18f, 1f) : new Color(0.20f, 0.18f, 0.22f, 1f);
+        UiRender.panel(batch, shapes, x, y, w, h, fill, new Color(0.78f, 0.66f, 0.43f, 1f));
         font.setColor(Color.WHITE);
-        GlyphLayout layout = new GlyphLayout(font, label);
-        font.draw(batch, label, x + (w - layout.width) / 2f, y + (h - layout.height) / 2f);
+        UiRender.drawCenteredIn(batch, font, label, x, y, w, h);
     }
 }

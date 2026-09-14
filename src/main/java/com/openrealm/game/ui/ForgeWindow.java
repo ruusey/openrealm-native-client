@@ -26,85 +26,45 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import java.lang.reflect.Method;
 
-/**
- * Pixel-painting forge UI, mirroring the web client's enchant flow.
- *
- * Server flow:
- *   1. Player walks onto a forge tile -> server sends {@code OpenForgePacket}.
- *   2. We open this window. It captures the player's current target item,
- *      crystal, and essence (set externally via {@link #setItems}).
- *   3. The 16×16 (scaled to 256×256) canvas lets the player click a pixel to
- *      paint an enchantment for the selected crystal's stat type.
- *   4. Forge button sends {@link ForgeEnchantPacket}; Remove All sends
- *      {@link ForgeDisenchantPacket}. Server validates everything.
- *
- * The native client doesn't yet read the item sprite mask — it shows the
- * 16×16 grid as an unrestricted painting surface. The server is authoritative
- * either way, so this is a presentational simplification rather than a
- * correctness gap.
- */
+/** Pixel-painting forge UI mirroring the web client's enchant flow. The
+ *  server is authoritative; this window only stages target/crystal/essence
+ *  slots and painted pixels, then emits ForgeEnchantPacket / ForgeDisenchantPacket. */
 @Slf4j
 public class ForgeWindow {
-    /** Default grid cell count. Items with spriteSize == 8 collapse the
-     *  visible grid to 8×8 with bigger cells so the painting surface
-     *  shows one cell per actual sprite pixel — the previous fixed
-     *  16×16 grid had the player painting at half the per-pixel
-     *  resolution, and the staged pixels never lined up with the
-     *  authored item art. */
     public static final int CANVAS_PIXELS = 16;
-    public static final int CANVAS_PIXEL_SIZE = 16;   // each grid cell is 16 device px
-    public static final int CANVAS_RENDER_SIZE = CANVAS_PIXELS * CANVAS_PIXEL_SIZE; // 256 px
-    // Upper sanity bound. The actual cap shown on screen and enforced when
-    // painting is rarity-driven (currentMaxEnchantments()) — Mundane = 0,
-    // Legendary = 5. Mirrors webclient slotsForItem() in forge.js.
+    public static final int CANVAS_PIXEL_SIZE = 16;
+    public static final int CANVAS_RENDER_SIZE = CANVAS_PIXELS * CANVAS_PIXEL_SIZE;
+    // Upper sanity bound only; the enforced cap is rarity-driven (currentMaxEnchantments()).
     public static final int MAX_ENCHANTMENTS = 5;
-    // Painted-pixel statId marker for a gem (gems carry no stat). Keeps the gem
-    // staged pixel a distinct color from the eight stat crystals.
+    // Painted-pixel statId marker for a gem (gems carry no stat), distinct from the eight stat crystals.
     private static final int GEM_PAINT_MARKER = 100;
+    // Modal-only multiplier on top of UiAtlas.getDisplayScale(); matches the webclient's --forge-scale.
+    private static final int MODAL_SCALE = 2;
 
     private boolean visible = false;
 
     @Setter private RealmManagerClient realmManager;
-    /** PlayState handle so we can resolve a forge slot index to an
-     *  actual GameItem from the player's inventory at render time. The
-     *  webclient does this trivially via {@code _game.inventory[slot]};
-     *  the native client needs the explicit reference because the forge
-     *  window doesn't otherwise know about the player. Set right next
-     *  to setRealmManager from the OpenForgePacket handler. */
     @Setter private PlayState playState;
 
-    /** Inventory slot index of the equipment currently in the forge
-     *  target slot (-1 when empty). The webclient stores the SLOT, not
-     *  the item id, because the server's ForgeEnchantPacket wants
-     *  byte-typed inventory slot indices for target / crystal /
-     *  essence — passing item ids was the bug that made the previous
-     *  reflective send do nothing (no setTargetItemId method exists). */
+    // Forge slots store INVENTORY SLOT indices (not item ids); the packet is byte-typed on slots.
     @Setter private int targetSlot = -1;
-    /** Inventory slot of the chosen crystal (-1 when empty). */
     @Setter private int crystalSlot = -1;
-    /** Inventory slot of the essence (-1 when empty). */
     @Setter private int essenceSlot = -1;
-    /** Item id of the crystal — the only "id" the packet needs (the
-     *  server uses it to pull the stat / shard data). Mirrors the
-     *  ForgeEnchantPacket field layout. */
+    // Item id of the crystal is the only "id" the packet needs (server pulls stat/shard data from it).
     @Setter private int crystalItemId = -1;
     /** Stat id encoded by the selected crystal (0=VIT 1=WIS 2=HP 3=MP 4=STR 5=DEF 6=SPD 7=DEX). */
     @Setter private int crystalStatId = -1;
 
-    /** Pixels the user has painted in this session. Each entry is {x, y, statId, color-rgb}. */
+    /** Each entry is {x, y, statId, color-rgb}. */
     private final List<int[]> paintedPixels = new ArrayList<>();
 
-    /** Last-rendered grid dimension. Updated by render() so handleClick
-     *  can map mouse-pixel coordinates back to the matching sprite-pixel
-     *  no matter what spriteSize the target item turned out to be. */
+    // Last-rendered grid dimension; render() sets it so handleClick maps clicks to the same sprite pixel.
     private int activeGridDim = CANVAS_PIXELS;
 
-    /** Pre-existing enchantments on the target item, supplied by the server when the window opens. */
     @Setter private List<int[]> existingEnchantments = new ArrayList<>();
 
     private boolean mouseDownPrev = false;
 
-    /** Transient feedback line (e.g. why a gem was refused) shown under the counter. */
     private String statusMessage = "";
 
     public boolean isVisible() {
@@ -130,28 +90,13 @@ public class ForgeWindow {
         }
         boolean down = Gdx.input.isButtonPressed(Input.Buttons.LEFT);
         if (down && !this.mouseDownPrev) {
-            // Render uses flipped ortho (y=0 at TOP of screen), and
-            // Gdx.input.getY() is also top-down, so pass it through —
-            // do NOT flip it. The previous code ran (height - getY())
-            // which inverted clicks against the rendered layout, so
-            // every button hit-test missed and Cancel was unclickable.
+            // Flipped ortho: getY() is already top-down, pass it through (do NOT flip).
             this.handleClick(Gdx.input.getX(), Gdx.input.getY());
         }
         this.mouseDownPrev = down;
     }
 
-    /** Modal-only scale multiplier on top of UiAtlas.getDisplayScale().
-     *  The atlas was authored at displayScale=2 to fit comfortably as
-     *  in-game HUD chrome, but the forge dialog is a focused modal that
-     *  needs more screen real-estate for buttons + paint canvas. The
-     *  webclient lifts itself the same way via `--forge-scale: 2` on
-     *  #forge-panel. Match that here so both clients render at the same
-     *  effective size (4x the source atlas). */
-    private static final int MODAL_SCALE = 2;
-
-    /** Build a Layout from the atlas. Returns null when the atlas isn't
-     *  ready — callers should bail without drawing/handling clicks so we
-     *  never paint stale hardcoded geometry on top of the HUD. */
+    /** Returns null when the atlas isn't ready; callers must bail so we never paint stale geometry. */
     private ForgeLayout computeLayout() {
         if (!UiAtlas.isReady()) return null;
         final UiComponent cont   = UiAtlas.componentOf("panel.forge.container");
@@ -160,9 +105,7 @@ public class ForgeWindow {
         final UiComponent inCry  = UiAtlas.componentOf("panel.forge.input.crystal");
         final UiComponent inEss  = UiAtlas.componentOf("panel.forge.input.essence");
         final UiComponent lbItem = UiAtlas.componentOf("panel.forge.label.item");
-        // Note: canonical ui-components.json has the typo 'cyrstal' on the
-        // LABEL only (input.crystal is correctly spelled). Honor the typo
-        // verbatim — re-spelling here would 404 the lookup.
+        // The LABEL id carries the typo 'cyrstal' in ui-components.json; honor it verbatim or the lookup 404s.
         final UiComponent lbCry  = UiAtlas.componentOf("panel.forge.label.cyrstal");
         final UiComponent lbEss  = UiAtlas.componentOf("panel.forge.label.essence");
         final UiComponent output = UiAtlas.componentOf("panel.forge.output");
@@ -178,10 +121,7 @@ public class ForgeWindow {
         L.containerX = (OpenRealmGame.width  - L.containerW) / 2;
         L.containerY = (OpenRealmGame.height - L.containerH) / 2;
 
-        // Translate any atlas component to screen coords by:
-        //   screen = containerOrigin + (compSrc - containerSrc) * displayScale
-        // This keeps the rendered layout pixel-identical to the user's
-        // annotation no matter where the dialog is centered on screen.
+        // screen = containerOrigin + (compSrc - containerSrc) * displayScale
         final int cox = cont.getX();
         final int coy = cont.getY();
 
@@ -225,26 +165,15 @@ public class ForgeWindow {
         L.outputW = output.getW() * s;
         L.outputH = output.getH() * s;
 
-        // Action buttons live inside panel.forge.status (per user spec:
-        // "you can put the existing remove all, forge and cancel buttons
-        //  on the top component within the panel.forge.container called
-        //  panel.forge.status. ALl of the aciton buttons can go there").
-        // Lay them out as three equal-width regions inside the status bar.
-        // Vertical: occupy almost the full status height with 1px padding.
+        // Three equal-width buttons inside the status bar.
         L.btnH = Math.max(14, L.statusH - 2);
         L.btnY = L.statusY + (L.statusH - L.btnH) / 2;
-        // Reserve a sliver on the right of the status bar for a close ×
-        // affordance — kept implicit (the ESC / Cancel button is the
-        // primary close path), so all three buttons share the bar width.
         L.btnW = (L.statusW - 6) / 3;
         L.btnForgeX  = L.statusX + 2;
         L.btnRemoveX = L.btnForgeX + L.btnW + 1;
         L.btnCancelX = L.btnRemoveX + L.btnW + 1;
 
-        // Square paint canvas inscribed in the output region. Sprite-size
-        // grid math (gridDim) is computed at render time from the bound
-        // target item; we just precompute the canvas screen rect here so
-        // click hit-tests share the exact same pixel rect.
+        // Square paint canvas inscribed in the output region; gridDim is computed at render time.
         L.canvasSize = Math.min(L.outputW, L.outputH);
         L.canvasX = L.outputX + (L.outputW - L.canvasSize) / 2;
         L.canvasY = L.outputY + (L.outputH - L.canvasSize) / 2;
@@ -268,11 +197,7 @@ public class ForgeWindow {
         shapes.end();
         batch.begin();
 
-        // ------------------------------------------------------------------
-        // Atlas chrome — every panel from the user's annotated sprite sheet.
-        // Order matters: container first (background), then status overlay,
-        // then label/input/output regions on top.
-        // ------------------------------------------------------------------
+        // Atlas chrome, back-to-front: container, status, then labels/inputs/output.
         blitAtlas(batch, "panel.forge.container", L.containerX, L.containerY, L.containerW, L.containerH);
         blitAtlas(batch, "panel.forge.status",    L.statusX,    L.statusY,    L.statusW,    L.statusH);
         blitAtlas(batch, "panel.forge.label.item",    L.labelItemX,    L.labelItemY,    L.labelItemW,    L.labelItemH);
@@ -283,11 +208,7 @@ public class ForgeWindow {
         blitAtlas(batch, "panel.forge.input.essence", L.essenceSlotX, L.essenceSlotY, L.essenceSlotW, L.essenceSlotH);
         blitAtlas(batch, "panel.forge.output",        L.outputX,      L.outputY,      L.outputW,      L.outputH);
 
-        // ------------------------------------------------------------------
-        // Action buttons inside panel.forge.status — flat-fill rects via
-        // ShapeRenderer because the atlas itself doesn't carry button art
-        // for them. Hit-tests in handleClick() share these same rects.
-        // ------------------------------------------------------------------
+        // Action buttons: flat-fill rects (the atlas carries no button art); hit-tests share these rects.
         batch.end();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         drawButtonFill(shapes, L.btnForgeX,  L.btnY, L.btnW, L.btnH);
@@ -296,9 +217,6 @@ public class ForgeWindow {
         shapes.end();
         batch.begin();
 
-        // ------------------------------------------------------------------
-        // Slot contents — item sprites for whatever the player has bound.
-        // ------------------------------------------------------------------
         final GameItem targetItem  = inventoryItem(this.targetSlot);
         final GameItem crystalItem = inventoryItem(this.crystalSlot);
         final GameItem essenceItem = inventoryItem(this.essenceSlot);
@@ -306,11 +224,7 @@ public class ForgeWindow {
         drawItemCentered(batch, crystalItem, L.crystalSlotX, L.crystalSlotY, L.crystalSlotW, L.crystalSlotH);
         drawItemCentered(batch, essenceItem, L.essenceSlotX, L.essenceSlotY, L.essenceSlotW, L.essenceSlotH);
 
-        // ------------------------------------------------------------------
-        // Pixel canvas — square inscribed in panel.forge.output. The grid
-        // dimension follows the bound target item's spriteSize so painted
-        // pixels land on the SAME source pixel the server will store.
-        // ------------------------------------------------------------------
+        // Pixel canvas: gridDim follows the target item's spriteSize so painted pixels land on the stored source pixel.
         final int gridDim;
         if (targetItem != null) {
             int sw = targetItem.getSpriteSize() > 0 ? targetItem.getSpriteSize() : 8;
@@ -346,8 +260,7 @@ public class ForgeWindow {
             shapes.rect(pxx, pxy, cellPx, cellPx);
         }
         shapes.end();
-        // Faint grid overlay so the user can see which sprite pixel
-        // they're about to click on.
+        // Faint grid overlay.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(1f, 1f, 1f, 0.18f);
         for (int i = 0; i <= gridDim; i++) {
@@ -360,29 +273,20 @@ public class ForgeWindow {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // ------------------------------------------------------------------
-        // Text overlays — title, button labels, slot labels, status line.
-        // ------------------------------------------------------------------
         font.setColor(Color.WHITE);
-        // Status bar title sits at the LEFT of the bar, before the buttons
-        // would normally start — but we packed buttons across the entire
-        // bar, so the title goes ABOVE the dialog, drawn small inside the
-        // status panel near the very top edge.
         font.getData().setScale(0.85f);
-        font.draw(batch, "Forge",      L.btnForgeX  + 6, L.btnY + L.btnH - 6);
-        font.draw(batch, "Remove All", L.btnRemoveX + 6, L.btnY + L.btnH - 6);
-        font.draw(batch, "Cancel",     L.btnCancelX + 6, L.btnY + L.btnH - 6);
+        UiRender.drawCenteredIn(batch, font, "Forge",      L.btnForgeX,  L.btnY, L.btnW, L.btnH);
+        UiRender.drawCenteredIn(batch, font, "Remove All", L.btnRemoveX, L.btnY, L.btnW, L.btnH);
+        UiRender.drawCenteredIn(batch, font, "Cancel",     L.btnCancelX, L.btnY, L.btnW, L.btnH);
         font.getData().setScale(1f);
 
-        // Slot labels — text overlay drawn on top of the panel.forge.label.*
-        // chrome so the user can read which slot is which.
         font.setColor(0.95f, 0.85f, 0.55f, 1f);
         font.getData().setScale(0.7f);
-        font.draw(batch, "Item",    L.labelItemX    + 2, L.labelItemY    + L.labelItemH    - 4);
-        font.draw(batch, "Crystal", L.labelCrystalX + 2, L.labelCrystalY + L.labelCrystalH - 4);
-        font.draw(batch, "Essence", L.labelEssenceX + 2, L.labelEssenceY + L.labelEssenceH - 4);
+        UiRender.drawCenteredIn(batch, font, "Item",    L.labelItemX,    L.labelItemY,    L.labelItemW,    L.labelItemH);
+        UiRender.drawCenteredIn(batch, font, "Crystal", L.labelCrystalX, L.labelCrystalY, L.labelCrystalW, L.labelCrystalH);
+        UiRender.drawCenteredIn(batch, font, "Essence", L.labelEssenceX, L.labelEssenceY, L.labelEssenceW, L.labelEssenceH);
 
-        // Empty-slot hint — only when the slot is empty.
+        // Empty-slot hints.
         font.setColor(0.5f, 0.5f, 0.55f, 1f);
         if (this.targetSlot  < 0) font.draw(batch, "drop item",
                 L.itemSlotX    + 4, L.itemSlotY    + L.itemSlotH    - 6);
@@ -405,9 +309,6 @@ public class ForgeWindow {
         font.setColor(Color.WHITE);
     }
 
-    /** Blit a UiAtlas region at the given screen rect, falling back to
-     *  a flat-fill placeholder if the region isn't bound (atlas missing
-     *  for that id). */
     private static void blitAtlas(SpriteBatch batch, String id, int x, int y, int w, int h) {
         final TextureRegion r = UiAtlas.region(id);
         if (r != null) {
@@ -415,16 +316,12 @@ public class ForgeWindow {
         }
     }
 
-    /** Solid-fill button background. Kept private + uniform so all three
-     *  status-bar buttons read identical until/unless the atlas grows
-     *  dedicated button regions. */
     private static void drawButtonFill(ShapeRenderer shapes, int x, int y, int w, int h) {
         shapes.setColor(0.18f, 0.18f, 0.22f, 1f);
         shapes.rect(x, y, w, h);
     }
 
-    /** Center an item sprite inside an arbitrary rect with a small inset.
-     *  Slot dimensions vary because they come straight from the atlas. */
+    /** Center an item sprite inside an arbitrary rect with a small inset. */
     private static void drawItemCentered(SpriteBatch batch, GameItem item, int x, int y, int w, int h) {
         if (item == null) return;
         if (GameSpriteManager.ITEM_SPRITES == null) return;
@@ -438,22 +335,13 @@ public class ForgeWindow {
         final ForgeLayout L = computeLayout();
         if (L == null) return;
 
-        // ------------------------------------------------------------------
-        // Action buttons inside panel.forge.status. Hit-rects come straight
-        // from the cached Layout so render() and click stay in lockstep.
-        // ------------------------------------------------------------------
         if (my >= L.btnY && my < L.btnY + L.btnH) {
             if (mx >= L.btnForgeX  && mx < L.btnForgeX  + L.btnW) { this.sendForge();      return; }
             if (mx >= L.btnRemoveX && mx < L.btnRemoveX + L.btnW) { this.sendDisenchant(); return; }
             if (mx >= L.btnCancelX && mx < L.btnCancelX + L.btnW) { this.hide();           return; }
         }
 
-        // ------------------------------------------------------------------
-        // Pixel canvas click -> paint. The canvas rect is the inscribed
-        // square inside panel.forge.output; gridDim mirrors the value
-        // render() stamped into activeGridDim so click→pixel maps to the
-        // exact source-sprite coord the player saw on screen.
-        // ------------------------------------------------------------------
+        // Canvas click -> paint. gridDim mirrors activeGridDim so click maps to the same source pixel.
         if (mx >= L.canvasX && mx < L.canvasX + L.canvasSize
                 && my >= L.canvasY && my < L.canvasY + L.canvasSize) {
             final int gd = Math.max(1, this.activeGridDim);
@@ -465,8 +353,7 @@ public class ForgeWindow {
             final GameItem crystalItem = inventoryItem(this.crystalSlot);
             final boolean isGem = crystalItem != null && "gem".equals(crystalItem.getCategory());
             if (isGem) {
-                // Gems take the single Epic+ socket — separate from crystal slots,
-                // so a full crystal bar must not block socketing a gem.
+                // Gems use the single Epic+ socket, separate from crystal slots (a full crystal bar must not block it).
                 final GameItem target = inventoryItem(this.targetSlot);
                 if (target == null || target.getRarity() < 4) {
                     this.statusMessage = "This rarity has no gem socket (Epic+ only)";
@@ -515,9 +402,7 @@ public class ForgeWindow {
             log.info("[FORGE] Drop target / crystal / essence into the slots first");
             return;
         }
-        // Server expects the FIRST painted pixel only — the webclient
-        // also forges a single pixel per Forge click. Send that one and
-        // wait for the server's ack to refresh existingEnchantments.
+        // Server forges one pixel per click; send the first and wait for the ack to refresh existingEnchantments.
         try {
             int[] firstPx = this.paintedPixels.get(0);
             ForgeEnchantPacket packet = new ForgeEnchantPacket();
@@ -584,19 +469,12 @@ public class ForgeWindow {
         }
     }
 
-    /** Try to consume a drop at (mx, my) by binding the source inventory
-     *  slot to the matching forge slot. Returns true if accepted, false
-     *  otherwise so the caller can fall through to its normal swap
-     *  logic.
-     *
-     *  Server flow stays authoritative: this only updates client-side
-     *  state. The actual enchantment fires when the player clicks the
-     *  Forge button, at which point sendForge() emits ForgeEnchantPacket
-     *  with the slot indices. */
+    /** Bind a dropped inventory slot to the matching forge slot; returns false so the
+     *  caller can fall through to its normal swap logic. Only stages client state;
+     *  the enchant fires when Forge is clicked. */
     public boolean tryAcceptDrop(int mx, int my, int srcSlotIdx, int crystalItemId, int crystalStatId) {
         if (!this.visible) return false;
-        // Ground-loot slots (20..27) are NOT droppable into the forge —
-        // server requires the item to live in inventory first.
+        // Ground-loot slots (20..27) can't drop into the forge; the item must live in inventory first.
         if (srcSlotIdx < 0 || srcSlotIdx > 19) return false;
         if (hits(mx, my, targetSlotRect()))  { this.targetSlot  = srcSlotIdx; return true; }
         if (hits(mx, my, crystalSlotRect())) {
@@ -614,9 +492,6 @@ public class ForgeWindow {
                           && my >= r[1] && my <= r[1] + r[3];
     }
 
-    /** Resolve a forge-slot's bound inventory index to the actual
-     *  GameItem in the player's bag. Returns null when the slot is
-     *  empty or the player isn't reachable yet. */
     private GameItem inventoryItem(int invSlot) {
         if (invSlot < 0) return null;
         if (this.playState == null) return null;
@@ -631,18 +506,15 @@ public class ForgeWindow {
         }
     }
 
-    /** Rarity-driven enchantment cap of the item currently in the target slot.
-     *  Falls back to MAX_ENCHANTMENTS when no item is staged so the counter
-     *  still renders something sensible. Mirrors slotsForItem() in forge.js. */
+    /** Rarity-driven enchantment cap of the target item; MAX_ENCHANTMENTS when none is staged. */
     private int currentMaxEnchantments() {
         final GameItem target = inventoryItem(this.targetSlot);
         if (target == null) return MAX_ENCHANTMENTS;
         return target.getMaxEnchantments();
     }
 
-    // Which equip slots each gem may socket into, keyed by gemstoneType. MUST
-    // mirror Gemstone.canSocketInto on the server. On-hit gems are weapon-only;
-    // scaling/defensive gems fit other slots. 0=Weapon 1=Armor 2=Gauntlet 3=Boots 4=Ring.
+    // Equip slots each gemstoneType may socket into. MUST mirror Gemstone.canSocketInto on the server.
+    // 0=Weapon 1=Armor 2=Gauntlet 3=Boots 4=Ring.
     private static int[] gemSocketSlotsByType(int gemType) {
         switch (gemType) {
             case 1: case 2: case 3: case 4: case 5: case 7: return new int[]{0};
@@ -656,7 +528,7 @@ public class ForgeWindow {
     // Prefer the item's data-driven socketSlots; fall back to the per-type default.
     private static int[] resolveGemSlots(GameItem gem) {
         if (gem == null) return null;
-        final java.util.List<Integer> data = gem.getSocketSlots();
+        final List<Integer> data = gem.getSocketSlots();
         if (data != null && !data.isEmpty()) {
             final int[] out = new int[data.size()];
             for (int i = 0; i < data.size(); i++) out[i] = data.get(i);
@@ -685,15 +557,15 @@ public class ForgeWindow {
     /** Web client's stat-id -> tint color. */
     private static Color statColor(int statId) {
         switch (statId) {
-            case 0: return new Color(0.95f, 0.45f, 0.10f, 1f); // VIT — orange
-            case 1: return new Color(0.55f, 0.30f, 0.85f, 1f); // WIS — purple
-            case 2: return new Color(0.85f, 0.20f, 0.20f, 1f); // HP  — red
-            case 3: return new Color(0.20f, 0.40f, 0.95f, 1f); // MP  — blue
-            case 4: return new Color(0.85f, 0.60f, 0.10f, 1f); // STR — gold
-            case 5: return new Color(0.55f, 0.55f, 0.65f, 1f); // DEF — silver
-            case 6: return new Color(0.20f, 0.85f, 0.45f, 1f); // SPD — green
-            case 7: return new Color(0.95f, 0.85f, 0.30f, 1f); // DEX — yellow
-            case GEM_PAINT_MARKER: return new Color(0.69f, 0.31f, 0.88f, 1f); // gem — violet
+            case 0: return new Color(0.95f, 0.45f, 0.10f, 1f); // VIT
+            case 1: return new Color(0.55f, 0.30f, 0.85f, 1f); // WIS
+            case 2: return new Color(0.85f, 0.20f, 0.20f, 1f); // HP
+            case 3: return new Color(0.20f, 0.40f, 0.95f, 1f); // MP
+            case 4: return new Color(0.85f, 0.60f, 0.10f, 1f); // STR
+            case 5: return new Color(0.55f, 0.55f, 0.65f, 1f); // DEF
+            case 6: return new Color(0.20f, 0.85f, 0.45f, 1f); // SPD
+            case 7: return new Color(0.95f, 0.85f, 0.30f, 1f); // DEX
+            case GEM_PAINT_MARKER: return new Color(0.69f, 0.31f, 0.88f, 1f); // gem
             default: return Color.GRAY;
         }
     }

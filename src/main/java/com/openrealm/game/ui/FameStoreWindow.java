@@ -19,17 +19,8 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import java.lang.reflect.Method;
 
-/**
- * Fame Store UI — buy cosmetic dyes (and future patterned cloths) with the
- * fame currency banked across dead characters.
- *
- * Server flow:
- *   1. Player walks onto a fame-store tile -> server sends OpenFameStorePacket
- *      with a list of available items + costs.
- *   2. We open this window, show the catalog, and on Buy click send a
- *      {@link BuyFameItemPacket} for that item id.
- *   3. Server validates fame balance + delivers the dye to the account.
- */
+/** Fame Store UI: buy cosmetic dyes with fame banked across dead characters.
+ *  On Buy click sends a {@link BuyFameItemPacket}; the server validates balance and delivers. */
 @Slf4j
 public class FameStoreWindow {
 
@@ -42,6 +33,9 @@ public class FameStoreWindow {
 
     private String statusMsg = "";
     private boolean statusIsError = false;
+
+    // Scroll offset in rows for the entry list.
+    private int scrollOffset = 0;
 
     public boolean isVisible() {
         return this.visible;
@@ -56,14 +50,6 @@ public class FameStoreWindow {
         this.visible = false;
     }
 
-    /** Vertical scroll offset for the entry list, in rows. Increment
-     *  on mouse-wheel down inside the dialog so >10 entries (the whole
-     *  fame catalog: 8 dyes + crystals + essences) become reachable.
-     *  The previous client capped rendering at 10 entries silently —
-     *  that's why "the crystals" never appeared even when the server
-     *  sent them. */
-    private int scrollOffset = 0;
-
     public void update() {
         if (!this.visible) return;
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
@@ -72,16 +58,12 @@ public class FameStoreWindow {
         }
         boolean down = Gdx.input.isButtonPressed(Input.Buttons.LEFT);
         if (down && !this.mouseDownPrev) {
-            // Top-down click coords to match the flipped-ortho render
-            // — the previous (height - getY()) inversion is why every
-            // Buy button hit-test missed.
+            // Top-down click coords to match the flipped-ortho render (do NOT flip getY()).
             this.handleClick(Gdx.input.getX(), Gdx.input.getY());
         }
         this.mouseDownPrev = down;
     }
 
-    /** Apply a wheel scroll while the catalog is open. Wired from
-     *  PlayerUI so a single global wheel-handler stays authoritative. */
     public void onWheel(float wheel) {
         if (!this.visible || this.entries == null || this.entries.isEmpty()) return;
         final int visibleRows = visibleRowCount();
@@ -93,7 +75,6 @@ public class FameStoreWindow {
     private int visibleRowCount() {
         final int h = OpenRealmGame.height;
         final int dialogH = Math.min(480, h - 80);
-        // 32px header + ~16px padding + 36px rows + footer ~32px
         return Math.max(1, (dialogH - 80) / 36);
     }
 
@@ -117,30 +98,27 @@ public class FameStoreWindow {
         shapes.setColor(0.10f, 0.10f, 0.12f, 0.97f);
         shapes.rect(x, y, dialogW, dialogH);
 
-        // Header strip at the TOP (flipped ortho).
         int headerH = 32;
         shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
         shapes.rect(x, y, dialogW, headerH);
 
-        // Item rows below the header. Each row's Y grows DOWNWARD.
         int rowH = 36;
         int rowsTop = y + headerH + 24;
         int visibleRows = visibleRowCount();
         int total = this.entries.size();
         int firstIdx = Math.max(0, Math.min(this.scrollOffset, Math.max(0, total - visibleRows)));
         int lastIdx  = Math.min(total, firstIdx + visibleRows);
+        int buyBtnW = 70;
+        int buyBtnH = rowH - 12;
 
         for (int i = firstIdx; i < lastIdx; i++) {
             int rowY = rowsTop + (i - firstIdx) * rowH;
             shapes.setColor(0.16f, 0.16f, 0.20f, 1f);
             shapes.rect(x + 12, rowY, dialogW - 24, rowH - 4);
-            // Buy button on the right side of each row.
             shapes.setColor(0.20f, 0.45f, 0.20f, 1f);
-            shapes.rect(x + dialogW - 90, rowY + 4, 70, rowH - 12);
+            shapes.rect(x + dialogW - 90, rowY + 4, buyBtnW, buyBtnH);
         }
 
-        // Cancel button in the header bar (right side) so the player has
-        // a clickable close target even on machines without ESC handy.
         int closeBtnW = 60, closeBtnH = headerH - 8;
         int closeBtnX = x + dialogW - closeBtnW - 6;
         int closeBtnY = y + 4;
@@ -153,7 +131,7 @@ public class FameStoreWindow {
         font.setColor(Color.WHITE);
         font.draw(batch, "FAME STORE", x + 16, y + 22);
         font.draw(batch, "* " + this.accountFame + " Fame", x + 160, y + 22);
-        font.draw(batch, "Cancel", closeBtnX + 8, closeBtnY + closeBtnH - 6);
+        UiRender.drawCenteredIn(batch, font, "Cancel", closeBtnX, closeBtnY, closeBtnW, closeBtnH);
 
         for (int i = firstIdx; i < lastIdx; i++) {
             int rowY = rowsTop + (i - firstIdx) * rowH;
@@ -163,7 +141,7 @@ public class FameStoreWindow {
             font.setColor(this.accountFame >= e.cost ? Color.WHITE : Color.LIGHT_GRAY);
             font.draw(batch, e.cost + " *", x + dialogW / 2 + 60, rowY + rowH - 14);
             font.setColor(Color.WHITE);
-            font.draw(batch, "Buy", x + dialogW - 78, rowY + rowH - 14);
+            UiRender.drawCenteredIn(batch, font, "Buy", x + dialogW - 90, rowY + 4, buyBtnW, buyBtnH);
         }
 
         // Hovered-row item description, shown in the band under the header.
@@ -181,7 +159,6 @@ public class FameStoreWindow {
             }
         }
 
-        // Scroll indicator if the catalog is taller than the visible area.
         if (total > visibleRows) {
             font.setColor(Color.LIGHT_GRAY);
             font.draw(batch, (firstIdx + 1) + "-" + lastIdx + " / " + total

@@ -40,8 +40,6 @@ public class AcceptTradeRequestPacket extends Packet{
 		this.accepted = accepted;
 		this.player0 = (IOService.mapModel(p0, NetPlayer.class));
 		this.player1 = (IOService.mapModel(p1, NetPlayer.class));
-		// Build inventories explicitly so trade visibility includes enchantments
-		// and stack counts even if ModelMapper drops nested generic fields.
 		this.player0Inv = inventoryToNet(p0.getInventory());
 		this.player1Inv = inventoryToNet(p1.getInventory());
 	}
@@ -57,10 +55,7 @@ public class AcceptTradeRequestPacket extends Packet{
 
 	private static NetGameItem toNetGameItem(GameItem item) {
 		if (item == null) return new NetGameItem();
-		// Start from ModelMapper to copy the easy primitive fields & nested Stats/Damage/Effect.
 		final NetGameItem net = IOService.mapModel(item, NetGameItem.class);
-		// Defensively re-attach forge-related fields and the enchantments list so
-		// the receiving client always sees painted pixels and stack counts.
 		net.setStackable(item.isStackable());
 		net.setMaxStack(item.getMaxStack());
 		net.setStackCount(item.getStackCount());

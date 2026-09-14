@@ -7,12 +7,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * A class-bound passive ability. Loaded from {@code passives.json}. Each class
- * references at most one via {@link AbilityTree#getPassive()}.
- *
- * See combat-rework.md §3.2.
- */
+/** A class-bound passive ability, loaded from passives.json. */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

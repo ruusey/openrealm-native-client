@@ -50,124 +50,36 @@ import java.util.HashMap;
 @Slf4j
 public class TileManager {
     private static final Integer VIEWPORT_TILE_MIN = 10;
+    private static final Integer VIEWPORT_TILE_MAX = 20;
+    /** Per-tile edge-highlight color, sampled once from the wall sprite (lightened ~35%). */
+    private static final Map<Integer, float[]> WALL_HIGHLIGHT_CACHE = new HashMap<>();
+    private static final float[] WALL_HIGHLIGHT_FALLBACK = new float[] { 0.95f, 0.92f, 0.84f };
+    // Reusable viewport rectangles to avoid allocation every frame/tick.
+    private static final ThreadLocal<Rectangle> VIEWPORT_RECT = ThreadLocal.withInitial(
+            () -> new Rectangle(new Vector2f(), 0, 0));
+    private static final ThreadLocal<Vector2f> VIEWPORT_POS = ThreadLocal.withInitial(Vector2f::new);
 
-    /**
-     * Per-tile fog-of-war flag. {@code discovered[y][x]} = true once the
-     * player has had the tile inside the visible sight circle at least
-     * once. Once flipped true, the tile renders at reduced brightness
-     * even when the player walks back out of sight range — the standard
-     * "explored but currently hidden" look you'd see in roguelikes /
-     * RotMG. Lazily allocated on the first render() call so we don't
-     * carry a stale array across map / realm transitions.
-     */
+    // Per-tile fog-of-war: discovered[y][x] flips true once the tile has been in the
+    // sight circle. Lazily (re)allocated in render() so it doesn't survive a realm transition.
     private boolean[][] discovered = null;
     private int discoveredW = 0;
     private int discoveredH = 0;
-    /** Realm/map the current tile grid was last (re)built for. mergeMap wipes
-     *  the grid when an incoming LoadMap is for a different realm or map, so a
-     *  realm we re-enter (nexus -> arena -> nexus) starts empty instead of
-     *  leaking the prior visit's tiles — which, since terrain now renders with
-     *  no fog gate, would otherwise show as walls floating in unrendered void. */
+    // Realm/map the grid was last built for; mergeMap wipes the grid when either changes
+    // so re-entering a realm doesn't leak the prior visit's tiles as floating walls.
     private long loadedRealmId = 0L;
     private int loadedMapId = -1;
-    /** Brightness multiplier for previously-discovered tiles. The web
-     *  client draws the whole explored map at FULL opacity — the sight
-     *  circle is only used to gate entity / projectile spawning, not
-     *  to dim tiles. Keep at 1.0 so discovered terrain stays bright. */
-    private static final float FOG_BRIGHTNESS = 1.0f;
-    /** Fraction of tile size used as the fake-3D wall side-strip height. */
-    private static final float WALL_HEIGHT_RATIO = 0.5f;
-    /** Brightness multiplier applied to the side-strip texture so it reads as a shaded wall face. */
-    private static final float WALL_SIDE_BRIGHTNESS = 0.55f;
-    private static final Integer VIEWPORT_TILE_MAX = 20;
-    /** Reusable per-frame tile-classification buffers. The render() pass
-     *  used to allocate 5 fresh ArrayLists every frame — at 60 fps over
-     *  a long session that's ~18k allocations a minute just for tile
-     *  classification. With pre-allocated buffers we just clear() each
-     *  frame; capacity grows once on first contact and stays. Single-
-     *  threaded because render() runs only on the main thread. */
+    // Per-frame tile-classification buffers, cleared each frame to avoid re-allocating.
+    // Single-threaded: render() runs only on the main thread.
     private final List<Tile> wallTilesBuf       = new ArrayList<>(256);
     private final List<Tile> objectTilesBuf     = new ArrayList<>(64);
     private final List<Tile> decorationTilesBuf = new ArrayList<>(64);
     private final List<Tile> waterTilesBuf      = new ArrayList<>(128);
     private final List<Tile> overWaterTilesBuf  = new ArrayList<>(32);
-    /** Reusable Vector2f for the per-frame normalized player position
-     *  in render(). Used to be `new Vector2f(...)` every frame. */
     private final Vector2f posNormalizedBuf = new Vector2f();
-    /** Reusable region for the wall top-half re-stamp; avoids a new
-     *  TextureRegion per wall per frame in the wall pass. */
     private final TextureRegion wallTopHalfScratch = new TextureRegion();
-    /** Reusable buffer for tall (taller-than-wide) wall sprites, drawn in
-     *  their own south-to-occlude pass; cleared and refilled each frame. */
+    // Tall (taller-than-wide) wall sprites, drawn in their own south-to-occlude pass.
     private final List<Tile> tallWallScratch = new ArrayList<>(64);
-    /** Cache of per-wall TOP-FACE-only TextureRegions for the occlusion pass. */
     private final Map<Integer, TextureRegion> tallWallTopCache = new HashMap<>();
-
-    /** Per-tile highlight color cache, indexed by tileId. Sampled once
-     *  from the wall sprite's pixmap (lightened by 35%) so the N+W
-     *  edge highlight looks like the wall material's own light side
-     *  rather than a hard pure-white band. Lazy-populated. */
-    private static final Map<Integer, float[]> WALL_HIGHLIGHT_CACHE =
-            new HashMap<>();
-    /** Default highlight if we can't sample (sheet missing, etc.) — a
-     *  warm off-white that reads softer than pure white on most
-     *  ambient-tone walls. */
-    private static final float[] WALL_HIGHLIGHT_FALLBACK =
-            new float[] { 0.95f, 0.92f, 0.84f };
-
-    /** Sample the dominant color of a wall tile sprite and return a
-     *  lightened tint to use as the N/W edge highlight color. Cached
-     *  per tileId. Falls back to a warm off-white if the texture's
-     *  pixmap isn't readable (e.g. sheet hasn't been textured yet or
-     *  is mip-loaded). */
-    private static float[] wallHighlightColor(int tileId) {
-        float[] cached = WALL_HIGHLIGHT_CACHE.get(tileId);
-        if (cached != null) return cached;
-        float[] result = WALL_HIGHLIGHT_FALLBACK;
-        try {
-            final TextureRegion region = GameSpriteManager.TILE_SPRITES.get(tileId);
-            if (region != null && region.getTexture() != null) {
-                final Texture tex = region.getTexture();
-                if (tex.getTextureData() != null) {
-                    if (!tex.getTextureData().isPrepared()) {
-                        tex.getTextureData().prepare();
-                    }
-                    final Pixmap pix = tex.getTextureData().consumePixmap();
-                    if (pix != null) {
-                        // Sample a small grid in the center of the
-                        // region — averages out edge dithering / outlines.
-                        final int rx = region.getRegionX();
-                        final int ry = region.getRegionY();
-                        final int rw = region.getRegionWidth();
-                        final int rh = region.getRegionHeight();
-                        long r = 0, g = 0, b = 0; int n = 0;
-                        for (int dy = rh / 4; dy < rh - rh / 4; dy += 2) {
-                            for (int dx = rw / 4; dx < rw - rw / 4; dx += 2) {
-                                final int color = pix.getPixel(rx + dx, ry + dy);
-                                final int ar = (color >> 24) & 0xFF;
-                                if (ar < 16) continue; // skip transparent
-                                r += (color >> 16) & 0xFF;
-                                g += (color >>  8) & 0xFF;
-                                b += (color      ) & 0xFF;
-                                n++;
-                            }
-                        }
-                        if (tex.getTextureData().disposePixmap()) pix.dispose();
-                        if (n > 0) {
-                            // Lighten by 35% toward white so the highlight
-                            // reads as a brighter version of the same surface.
-                            float fr = Math.min(1f, ((r / (float) n) / 255f) * 1.35f + 0.10f);
-                            float fg = Math.min(1f, ((g / (float) n) / 255f) * 1.35f + 0.10f);
-                            float fb = Math.min(1f, ((b / (float) n) / 255f) * 1.35f + 0.10f);
-                            result = new float[] { fr, fg, fb };
-                        }
-                    }
-                }
-            }
-        } catch (Exception ignored) { /* fall through to fallback */ }
-        WALL_HIGHLIGHT_CACHE.put(tileId, result);
-        return result;
-    }
     private final ReentrantLock mapLock = new ReentrantLock();
     private List<TileMap> mapLayers;
     private Vector2f bossSpawnPos;
@@ -493,12 +405,10 @@ public class TileManager {
                 return model.getRandomSpawnPoint();
             }
         }
-        // If zones are defined, spawn in the outermost zone (beach/shore),
-        // biased toward the OUTER edge so new players land near the water and
-        // not next to the next-tier zone (grasslands) where harder enemies wander.
+        // Spawn in the outermost zone biased toward its outer edge (near the water,
+        // away from the harder next-tier zone).
         if (this.terrainParams != null && this.terrainParams.getZones() != null
                 && !this.terrainParams.getZones().isEmpty()) {
-            // Find the zone with the highest maxRadius (outermost)
             OverworldZone outerZone = this.terrainParams.getZones().stream()
                     .max((a, b) -> Float.compare(a.getMaxRadius(), b.getMaxRadius()))
                     .orElse(null);
@@ -520,13 +430,8 @@ public class TileManager {
         return this.getSafePositionInZone(zone, false);
     }
 
-    /**
-     * Pick a safe random position inside a zone's radial band.
-     * If {@code outerEdgeBias} is true, only the outer 25% of the zone's radial
-     * band is considered — i.e. positions closest to the next-outer zone (or
-     * the map edge / water for the outermost zone). Used for new-player spawns
-     * so they land far from the next-tier zone.
-     */
+    // Safe random position in a zone's radial band; outerEdgeBias restricts to the
+    // outer 25% of the band (new-player spawns land far from the next-tier zone).
     public Vector2f getSafePositionInZone(OverworldZone zone, boolean outerEdgeBias) {
         final int width = this.getBaseLayer().getWidth();
         final int height = this.getBaseLayer().getHeight();
@@ -540,6 +445,7 @@ public class TileManager {
         // 25% of the zone band. For the beach (0.55..1.01 of map radius) this
         // restricts spawns to the outer ~12% of the map radius — right at the
         // water's edge, far from any inner-zone enemies.
+        // Outer 25% of the band restricts beach spawns to the water's edge.
         final float minDist = outerEdgeBias
                 ? (zoneMin + (zoneMax - zoneMin) * 0.75f)
                 : zoneMin;
@@ -580,9 +486,8 @@ public class TileManager {
         }
         final Tile currentTile = collisionLayer.getBlocks()[tileY][tileX];
         if (currentTile == null || currentTile.isVoid()) return false;
-        // Decoration tiles (flowers, candles) sit in the collision layer with
-        // hasCollision=0. The server shoots/walks through them, so bullets must
-        // not expire on them here or they visually vanish before the target.
+        // Decoration tiles sit in the collision layer with hasCollision=0; bullets
+        // must not expire on them (server walks/shoots through them).
         final TileData td = currentTile.getData();
         return td != null && td.hasCollision();
     }
@@ -601,10 +506,8 @@ public class TileManager {
         return currentTile.isVoid();
     }
 
-    // A null tile is one the server never streamed (black void border). While
-    // connected this is walkable, but on disconnect PlayState uses this to
-    // confine the player to the already-loaded area instead of letting them
-    // wander off the non-rendered edge of the map.
+    // A null tile is one the server never streamed; PlayState uses this on
+    // disconnect to confine the player to the already-loaded area.
     public boolean isUnloadedTile(Vector2f pos, float dx, float dy) {
         final TileMap baseLayer = this.getBaseLayer();
         final int tileX = (int) ((float) pos.x + dx) / baseLayer.getTileSize();
@@ -648,8 +551,7 @@ public class TileManager {
     }
 
     public boolean collidesSlowTile(Entity e) {
-        // Must match the server's collidesSlowTile EXACTLY or local slow prediction (and the
-        // wading sprite cutoff, which reads this) desyncs against the authoritative check.
+        // Must match the server's collidesSlowTile exactly or slow prediction desyncs.
         return this.feetOnFlaggedTile(e, true);
     }
 
@@ -657,11 +559,8 @@ public class TileManager {
         return this.feetOnFlaggedTile(e, false);
     }
 
-    // X uses the horizontal midpoint (wade in from either side) but Y samples the BOTTOM
-    // of the hitbox (the feet), not the center: the sprite's feet rest on the ground, so
-    // this lets a player stand on the walkable edge of a lava pool without taking damage
-    // and makes stepping off the edge read clearly. Keep IDENTICAL to the server's
-    // feetOnFlaggedTile + webclient _isOnSlowTile.
+    // Samples X at the midpoint but Y at the hitbox bottom (feet), so a player can stand
+    // on the walkable edge of a lava pool. Keep IDENTICAL to server feetOnFlaggedTile + webclient _isOnSlowTile.
     private boolean feetOnFlaggedTile(final Entity e, final boolean slow) {
         final Tile[][] blocks = this.getBaseLayer().getBlocks();
         final int ts = this.getBaseLayer().getTileSize();
@@ -681,18 +580,13 @@ public class TileManager {
 
     public boolean collisionTile(Entity e, float ax, float ay) {
         final Vector2f futurePos = e.getPos().clone(ax, ay);
-        // 85% hitbox for tile collision. Top-left anchored to match the client's
-        // _checkCollision in game.js exactly.
+        // 85% top-left-anchored hitbox to match the webclient's _checkCollision.
         final int hitSize = (int) (e.getSize() * 0.85f);
         for (Tile t : this.getCollisionTiles(e.getPos())) {
             if ((t == null) || t.isVoid()) {
                 continue;
             }
-            // CRITICAL: respect the tile's hasCollision flag — many decoration
-            // tiles (candles, decoration_4/5/6 in the nexus) live in the
-            // collision layer but are visual-only with hasCollision=0. The
-            // client filters these out; the server must too or the player
-            // gets stuck on invisible blockers and the client snaps back.
+            // Skip visual-only decoration tiles (hasCollision=0) or the player sticks on invisible blockers.
             final TileData td = t.getData();
             if (td == null || !td.hasCollision()) continue;
             Rectangle tileBounds = new Rectangle(t.getPos(), t.getWidth(), t.getHeight());
@@ -738,11 +632,6 @@ public class TileManager {
                 VIEWPORT_TILE_MAX * ts);
         return rect;
     }
-
-    // Reusable viewport rectangles to avoid allocation every frame/tick
-    private static final ThreadLocal<Rectangle> VIEWPORT_RECT = ThreadLocal.withInitial(
-            () -> new Rectangle(new Vector2f(), 0, 0));
-    private static final ThreadLocal<Vector2f> VIEWPORT_POS = ThreadLocal.withInitial(Vector2f::new);
 
     public Rectangle getRenderViewPort(Entity p) {
         final int ts = this.getBaseLayer().getTileSize();
@@ -812,10 +701,8 @@ public class TileManager {
         return (short) this.getBaseLayer().getHeight();
     }
 
-    // Blank the tile layers + fog-of-war so the next mergeMap starts from an empty map.
-    // Called on a realm transition (incl. same-dimension nested dungeons), where
-    // mergeMap's dimension-change reset wouldn't fire and the previous realm's tiles
-    // would bleed through — most visibly on the minimap, which snapshots these layers.
+    // Blank the tile layers + fog so the next mergeMap starts empty. Needed on
+    // same-dimension realm transitions where mergeMap's dimension reset wouldn't fire.
     public void resetTiles(int mapId, int dungeonId) {
         final int[] dims = resolveGridDims(mapId, dungeonId, -1, -1);
         if (dims == null) return;
@@ -832,13 +719,8 @@ public class TileManager {
         }
     }
 
-    /**
-     * Resolves [tileSize, width, height] for a realm's grid. Dungeons carry a
-     * dungeonId (dimensions from DUNGEONS); otherwise a mapId (from MAPS). The
-     * packet width/height are used as an authoritative fallback so the client
-     * still renders a realm it lacks a local definition for; returns null only
-     * when nothing (not even a packet size) is known.
-     */
+    // [tileSize, width, height] for a realm's grid (dungeonId -> DUNGEONS, else mapId
+    // -> MAPS, else the packet size). Null only when nothing is known.
     private int[] resolveGridDims(int mapId, int dungeonId, int fallbackWidth, int fallbackHeight) {
         if (dungeonId > -1 && GameDataManager.DUNGEONS != null && GameDataManager.DUNGEONS.get(dungeonId) != null) {
             final DungeonModel dungeon = GameDataManager.DUNGEONS.get(dungeonId);
@@ -858,14 +740,9 @@ public class TileManager {
     }
 
     public void mergeMap(LoadMapPacket packet) {
-    	// Acquire the map lock to prevent the render thread from displaying out of
-    	// date tile information
     	this.acquireMapLock();
-        // Wipe the grid when this LoadMap is for a DIFFERENT realm/map (or
-        // dimensions) than the one currently loaded. The realm/map check is
-        // what catches re-entering a realm we already visited — relying on the
-        // ClientGameLogic reset gate alone missed that path, leaving the prior
-        // visit's tiles in mapLayers to render as floating walls in the void.
+        // Wipe the grid when this LoadMap is for a different realm/map/dimensions;
+        // the realm/map check catches re-entering a realm the reset gate alone missed.
         final boolean gridChanged = packet.getRealmId() != this.loadedRealmId
                 || (int) packet.getMapId() != this.loadedMapId
                 || this.getMapHeight() != packet.getMapHeight()
@@ -880,8 +757,6 @@ public class TileManager {
            this.mapLayers = new ArrayList<>();
            this.mapLayers.add(baseLayer);
            this.mapLayers.add(collisionLayer);
-           // Fresh map: wipe the fog-of-war array too so the new map starts
-           // fully unexplored and doesn't index stale "discovered" rows.
            this.discovered = null;
         }
         this.loadedRealmId = packet.getRealmId();
@@ -932,13 +807,8 @@ public class TileManager {
         final List<Tile> waterTiles      = this.waterTilesBuf;      waterTiles.clear();
         final List<Tile> overWaterTiles  = this.overWaterTilesBuf;  overWaterTiles.clear();
 
-        // Base terrain + collision-layer classification across the WHOLE screen
-        // viewport. Terrain is NOT fog-gated: every tile the client has streamed
-        // renders, exactly like the webclient (renderer.js PASS 1 draws all tiles
-        // with base>0). Fog-of-war is an ENTITY concept (enemies, projectiles,
-        // other players) — never the ground, its blend seams, or collision-tile
-        // strokes; gating those by the sight circle made adjacent on-screen tiles
-        // flicker their blend/stroke in and out as the circle swept past.
+        // Terrain is NOT fog-gated: every streamed tile renders (fog-of-war gates
+        // only entities/projectiles). Gating the ground made blend seams flicker as the sight circle swept.
         batch.setColor(1f, 1f, 1f, 1f);
         for (int sx = sxMin; sx < sxMin + screenTilesX; sx++) {
             for (int sy = syMin; sy < syMin + screenTilesY; sy++) {
@@ -955,8 +825,7 @@ public class TileManager {
                 if (colTile != null && !colTile.isVoid()) {
                     final boolean isWall = colTile.getData() != null && colTile.getData().isWall();
                     if (isWall) {
-                        // Walls are queued by the viewport+2 wall scan below,
-                        // which needs the padding for stable edge adjacency.
+                        // Queued by the viewport+2 wall scan below (padding = stable edge adjacency).
                     } else if (baseIsWater) {
                         overWaterTiles.add(colTile);
                     } else if (colTile.getData() != null && colTile.getData().hasCollision()) {
@@ -968,27 +837,10 @@ public class TileManager {
             }
         }
 
-        // (Tile buckets declared above, before the fog pass.) overWaterTiles holds
-        // collision/decoration tiles whose BASE tile is water (river-edge stones);
-        // Pass 6 draws them after the water redraw so they aren't painted over.
-
-        // FIRST: scan the FULL SCREEN VIEWPORT (much larger than the
-        // 10-tile sight square) for walls. Every wall the camera shows
-        // — even ones past the fog-of-war circle — gets queued into
-        // wallTiles so the 3D extrusion is applied uniformly across
-        // the whole visible scene. Without this, walls drew as flat
-        // textures past the fog circle (visible ring boundary).
-        //
-        // Also scan a 2-tile PADDING beyond the viewport edges so the
-        // adjacency check (wallSet.contains(neighbor)) sees off-screen
-        // wall neighbours and doesn't draw a phantom shadow band on
-        // edge walls just because their neighbour scrolled off-screen.
-        // The user reported 'walls flickering different shading as I
-        // move' — that was the adjacency map flipping at the screen
-        // boundary every time a neighbour entered/left the viewport.
-        // Padding-only walls aren't rendered themselves (they live
-        // outside the camera) but populate wallSet so the visible
-        // walls' adjacency stays stable.
+        // Scan the full viewport plus a 2-tile pad for walls. The pad lets the
+        // adjacency check see off-screen wall neighbours so edge-wall shading
+        // stays stable when a neighbour scrolls off-screen. Padding-only walls
+        // populate the buckets for adjacency but aren't drawn (outside camera).
         final int padTiles = 2;
         for (int sx = sxMin - padTiles; sx < sxMin + screenTilesX + padTiles; sx++) {
             for (int sy = syMin - padTiles; sy < syMin + screenTilesY + padTiles; sy++) {
@@ -1000,39 +852,12 @@ public class TileManager {
             }
         }
 
-        // (Base tiles + collision classification were handled by the single
-        // viewport scan above — no separate sight-circle pass.)
-
-        // Pass 1.5: Base-tile edge texture blending. For each in-sight base
-        // tile, sample the 4 cardinal neighbors' tile types; if a neighbor
-        // differs, draw 3 thin strips of the NEIGHBOR'S sprite extending
-        // into this tile from the shared edge, with decreasing alpha. The
-        // alpha falloff simulates a gradient mask without needing a real
-        // mask texture, and using the neighbor's actual sprite as the
-        // source means the seam shows the neighbor's terrain "bleeding"
-        // into this tile — real visual blending, not a darkening vignette.
-        // Stays inside the active SpriteBatch (no ShapeRenderer state
-        // swap) by emitting batch.draw() calls per strip.
         drawTileSeams(batch, sxMin, syMin, screenTilesX, screenTilesY, ts, mapW, mapH);
 
         if (!wallTiles.isEmpty()) {
-            // Wall adjacency is read straight from the collision layer rather
-            // than a per-frame set: every on-screen wall's 4 neighbors fall
-            // inside the viewport+2 scan, so the result is identical to the old
-            // HashSet<Long> while allocating nothing (no Long boxing per check).
-
-            // (Silhouette pass removed — the sprite-shaped +1/+1 shadow leaked
-            // onto the SE corner ground at wall endpoints as a dark blob. The
-            // extrusion bands below already cast a clean ground shadow.)
-
-            // Fake-3D wall extrusion. Mirrors the webclient (renderer.js
-            // Pass 2 isWall block): solid black bands with an alpha gradient
-            // on every wall edge that does NOT face another wall, plus white
-            // top-light highlights on the N and W edges of edge-walls.
-            //
-            // Adjacency lookup is by tile grid coords. Walls sharing a face
-            // skip that face's bands so internal seams stay clean.
-
+            // Fake-3D wall extrusion (mirrors webclient renderer.js Pass 2): black
+            // alpha-gradient bands on every wall edge not facing another wall, plus
+            // N/W top-light highlights. Walls sharing a face skip that face's bands.
             final boolean simpleWalls = "simple".equals(Settings.get().getWallRenderMode());
             if (simpleWalls) {
                 renderWallsSimple(batch, shapes, wallTiles, mapW, mapH);
@@ -1042,9 +867,7 @@ public class TileManager {
             Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             for (Tile t : wallTiles) {
-                // Tall art walls carry their own front face in the sprite and
-                // are drawn in a dedicated pass below; the procedural extrusion
-                // bands are only for square (8x8) walls.
+                // Tall art walls carry their own front face; extrusion bands are for square walls only.
                 if (isTallWallTile(t)) continue;
                 int sz = t.getWidth();
                 if (sz <= 0) continue;
@@ -1057,11 +880,7 @@ public class TileManager {
                 boolean wW = isWallTileAt(row, col - 1, mapW, mapH);
                 boolean wE = isWallTileAt(row, col + 1, mapW, mapH);
 
-                // Wall extrusion bands. 6-8 thin 1px stripes per face instead
-                // of 3 chunky stripes — smoother alpha falloff so the wall→
-                // floor transition reads as a soft gradient instead of three
-                // discrete steps (which produced visible stair-step jaggies
-                // on diagonal wall layouts).
+                // 6-8 thin 1px stripes per face for a smooth alpha falloff.
                 if (!wS) {
                     float xEnd = sz + (wE ? 0 : Math.round(sz * 0.18f));
                     final float[] aS = { 0.55f, 0.46f, 0.36f, 0.27f, 0.20f, 0.14f, 0.09f, 0.05f };
@@ -1124,13 +943,7 @@ public class TileManager {
                 batch.draw(this.wallTopHalfScratch, wx, wy, sz, sz);
             }
 
-            // N + W highlights on edge walls (top-light from NW). Drawn
-            // after the top tile so they sit on top of the wall texture's
-            // edge. Colour tinted from the tile's own dominant color
-            // (looked up in WALL_HIGHLIGHT_CACHE) and lightened by ~35%,
-            // so each material gets a highlight that reads as "the same
-            // surface, brighter" rather than the previous pure-white
-            // band that looked harsh on dark walls (stone, dungeon).
+            // N + W top-light highlights on edge walls, tinted from the tile's own color.
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             for (Tile t : wallTiles) {
@@ -1159,7 +972,7 @@ public class TileManager {
             }
         }
 
-        // Pass 3: Render object tiles (collision decorations) with circular shadow
+        // Pass 3: object tiles (collision decorations) with a circular ground shadow.
         if (!objectTiles.isEmpty()) {
             batch.end();
             Gdx.gl.glEnable(GL20.GL_BLEND);
@@ -1185,53 +998,34 @@ public class TileManager {
             }
         }
 
-        // Pass 4: Draw decorative (non-collision) tiles from collision layer
+        // Pass 4: decorative (non-collision) tiles from the collision layer.
         for (Tile t : decorationTiles) {
             t.renderOutline(batch);
             t.render(batch);
         }
 
-        // Pass 5: Redraw water tiles on top so shadows don't cover them
+        // Pass 5: Redraw water on top so the shadow pass doesn't darken it.
         for (Tile t : waterTiles) {
             t.render(batch);
         }
 
-        // Pass 6: Collision tiles whose base is water (stones lining
-        // the river, etc.). Drawn AFTER the water redraw so the water
-        // doesn't paint over them. Without this, stones-on-water were
-        // visible only via the fog pass (when out of sight) and
-        // disappeared the moment the player got close enough for the
-        // bright pass to take over — exactly the user-reported
-        // 'inverted viewport' behaviour.
+        // Pass 6: Collision tiles whose base is water (river stones), after the
+        // water redraw so the water doesn't paint over them.
         for (Tile t : overWaterTiles) {
             t.renderOutline(batch);
             t.render(batch);
         }
 
-        // Pass 7: Re-render wall tile sprites on top of the water/overWater
-        // passes. Pass 5 redraws water to keep the shadow pass from darkening
-        // it, but that same redraw also paints water OVER any wall sitting in
-        // a water-base cell — so a wall flanking a river got visually buried
-        // by the water repaint. Re-stamping just the wall sprite (the 3D
-        // shadow/highlight from Pass 2 already drew before the water repaint
-        // and doesn't need to be redone) restores walls-above-water depth
-        // ordering without disturbing the existing wall extrusion look.
-        //
-        // Tall walls MUST go through renderTallWalls here, not t.render: a tall
-        // wall's front face spills one cell south, and t.render only stamps the
-        // wall's own cell. Whenever that south cell is repainted by Pass 3-6
-        // (e.g. a slows/lava accent tile in waterTiles, like the Admin Arena
-        // floor), a plain re-stamp leaves the face buried — the intermittent
-        // missing-face bug. renderTallWalls restores the full face.
+        // Pass 7: Re-stamp wall sprites on top of the water passes (a wall in a
+        // water-base cell got buried by the Pass-5 redraw). Tall walls MUST go
+        // through renderTallWalls, not t.render: their front face spills one cell
+        // south and a plain re-stamp leaves that face buried.
         for (Tile t : wallTiles) {
             if (!isTallWallTile(t)) t.render(batch);
         }
         renderTallWalls(batch, wallTiles);
 
-        // Bottom silhouette outline for collision billboards — drawn LAST
-        // (after the wall re-stamp) so nothing paints over it. Follows the
-        // visible pixels of the sprite, not a full-cell bar. Covers in-sight +
-        // fogged tiles so the outline stays put across the sight boundary.
+        // Bottom silhouette outline for collision billboards, drawn last so nothing paints over it.
         for (Tile t : objectTiles)     t.renderBottomOutline(batch);
         for (Tile t : decorationTiles) t.renderBottomOutline(batch);
         for (Tile t : overWaterTiles)  t.renderBottomOutline(batch);
@@ -1239,21 +1033,63 @@ public class TileManager {
         this.releaseMapLock();
     }
 
-    /** True if the collision-layer tile at (row,col) is a non-void wall.
-     *  Out-of-bounds reads as not-a-wall, matching the old set's behavior. */
+    // Sampled once per tileId, lightened toward white; falls back when the pixmap isn't readable.
+    private static float[] wallHighlightColor(int tileId) {
+        float[] cached = WALL_HIGHLIGHT_CACHE.get(tileId);
+        if (cached != null) return cached;
+        float[] result = WALL_HIGHLIGHT_FALLBACK;
+        try {
+            final TextureRegion region = GameSpriteManager.TILE_SPRITES.get(tileId);
+            if (region != null && region.getTexture() != null) {
+                final Texture tex = region.getTexture();
+                if (tex.getTextureData() != null) {
+                    if (!tex.getTextureData().isPrepared()) {
+                        tex.getTextureData().prepare();
+                    }
+                    final Pixmap pix = tex.getTextureData().consumePixmap();
+                    if (pix != null) {
+                        // Sample the center grid to average out edge dithering / outlines.
+                        final int rx = region.getRegionX();
+                        final int ry = region.getRegionY();
+                        final int rw = region.getRegionWidth();
+                        final int rh = region.getRegionHeight();
+                        long r = 0, g = 0, b = 0; int n = 0;
+                        for (int dy = rh / 4; dy < rh - rh / 4; dy += 2) {
+                            for (int dx = rw / 4; dx < rw - rw / 4; dx += 2) {
+                                final int color = pix.getPixel(rx + dx, ry + dy);
+                                final int ar = (color >> 24) & 0xFF;
+                                if (ar < 16) continue;
+                                r += (color >> 16) & 0xFF;
+                                g += (color >>  8) & 0xFF;
+                                b += (color      ) & 0xFF;
+                                n++;
+                            }
+                        }
+                        if (tex.getTextureData().disposePixmap()) pix.dispose();
+                        if (n > 0) {
+                            float fr = Math.min(1f, ((r / (float) n) / 255f) * 1.35f + 0.10f);
+                            float fg = Math.min(1f, ((g / (float) n) / 255f) * 1.35f + 0.10f);
+                            float fb = Math.min(1f, ((b / (float) n) / 255f) * 1.35f + 0.10f);
+                            result = new float[] { fr, fg, fb };
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        WALL_HIGHLIGHT_CACHE.put(tileId, result);
+        return result;
+    }
+
+    // Out-of-bounds reads as not-a-wall.
     private boolean isWallTileAt(long row, long col, int mapW, int mapH) {
         if (row < 0 || col < 0 || col >= mapW || row >= mapH) return false;
         final Tile ct = (Tile) this.mapLayers.get(1).getBlocks()[(int) row][(int) col];
         return ct != null && !ct.isVoid() && ct.getData() != null && ct.getData().isWall();
     }
 
-    /**
-     * Simple wall mode: draw the wall body sprites, then a single flat black
-     * stroke on each exposed face. Skips the fancy path's shadow side-bands,
-     * top-half extrusion, and edge highlights — far fewer ShapeRenderer rects
-     * per wall, which is the cost that tanks the frame rate in wall-dense
-     * dungeons. Mirrors the webclient's 'simple' wall mode.
-     */
+    // Wall body + one flat black stroke per exposed face; far fewer rects than the
+    // fancy path, which tanks the frame rate in wall-dense dungeons.
     private void renderWallsSimple(SpriteBatch batch, ShapeRenderer shapes,
             List<Tile> wallTiles, int mapW, int mapH) {
         for (Tile t : wallTiles) {
@@ -1284,19 +1120,15 @@ public class TileManager {
         batch.begin();
     }
 
-    /** A wall is "tall" when its sprite is taller than it is wide (e.g. 8x16):
-     *  the art carries its own top surface (upper half) and front face (lower
-     *  half). These render at full sprite aspect spilling one cell south
-     *  instead of using the procedural extrusion bands of square walls. */
+    // Tall = sprite taller than wide (e.g. 8x16): art carries its own top + front
+    // face and renders at full aspect spilling one cell south, not extrusion bands.
     private static boolean isTallWallTile(Tile t) {
         final TextureRegion region = GameSpriteManager.TILE_SPRITES.get((int) t.getTileId());
         return region != null && region.getRegionHeight() > region.getRegionWidth();
     }
 
-    /** Draw every tall wall in {@code wallTiles} at full sprite height, anchored
-     *  at the wall's own cell so the lower half spills south as the visible
-     *  front face. Drawn top-to-bottom so a wall directly below re-covers the
-     *  spill from the wall above, leaving only the run's bottom face exposed. */
+    // Full sprite height anchored at the wall's cell (lower half spills south as the
+    // front face). Top-to-bottom so a wall below re-covers the spill from the one above.
     private void renderTallWalls(SpriteBatch batch, List<Tile> wallTiles) {
         this.tallWallScratch.clear();
         for (Tile t : wallTiles) {
@@ -1316,13 +1148,8 @@ public class TileManager {
         }
     }
 
-    /** Redraw ONLY each tall wall's TOP FACE a second time, AFTER entity bodies,
-     *  so an entity behind the wall (overlapping the top face) is covered by it
-     *  while an entity standing in FRONT of the wall renders over the south-
-     *  spilling front face. The full wall (cap + front face) is drawn in the
-     *  renderTallWalls body pass beneath the entities; restamping only the cap
-     *  here gives correct 2.5D depth instead of walls-always-over-entities.
-     *  Sorted top-to-bottom (mirrors webclient renderer.js occlusion copy). */
+    // Redraw only each tall wall's TOP FACE after entity bodies, so an entity behind
+    // the wall is covered but one in front of the south-spilling front face renders over it.
     public void renderTallWallOcclusion(SpriteBatch batch) {
         this.tallWallScratch.clear();
         for (Tile t : this.wallTilesBuf) {
@@ -1337,12 +1164,6 @@ public class TileManager {
             if (region == null) continue;
             final float wx = t.getPos().getWorldVar().x;
             final float wy = t.getPos().getWorldVar().y;
-            // Occlude entities with ONLY the wall's TOP FACE (the upper sprite-
-            // size square), not the south-spilling front face. An entity behind
-            // the wall (overlapping the top face) is covered; one standing in
-            // FRONT of the wall (over the front face) renders on top, because the
-            // front face lives only in the renderTallWalls body pass drawn
-            // beneath the entities.
             final int wallId = (int) t.getTileId();
             TextureRegion topRegion = this.tallWallTopCache.get(wallId);
             if (topRegion == null) {
@@ -1358,47 +1179,24 @@ public class TileManager {
         }
     }
 
-    /**
-     * Pre-baked feather seam-blend at base-tile type boundaries. For each
-     * in-sight base tile with a differing cardinal neighbor, draws ONE
-     * batch.draw per side using the pre-baked feather TextureRegion (the
-     * neighbor's pixels with a per-pixel linear alpha gradient baked in
-     * at boot). All feathers share a single backing Texture atlas so
-     * SpriteBatch batches every seam draw in this pass into one GL flush.
-     *
-     * Was: 3 thin-stripe draws per side at fixed alpha steps (visible
-     * banding at high-contrast boundaries). Now: 1 draw per side with a
-     * smooth per-pixel alpha falloff. Net: same or fewer draws AND
-     * smoother visual.
-     */
+    // Draws one pre-baked feather region per side at base-tile type boundaries;
+    // all feathers share one backing atlas so the pass flushes in a single GL call.
     private void drawTileSeams(SpriteBatch batch, int sxMin, int syMin,
             int screenTilesX, int screenTilesY, int ts, int mapW, int mapH) {
         final Map<Integer, TextureRegion[]> feathers = GameSpriteManager.TILE_FEATHERS;
         if (feathers == null) return;
-        // The feather TextureRegions were baked at SOURCE resolution
-        // (e.g. 8px tile -> 3px depth). When drawn at the rendered tile
-        // size (ts = 32px), we scale to ts × featherPx for proportional
-        // depth on screen.
+        // Feathers baked at source resolution; scale to ts x featherPx on screen.
         final int featherPx = Math.max(2, Math.round(ts * 0.15f));
         final Object[][] baseBlocks = this.mapLayers.get(0).getBlocks();
         final Object[][] colBlocks  = this.mapLayers.get(1).getBlocks();
-        // Feather every base tile across the whole screen viewport, gated only
-        // on the tile DATA existing — same rule as the base-tile draw above and
-        // the webclient. No sight-circle gate, so blend seams never differ
-        // between adjacent on-screen tiles or sweep with the player.
         for (int x = sxMin; x < sxMin + screenTilesX; x++) {
             for (int y = syMin; y < syMin + screenTilesY; y++) {
                 if (x < 0 || y < 0 || x >= mapW || y >= mapH) continue;
                 final Tile here = (Tile) baseBlocks[y][x];
                 if (here == null || here.getTileId() <= 0) continue;
-                // SKIP rule: no blending if THIS tile is a wall, and no
-                // blending across an edge whose neighbor is a wall. Walls
-                // are architectural — softening them with feathers reads
-                // as visual mush and conflicts with the wall extrusion
-                // bands drawn in Pass 2.
+                // Walls never feather (conflicts with the Pass-2 extrusion bands).
                 if (isWallCell(colBlocks, y, x, mapW, mapH)) continue;
-                // noBlend tiles (e.g. carpets) keep a hard edge: this tile emits
-                // no feathers, and neighbours skip feathering toward it below.
+                // noBlend tiles (e.g. carpets) keep a hard edge both ways.
                 if (here.getData() != null && here.getData().noBlend()) continue;
                 final int myType = here.getTileId();
                 final int tN = (y - 1 >= 0)   ? tileIdAt(baseBlocks, y - 1, x) : 0;
@@ -1409,8 +1207,7 @@ public class TileManager {
                 final boolean wS = isWallCell(colBlocks, y + 1, x, mapW, mapH);
                 final boolean wW = isWallCell(colBlocks, y, x - 1, mapW, mapH);
                 final boolean wE = isWallCell(colBlocks, y, x + 1, mapW, mapH);
-                // Blend only with a different, non-wall, blend-enabled neighbor
-                // whose color is far enough to read as a distinct material.
+                // Blend only with a different, non-wall, blend-enabled, color-distinct neighbor.
                 final boolean dN = tN > 0 && tN != myType && !wN && !baseNoBlend(baseBlocks, y - 1, x, mapW, mapH) && GameSpriteManager.tilesShouldBlend(myType, tN);
                 final boolean dS = tS > 0 && tS != myType && !wS && !baseNoBlend(baseBlocks, y + 1, x, mapW, mapH) && GameSpriteManager.tilesShouldBlend(myType, tS);
                 final boolean dW = tW > 0 && tW != myType && !wW && !baseNoBlend(baseBlocks, y, x - 1, mapW, mapH) && GameSpriteManager.tilesShouldBlend(myType, tW);
@@ -1459,13 +1256,8 @@ public class TileManager {
         return t == null ? 0 : t.getTileId();
     }
 
-    /**
-     * Read-only view of the per-frame object-tile buffer (collision tiles
-     * that aren't walls — trees, rocks, statues, etc.). Populated during
-     * render() and remains valid until the NEXT render() call clears it.
-     * Used by PlayState's shadow pass so world objects get the same oval
-     * ground shadow as players/enemies, matching the webclient.
-     */
+    // Per-frame object-tile buffer (non-wall collision tiles), valid until the next
+    // render() clears it. Used by PlayState's shadow pass.
     public List<Tile> getObjectTilesView() {
         return this.objectTilesBuf;
     }

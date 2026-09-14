@@ -21,13 +21,9 @@ import com.openrealm.net.client.ClientGameLogic;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Read-only lifetime-stats report for a character, opened by right-clicking a
- * row on the character-select screen. Fetches {@link CharacterMetricsDto} from
- * the data service on a background thread and renders a scrollable two-column
- * table (label / value) grouped into sections.
- *
- * Self-contained like {@link FameStoreWindow}: the HTTP call runs off the GL
- * thread and the result is drained in {@link #update()} via an AtomicReference.
+ * Read-only lifetime-stats report for a character (right-click a character-select
+ * row). Fetches {@link CharacterMetricsDto} off-thread, drained in {@link #update()};
+ * renders a scrollable two-column table grouped into sections.
  */
 @Slf4j
 public class CharacterStatsWindow {
@@ -54,7 +50,6 @@ public class CharacterStatsWindow {
         this.visible = false;
     }
 
-    /** Open the window for a character and kick off the async metrics fetch. */
     public void show(CharacterDto character, String className) {
         if (character == null || character.getCharacterUuid() == null) return;
         this.visible = true;
@@ -102,7 +97,6 @@ public class CharacterStatsWindow {
         this.mouseDownPrev = down;
     }
 
-    /** Mouse-wheel scroll while the report is open. */
     public void onWheel(float wheel) {
         if (!this.visible) return;
         final int max = Math.max(0, this.rows.size() - visibleRowCount());
@@ -125,7 +119,6 @@ public class CharacterStatsWindow {
         final int x = (w - dialogW) / 2;
         final int y = (h - dialogH) / 2;
 
-        // Close button in the header (right side); clicking outside the dialog also closes.
         final int closeBtnW = 60, closeBtnH = HEADER_H - 8;
         final int closeBtnX = x + dialogW - closeBtnW - 6;
         final int closeBtnY = y + 4;
@@ -134,6 +127,7 @@ public class CharacterStatsWindow {
             this.hide();
             return;
         }
+        // Clicking outside the dialog also closes.
         if (mx < x || mx > x + dialogW || my < y || my > y + dialogH) {
             this.hide();
         }
@@ -158,10 +152,8 @@ public class CharacterStatsWindow {
         shapes.rect(0, 0, w, h);
         shapes.setColor(0.10f, 0.09f, 0.11f, 0.98f);
         shapes.rect(x, y, dialogW, dialogH);
-        // Header strip at the top (flipped ortho).
         shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
         shapes.rect(x, y, dialogW, HEADER_H);
-        // Close button.
         final int closeBtnW = 60, closeBtnH = HEADER_H - 8;
         final int closeBtnX = x + dialogW - closeBtnW - 6;
         final int closeBtnY = y + 4;
@@ -173,7 +165,7 @@ public class CharacterStatsWindow {
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
         font.draw(batch, this.title, x + 14, y + 22);
         font.setColor(Color.WHITE);
-        font.draw(batch, "Close", closeBtnX + 8, closeBtnY + closeBtnH - 6);
+        UiRender.drawCenteredIn(batch, font, "Close", closeBtnX, closeBtnY, closeBtnW, closeBtnH);
 
         if (!this.status.isEmpty()) {
             font.setColor(0.80f, 0.72f, 0.55f, 1f);
@@ -187,20 +179,19 @@ public class CharacterStatsWindow {
         final int total = this.rows.size();
         final int firstIdx = Math.max(0, Math.min(this.scrollOffset, Math.max(0, total - visibleRows)));
         final int lastIdx = Math.min(total, firstIdx + visibleRows);
-        final int valueX = x + dialogW - 150;
+        final int valueRightX = x + dialogW - 20;
 
         for (int i = firstIdx; i < lastIdx; i++) {
             final CharacterStatsRow row = this.rows.get(i);
             final int rowY = rowsTop + (i - firstIdx) * ROW_H + ROW_H - 6;
             if (row.value == null) {
-                // Section header.
                 font.setColor(0.95f, 0.82f, 0.42f, 1f);
                 font.draw(batch, row.label, x + 12, rowY);
             } else {
                 font.setColor(0.72f, 0.66f, 0.56f, 1f);
                 font.draw(batch, row.label, x + 20, rowY);
                 font.setColor(0.90f, 0.86f, 0.75f, 1f);
-                font.draw(batch, row.value, valueX, rowY);
+                UiRender.drawRightAligned(batch, font, row.value, valueRightX, rowY);
             }
         }
 

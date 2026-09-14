@@ -18,11 +18,7 @@ public class TileModel extends SpriteModel {
     private String name;
     private short size;
     private TileData data;
-    /**
-     * Optional tag that marks this tile as interactive. When non-null, the
-     * client may send InteractTilePacket while standing adjacent to it; the
-     * server validates and dispatches based on this string. Examples: "forge".
-     */
+    // non-null = interactive tile; client sends InteractTilePacket when adjacent (e.g. "forge")
     private String interactionType;
 
 }

@@ -13,17 +13,20 @@ import lombok.Data;
 
 @Data
 public class KeyHandler implements InputProcessor {
-    public boolean captureMode = false;
-    public String content = "";
-    public static List<Key> keys = new ArrayList<Key>();
-
-    // WHY: caret + selection state for the chat capture buffer. selAnchor==-1 means "no selection".
-    public int captureCaret = 0;
-    public int captureSelAnchor = -1;
-
-    // WHY: held-key auto-repeat constants tuned to OS feel (matches TextField).
     private static final float REPEAT_INITIAL_DELAY = 0.40f;
     private static final float REPEAT_INTERVAL = 0.030f;
+
+    public static List<Key> keys = new ArrayList<Key>();
+    public static volatile TextSink textSink = null;
+    // Mouse-wheel delta since consumeScroll() last read it; positive = scrolled down.
+    private static volatile float pendingScrollY = 0f;
+
+    public boolean captureMode = false;
+    public String content = "";
+
+    // captureSelAnchor == -1 means no selection.
+    public int captureCaret = 0;
+    public int captureSelAnchor = -1;
 
     private float backspaceHoldTime = -1f;
     private float backspaceRepeatAccum = 0f;
@@ -34,18 +37,12 @@ public class KeyHandler implements InputProcessor {
     private float rightHoldTime = -1f;
     private float rightRepeatAccum = 0f;
 
-    /**
-     * Optional sink for typed characters used by ad-hoc text fields outside
-     * the chat captureMode flow (login/register forms, char-create rename
-     * dialogs, etc.). When non-null, every printable char from keyTyped is
-     * forwarded so multiple {@link com.openrealm.game.ui.TextField} instances
-     * can share the single LibGDX InputProcessor without trampling each
-     * other's buffers.
-     */
+    // Optional sink for typed chars in ad-hoc text fields (login/register/rename)
+    // outside the chat captureMode flow; lets multiple TextFields share the one
+    // InputProcessor. When non-null, every printable keyTyped char is forwarded.
     public interface TextSink {
         void onChar(char c);
     }
-    public static volatile TextSink textSink = null;
 
     public Key up = new Key();
     public Key down = new Key();
@@ -78,11 +75,9 @@ public class KeyHandler implements InputProcessor {
     public Key minus = new Key();
 
     public KeyHandler() {
-        // No listener registration needed - we poll Gdx.input
     }
 
-    /** Resolve a rebindable action to its LibGDX key code, falling back to the
-     *  default when unset. Read live so remaps take effect without a restart. */
+    // Read live so key remaps take effect without a restart.
     private static int kb(String action, int fallback) {
         int code = Settings.get().getKeybind(action);
         return code >= 0 ? code : fallback;
@@ -111,7 +106,7 @@ public class KeyHandler implements InputProcessor {
             this.enter.toggle(Gdx.input.isKeyPressed(Input.Keys.ENTER));
             return;
         }
-        // WHY: keep auto-repeat timers fresh when not capturing so a held key doesn't bleed across mode changes.
+        // Reset repeat timers when not capturing so a held key doesn't bleed across mode changes.
         this.backspaceHoldTime = -1f;
         this.deleteHoldTime = -1f;
         this.leftHoldTime = -1f;
@@ -122,10 +117,7 @@ public class KeyHandler implements InputProcessor {
         this.left.toggle(Gdx.input.isKeyPressed(kb("moveLeft", Input.Keys.A)));
         this.right.toggle(Gdx.input.isKeyPressed(kb("moveRight", Input.Keys.D)));
         this.attack.toggle(Gdx.input.isKeyPressed(kb("usePortal", Input.Keys.SPACE)));
-        // The legacy `menu` key field still binds to E for compatibility,
-        // but it has no consumers anywhere — the actual menu opens on
-        // M / Escape. Camera rotation uses Q (left) / E (right) like the
-        // webclient, tracked via the dedicated this.e Key below.
+        // Legacy `menu` key still binds E but has no consumers; the menu opens on M/Escape.
         this.menu.toggle(Gdx.input.isKeyPressed(Input.Keys.E));
         this.enter.toggle(Gdx.input.isKeyPressed(Input.Keys.ENTER));
         this.escape.toggle(Gdx.input.isKeyPressed(Input.Keys.ESCAPE));
@@ -154,7 +146,6 @@ public class KeyHandler implements InputProcessor {
 
     public void setCaptureMode(boolean captureMode) {
         if (captureMode && !this.captureMode) {
-            // WHY: when chat opens, place caret at end of any pre-existing buffer.
             this.captureCaret = this.content.length();
             this.captureSelAnchor = -1;
         }
@@ -176,9 +167,6 @@ public class KeyHandler implements InputProcessor {
         return content;
     }
 
-    /**
-     * Called by LibGDX InputProcessor when in capture mode.
-     */
     public void appendChar(char c) {
         if (!this.captureMode) return;
         if (c == '\n' || c == '\r' || c == '\b') return;
@@ -374,9 +362,7 @@ public class KeyHandler implements InputProcessor {
 
     @Override
     public boolean keyTyped(char character) {
-        // Sink takes priority over captureMode — when a login/register field
-        // is focused we route chars there; chat captureMode is exclusive to
-        // gameplay so the two never coincide in practice.
+        // Sink takes priority over captureMode.
         TextSink sink = KeyHandler.textSink;
         if (sink != null) {
             sink.onChar(character);
@@ -420,14 +406,6 @@ public class KeyHandler implements InputProcessor {
     public boolean mouseMoved(int screenX, int screenY) {
         return false;
     }
-
-    /**
-     * Mouse-wheel delta accumulated since the last consumer read it.
-     * Positive = scrolled down. {@link #consumeScroll()} returns and clears.
-     * Used by states (e.g. CharacterSelectState) to scroll their lists
-     * without each having to register its own InputProcessor.
-     */
-    private static volatile float pendingScrollY = 0f;
 
     public static float consumeScroll() {
         float v = pendingScrollY;

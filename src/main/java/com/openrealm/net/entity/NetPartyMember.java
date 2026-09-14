@@ -37,24 +37,18 @@ public class NetPartyMember extends SerializableFieldType<NetPartyMember> {
     private long realmId;
     @SerializableField(order = 9, type = SerializableShort.class, isCollection = true)
     private Short[] effectIds;
-    /** Ability ids bound to this member's hotbar slots 0..3. Lets the party
-     *  panel paint the same icon the owner sees on their own ability bar. */
+    /** Ability ids bound to hotbar slots 0..3. */
     @SerializableField(order = 10, type = SerializableInt.class, isCollection = true)
     private Integer[] hotbarBindings;
-    /** End-of-cooldown epoch-millis per hotbar slot. UI computes remaining
-     *  cooldown as (cdEnd - now) and renders a dark fill from the top. */
+    /** End-of-cooldown epoch-millis per hotbar slot. */
     @SerializableField(order = 11, type = SerializableLong.class, isCollection = true)
     private Long[] abilityCooldownEnds;
-
     /** Skill points invested into each of the 4 hotbar abilities. */
     @SerializableField(order = 12, type = SerializableInt.class, isCollection = true)
     private Integer[] hotbarInvested;
-
-    /** Server-computed stats (base + equipment + enchantments + buffs).
-     *  Carried so ability tooltips for a party member can render the same
-     *  stat-scaled damage breakdown the owner sees on their own hotbar.
-     *  18 bytes on the wire — negligible at 4-member cap, ~2 Hz. Wire
-     *  order MUST match the prod server's NetPartyMember field order. */
     @SerializableField(order = 13, type = NetStats.class)
     private NetStats stats;
+    /** Equipped items (slots 0..4: weapon/armor/gauntlets/boots/ring); null = empty. */
+    @SerializableField(order = 14, type = NetGameItem.class, isCollection = true)
+    private NetGameItem[] equipment;
 }

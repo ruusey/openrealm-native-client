@@ -61,9 +61,7 @@ public class GameItem extends SpriteModel {
     private byte itemClass = 0;
     @Builder.Default
     private byte archetypeId = 0;
-    // Template field. Optional animation-set override for weapons with a
-    // "visual" attack (e.g. a melee swing arc) instead of a plain projectile.
-    // null/absent => the generic directional swing for melee weapons.
+    // Optional animation-set override for weapons with a visual attack (melee swing); null => generic swing.
     private String attackAnimation;
     @Builder.Default
     private byte gemstoneType = 0;
@@ -75,9 +73,8 @@ public class GameItem extends SpriteModel {
     private int gemPixelColor = 0;
     @Builder.Default
     private byte scalingStat = 4;
-    // Template field (gem items only): equip-slot indices this gem may socket
-    // into (0=weapon 1=armor 2=gauntlet 3=boot 4=ring). Empty => use the gem's
-    // built-in default. Loaded from the item definition JSON.
+    // Gem items only: equip-slot indices this gem may socket into
+    // (0=weapon 1=armor 2=gauntlet 3=boot 4=ring). Empty => gem's built-in default.
     @Builder.Default
     private List<Integer> socketSlots = new ArrayList<>();
 

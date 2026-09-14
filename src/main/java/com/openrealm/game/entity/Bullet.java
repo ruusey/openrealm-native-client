@@ -32,17 +32,9 @@ public class Bullet extends GameObject  {
     private boolean enemyHit;
     private float tfAngle = (float) (Math.PI / 2);
 
-    /**
-     * Projectile behavior flags (ProjectileFlag IDs): PLAYER_PROJECTILE(10),
-     * PARAMETRIC(12), INVERTED_PARAMETRIC(13), ORBITAL(20).
-     * Controls movement — NOT on-hit effects.
-     */
+    /** Movement/behavior flags (ProjectileFlag IDs) — NOT on-hit effects. */
     private List<Short> flags;
-    /**
-     * On-hit status effects (StatusEffect IDs + durations).
-     * Applied to the target entity when this bullet hits.
-     * NOT behavior flags — those go in {@link #flags}.
-     */
+    /** On-hit status effects — NOT behavior flags (those go in {@link #flags}). */
     private List<ProjectileEffect> effects;
 
     private boolean invert = false;
@@ -51,41 +43,27 @@ public class Bullet extends GameObject  {
     private short amplitude = 4;
     private short frequency = 25;
 
-    // Orbital projectile: orbits around a fixed center point
     private float orbitCenterX;
     private float orbitCenterY;
     private float orbitRadius;
-    private float orbitPhase; // starting angle in radians for this projectile
+    private float orbitPhase;
 
-    // LINE_SEGMENT wall: length (px) of the segment, which extends perpendicular
-    // to the facing angle; size is its thickness. lifetimeTicks forces expiry so
-    // a static (magnitude 0) wall whose range never decrements still despawns.
+    // LINE_SEGMENT wall: length (px) extends perpendicular to the facing angle,
+    // size is thickness. lifetimeTicks forces expiry of a static (magnitude 0)
+    // wall whose range never decrements.
     private short length;
     private int lifetimeTicks;
-    // HOMING flag: id of the entity (player or enemy) this projectile steers toward.
     private long targetEntityId;
-    // HOMING client sim: fractional-tick accumulator so the client advances the
-    // seeker in fixed 1/64s ticks, matching the server's per-tick discretization.
     private float homingAccum;
-    // ANCHORED follow: offset of this bullet's top-left from the source entity's
-    // top-left, derived once at first sight so the wall tracks the moving enemy.
+    // ANCHORED follow: bullet top-left offset from the source entity top-left,
+    // derived once at first sight so the wall tracks the moving enemy.
     private boolean anchorReady;
     private float anchorOffsetX;
     private float anchorOffsetY;
 
     private long createdTime;
-    /**
-     * Server-tick at which this bullet was spawned. Used for O(1) tick-counter
-     * based expiry instead of wall-clock comparison via Instant.now() — saves
-     * ~12 K syscalls/sec when many bullets are in flight.
-     */
     private long createdTick;
-    /**
-     * Cached sin/cos of {@link #angle}. Angle is invariant for straight and
-     * parametric projectiles, so caching at construction (and on direction-
-     * change) eliminates two trig calls per bullet per tick. Orbital bullets
-     * use a different code path and don't read these.
-     */
+    /** Cached sin/cos of {@link #angle}; orbital bullets don't read these. */
     private float sinAngle;
     private float cosAngle;
     private long lastUpdateNanos = System.nanoTime();
@@ -171,8 +149,7 @@ public class Bullet extends GameObject  {
         return (float) angle;
     }
 
-    /** Recompute the cached sin/cos after {@link #angle} is set. Avoids per-
-     *  tick trig calls in {@link #update(float)} and {@link #updateParametric(float)}. */
+    /** Recompute cached sin/cos after {@link #angle} is set. */
     public void cacheAngle() {
         this.sinAngle = (float) Math.sin(this.angle);
         this.cosAngle = (float) Math.cos(this.angle);
@@ -183,21 +160,13 @@ public class Bullet extends GameObject  {
         cacheAngle();
     }
 
-    /** Client-side hit prediction marker. PlayState's per-frame circle hit
-     *  test sets this when a player bullet visually contacts an enemy.
-     *  Renderer skips consumed bullets so the sprite vanishes on hit, but
-     *  the entry stays in the realm map — removing on hit was fighting the
-     *  server's LoadPacket diff, which kept re-adding the bullet at its
-     *  server-side (slightly stale) position and produced visibly "frozen"
-     *  projectiles until the next UnloadPacket. The eventual UnloadPacket
-     *  cleans up for real. */
+    /** Client hit-prediction marker: renderer skips consumed bullets so the
+     *  sprite vanishes on hit, but the entry stays in the realm map until the
+     *  server's UnloadPacket — removing it locally fought the LoadPacket diff,
+     *  which re-added the bullet at a stale pos ("frozen" projectiles). */
     private transient boolean consumedClient = false;
-    /** Fractional particle-emission accumulator for the projectile FX trail
-     *  (ProjectileFxManager), so trail spawn rate is frame-rate independent. */
     private transient float fxTrailAcc = 0f;
-    /** Set per-frame by PlayState when this bullet's owner has IMBUED_POISON —
-     *  the Assassin's venom coats their shots with a green trail. Owner-status
-     *  driven (not a group property) so it toggles with the buff. */
+    /** Owner-status driven (IMBUED_POISON), not a group property, so it toggles with the buff. */
     private transient boolean poisonTrail = false;
 
     public boolean isConsumedClient() { return this.consumedClient; }
@@ -205,10 +174,8 @@ public class Bullet extends GameObject  {
     public boolean isPoisonTrail() { return this.poisonTrail; }
     public void setPoisonTrail(boolean v) { this.poisonTrail = v; }
 
-    // WHY: Locally-spawned (client-predicted) player bullets bypass the
-    // server LoadPacket round-trip so the firing player sees their stream
-    // continuously. The server's eventual broadcast is dedup'd against
-    // these in handleLoadClient instead of being inserted alongside.
+    /** Client-predicted player bullet; the server's broadcast is dedup'd
+     *  against these in handleLoadClient instead of inserted alongside. */
     private transient boolean predicted = false;
     public boolean isPredicted() { return this.predicted; }
     public void setPredicted(boolean v) { this.predicted = v; }
@@ -237,8 +204,7 @@ public class Bullet extends GameObject  {
         return this.magnitude;
     }
 
-    // 10-second lifetime ceiling (640 ticks @ 64Hz). Tick-counter based to
-    // avoid the wall-clock syscall that used to run per-bullet per-tick.
+    // 10-second lifetime ceiling (640 ticks @ 64Hz).
     private static final long MAX_LIFETIME_TICKS = 640L;
 
     public boolean remove() {
@@ -247,11 +213,9 @@ public class Bullet extends GameObject  {
 
     /** Tick-counter aware expiry — pass the realm's current tickCounter. */
     public boolean remove(long currentTick) {
-        // Explicit lifetime caps static walls whose range never decrements, but
-        // range ALSO applies (whichever first) — for moving bullets like homing
-        // shots, range governs travel distance and must match the server + the
-        // webclient (both honor range + lifetime). Client bullets carry no
-        // createdTick (currentTick is 0), so fall back to createdTime at 64/s.
+        // lifetimeTicks and range both apply (whichever hits first). Client
+        // bullets carry no createdTick (currentTick 0), so fall back to
+        // createdTime at 64/s.
         if (this.lifetimeTicks > 0) {
             final boolean lifeUp = (this.createdTick != 0L)
                     ? (currentTick - this.createdTick) > this.lifetimeTicks
@@ -259,9 +223,7 @@ public class Bullet extends GameObject  {
             if (lifeUp) return true;
         }
         if (this.range <= 0.0) return true;
-        // createdTick == 0 indicates a legacy bullet not initialized via the
-        // tick-aware spawn path; fall back to the wall-clock check so the
-        // 10-second cap still works for those.
+        // createdTick == 0: legacy bullet not spawned via the tick-aware path.
         if (this.createdTick != 0L) {
             return (currentTick - this.createdTick) > MAX_LIFETIME_TICKS;
         }
@@ -273,10 +235,7 @@ public class Bullet extends GameObject  {
     }
 
     @Override
-    // Legacy entry point — kept so other callers that still pass no arg keep
-    // working. The realm tick now precomputes bulletScale once per tick and
-    // calls update(float) below, avoiding ~12 K nanoTime syscalls/sec when
-    // many bullets are in flight.
+    // Legacy no-arg entry point; the realm tick precomputes bulletScale and calls update(float).
     public void update() {
         final long now = System.nanoTime();
         final float dt = Math.min((now - this.lastUpdateNanos) / 1_000_000_000.0f, 0.1f);
@@ -284,14 +243,7 @@ public class Bullet extends GameObject  {
         update(dt * 64.0f);
     }
 
-    /**
-     * Hot path — bulletScale is computed ONCE per tick at the realm level
-     * and passed to every bullet. Removes the per-bullet System.nanoTime()
-     * + float division that used to run 12 800 times/sec at 200 bullets.
-     * Also reads cached {@link #sinAngle}/{@link #cosAngle} instead of
-     * calling Math.sin/cos every tick — the angle of straight + parametric
-     * projectiles is invariant for the bullet's whole lifetime.
-     */
+    /** Hot path — bulletScale is computed once per tick at the realm level. */
     public void update(float bulletScale) {
         if (this.hasFlag(ProjectileFlag.ORBITAL)) {
             this.updateOrbital(bulletScale);
@@ -305,7 +257,6 @@ public class Bullet extends GameObject  {
                 this.angle += (float) Math.toRadians(this.frequency * bulletScale);
                 cacheAngle();
             }
-            // Straight-line projectile — uses cached sin/cos.
             float speed = this.magnitude;
             if (this.hasFlag(ProjectileFlag.SPEED_DECAY) || this.hasFlag(ProjectileFlag.SPEED_RAMP)) {
                 speed *= speedCurveMult();
@@ -323,17 +274,12 @@ public class Bullet extends GameObject  {
     }
 
     /**
-     * Parametric projectile update - applies sinusoidal oscillation perpendicular
-     * to the direction of travel, creating wavy projectile patterns (e.g. RotMG staff shots).
-     *
-     * The oscillation is computed as a position offset along the perpendicular axis,
-     * so each tick we apply the CHANGE in offset (delta) rather than a raw velocity.
-     * Negative amplitude naturally inverts the wave (no special flag needed).
-     *
-     * Perpendicular axis to forward (sin(a), cos(a)) is (cos(a), -sin(a)).
+     * Sinusoidal oscillation perpendicular to travel (wavy staff shots). Applies
+     * the CHANGE in offset per tick, not a raw velocity; negative amplitude
+     * inverts the wave. Perpendicular of forward (sin,cos) is (cos,-sin).
      */
     public void updateParametric(float bulletScale) {
-        // Compute perpendicular offset BEFORE advancing timeStep
+        // Perpendicular offset computed BEFORE advancing timeStep.
         float prevOffset = (float) (this.amplitude * Math.sin(Math.toRadians(this.timeStep)));
 
         this.timeStep = (long) ((this.timeStep + this.frequency * bulletScale) % 360);
@@ -341,20 +287,16 @@ public class Bullet extends GameObject  {
         float currOffset = (float) (this.amplitude * Math.sin(Math.toRadians(this.timeStep)));
         float perpDelta = (currOffset - prevOffset) * (this.invert ? -1 : 1);
 
-        // Forward velocity along the travel direction (cached sin/cos —
-        // angle is invariant for the lifetime of a parametric projectile).
         float forwardX = this.sinAngle * this.magnitude * bulletScale;
         float forwardY = this.cosAngle * this.magnitude * bulletScale;
 
-        // Perpendicular direction (90 degrees from forward).
         float perpX = this.cosAngle;
         float perpY = -this.sinAngle;
 
-        // Combine forward motion + perpendicular oscillation
         float velX = forwardX + perpX * perpDelta;
         float velY = forwardY + perpY * perpDelta;
 
-        // Decrease range by forward distance only (not oscillation)
+        // Range decreases by forward distance only, not oscillation.
         this.range -= this.magnitude * bulletScale;
 
         this.pos.addX(velX);
@@ -363,11 +305,7 @@ public class Bullet extends GameObject  {
         this.dy = velY;
     }
 
-    /**
-     * Orbital projectile update — positions the bullet on a circle around orbitCenter.
-     * Uses frequency as angular speed (degrees/tick) and amplitude as orbit radius.
-     * The initial angle for each projectile in the ring is set via orbitPhase.
-     */
+    /** Orbital: frequency is angular speed (deg/tick), amplitude is orbit radius. */
     public void updateOrbital(float bulletScale) {
         this.orbitPhase += (float) Math.toRadians(this.frequency * bulletScale);
         float newX = this.orbitCenterX + this.orbitRadius * (float) Math.cos(this.orbitPhase);
@@ -376,23 +314,14 @@ public class Bullet extends GameObject  {
         this.dy = newY - this.pos.y;
         this.pos.x = newX;
         this.pos.y = newY;
-        // Decrease range by arc length traveled per tick
         this.range -= this.orbitRadius * Math.abs(Math.toRadians(this.frequency * bulletScale));
     }
 
-    /**
-     * Configure this bullet as an orbital projectile.
-     * @param centerX orbit center X
-     * @param centerY orbit center Y
-     * @param radius orbit radius in pixels
-     * @param startPhase starting angle in radians (evenly spaced for ring patterns)
-     */
     public void setupOrbital(float centerX, float centerY, float radius, float startPhase) {
         this.orbitCenterX = centerX;
         this.orbitCenterY = centerY;
         this.orbitRadius = radius;
         this.orbitPhase = startPhase;
-        // Set initial position on the orbit
         this.pos.x = centerX + radius * (float) Math.cos(startPhase);
         this.pos.y = centerY + radius * (float) Math.sin(startPhase);
     }
@@ -441,31 +370,25 @@ public class Bullet extends GameObject  {
 
     @Override
     public void render(SpriteBatch batch) {
-        // Melee swings are invisible AoEs — the wielder's swing animation stands in
-        // for them; skip the projectile sprite entirely (outline included).
+        // Melee swings are invisible AoEs — the swing animation stands in for them.
         if (this.hasFlag(ProjectileFlag.MELEE_SWING)) return;
         if (this.getSpriteSheet() == null) return;
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
 
-        // group may be null when a sprite-override bullet's projectileId has no
-        // group (or when projectile data failed to load); rotation/spin/trail
-        // then fall back to their neutral defaults.
+        // group is null for sprite-override bullets with no group (or on data
+        // load failure); rotation/spin/trail fall back to neutral defaults.
         final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS != null
                 ? GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId()) : null;
         final float angleOffset = (group != null && group.getAngleOffset() != null)
                 ? Float.parseFloat(group.getAngleOffset()) : 0f;
 
-        // Base orientation (points along travel; angleOffset undoes a diagonal
-        // sprite). LibGDX rotation is CCW-positive degrees.
+        // angleOffset undoes a diagonal sprite; LibGDX rotation is CCW-positive degrees.
         final float baseDeg = (angleOffset > 0.0f)
                 ? (float) Math.toDegrees(-this.getAngle() + (this.tfAngle + angleOffset))
                 : (float) Math.toDegrees(-this.getAngle() + this.tfAngle);
-        // Unified projectile FX spin (group.getFx()): continuous = override the
-        // flight angle with a wall-clock spin (shurikens); additive = spin on top
-        // of the flight orientation. Legacy rotate/spinning were migrated here.
-        // dir is "visual CW/CCW"; LibGDX is CCW-positive so CW = negative.
-        // rotateSpinDeg (additive) is also applied to LINE_SEGMENT wall tiles below.
+        // Projectile FX spin: continuous overrides the flight angle (shurikens),
+        // additive spins on top. dir "CW/CCW" is visual; LibGDX CCW-positive so CW = negative.
         float rotationDeg = baseDeg;
         float rotateSpinDeg = 0f;
         if (group != null && group.getFx() != null) {
@@ -487,19 +410,16 @@ public class Bullet extends GameObject  {
         float wy = this.pos.getWorldVar().y;
         float halfSize = this.size / 2f;
 
-        // LINE_SEGMENT wall: tile the sprite along the axis perpendicular to the
-        // facing angle (matching the server's lineHit geometry) instead of
-        // drawing one centered sprite. size is the line thickness; length the
-        // span. Drawn here and returned — no trail/outline for walls.
+        // LINE_SEGMENT wall: tile the sprite along the axis perpendicular to
+        // facing (matches server lineHit). size = thickness, length = span. No
+        // trail/outline for walls.
         if (this.hasFlag(ProjectileFlag.LINE_SEGMENT) && this.length > 0) {
             final float a = this.getAngle();
             final float perpX = (float) Math.cos(a);
             final float perpY = (float) -Math.sin(a);
             final float half = this.length * 0.5f;
             final int tiles = Math.max(1, Math.round(this.length / (float) this.size));
-            // Point tiles ALONG the wall axis (perpendicular to facing) so they
-            // read as one straight line end-to-end — no tfAngle (that aligns to
-            // travel, i.e. across the wall). angleOffset stays as a fine-tune.
+            // Tiles point ALONG the wall axis (no tfAngle — that aligns to travel).
             final float lineRotDeg = (float) Math.toDegrees(-a + angleOffset) + rotateSpinDeg;
             for (int i = 0; i <= tiles; i++) {
                 final float off = -half + ((float) i / tiles) * this.length;
@@ -510,9 +430,7 @@ public class Bullet extends GameObject  {
         }
 
         // Sticky afterimage trail (e.g. Trapper Tar Shot): fading tinted copies
-        // of the sprite trailing back along the flight line. Drawn before the
-        // body so the projectile stays on top. Only non-spinning straight
-        // projectiles request a trail, so backward = -(sin,cos)*step is exact.
+        // trailing back along the flight line, drawn before the body.
         final String trailColor = (group != null) ? group.getTrailColor() : null;
         if (trailColor != null) {
             final float[] rgb = parseTrailColor(trailColor);
@@ -532,8 +450,7 @@ public class Bullet extends GameObject  {
             batch.setPackedColor(prev);
         }
 
-        // Venom trail — Assassin Imbue Poison. Green afterimage behind the shot,
-        // same geometry as the group trail but keyed off the owner's buff.
+        // Venom trail (Assassin Imbue Poison): group-trail geometry keyed off the owner's buff.
         if (this.poisonTrail) {
             final float prev = batch.getPackedColor();
             final float spacing = this.size * 0.34f;
@@ -551,7 +468,6 @@ public class Bullet extends GameObject  {
             batch.setPackedColor(prev);
         }
 
-        // draw with rotation around center
         batch.draw(frame, wx, wy, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
     }
 
@@ -574,23 +490,16 @@ public class Bullet extends GameObject  {
     private static final float OUTLINE_OFFSET = 1f;
     private static final float OUTLINE_ALPHA = 0.85f;
 
-    /** Dark silhouette outline: 8 tinted copies behind the bullet — 4 cardinal +
-     *  4 diagonal. The diagonals fill the corner pixels at concave/angled sprite
-     *  edges (e.g. the notches of a plus-shaped projectile) that a cardinal-only
-     *  stroke leaves as a missing sliver. Web parity with the tile/entity outline.
-     *  Caller draws the real sprite on top afterwards. */
+    /** Dark silhouette outline: 8 tinted copies (4 cardinal + 4 diagonal)
+     *  behind the bullet; caller draws the real sprite on top. */
     public void renderOutline(SpriteBatch batch) {
         if (this.getSpriteSheet() == null) return;
-        // Invisible melee swing — no sprite, no outline.
         if (this.hasFlag(ProjectileFlag.MELEE_SWING)) return;
         // Walls draw their own tiled sprites in render() with no outline.
         if (this.hasFlag(ProjectileFlag.LINE_SEGMENT)) return;
         TextureRegion frame = this.getSpriteSheet().getCurrentFrame();
         if (frame == null) return;
 
-        // group may be null when a sprite-override bullet's projectileId has no
-        // group (or when projectile data failed to load); rotation/spin/trail
-        // then fall back to their neutral defaults.
         final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS != null
                 ? GameDataManager.PROJECTILE_GROUPS.get(this.getProjectileId()) : null;
         final float angleOffset = (group != null && group.getAngleOffset() != null)

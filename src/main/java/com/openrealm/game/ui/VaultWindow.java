@@ -15,19 +15,8 @@ import com.openrealm.net.client.ClientGameLogic;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * Account-level vault / chest UI shown on the character-select screen.
- *
- * The web client renders this on the char-select page; the native client's
- * existing PauseState is the closest equivalent (it loads the account when
- * opened). This window is meant to be opened by PauseState rather than being
- * available in-game.
- *
- * Currently shows the per-account chest count and an "Add Chest" button that
- * issues {@code POST /data/account/{accountUuid}/chest/new}. Drag-drop with
- * the inventory is a later enhancement — the server still owns chest contents
- * authoritatively.
- */
+/** Account-level vault / chest UI (opened by PauseState). Shows the per-account
+ *  chest count and an Add Chest button that POSTs /data/account/{accountUuid}/chest/new. */
 @Slf4j
 public class VaultWindow {
     private boolean visible = false;
@@ -95,7 +84,6 @@ public class VaultWindow {
         shapes.setColor(0.10f, 0.10f, 0.14f, 0.95f);
         shapes.rect(x, y, dialogW, dialogH);
 
-        // Add Chest button
         int btnW = 140;
         int btnH = 32;
         int btnX = x + (dialogW - btnW) / 2;
@@ -106,10 +94,10 @@ public class VaultWindow {
         batch.begin();
 
         font.setColor(Color.WHITE);
-        font.draw(batch, "VAULT",                    x + dialogW / 2 - 24, y + dialogH - 8);
+        UiRender.drawCentered(batch, font, "VAULT", x + dialogW / 2f, y + dialogH - 8);
         font.draw(batch, "Chests on account: " + this.chestCount, x + 16, y + dialogH - 48);
         font.draw(batch, "Each chest holds 8 items.",              x + 16, y + dialogH - 72);
-        font.draw(batch, "Add Chest", btnX + 30, btnY + btnH - 10);
+        UiRender.drawCentered(batch, font, "Add Chest", btnX + btnW / 2f, btnY + btnH - 10);
 
         if (!this.statusMsg.isEmpty()) {
             font.setColor(Color.LIME);

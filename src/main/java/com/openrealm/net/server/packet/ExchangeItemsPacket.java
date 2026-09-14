@@ -11,12 +11,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Client -> server: request to swap {@code quantity} of {@code sourceItemId} for
- * ({@code quantity} - 1) of {@code targetItemId} at the Exchange Market. Both
- * items must belong to the same exchange group. The lost item is the exchange
- * tax, so quantity must be at least 2. All validation is server-side.
- */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable

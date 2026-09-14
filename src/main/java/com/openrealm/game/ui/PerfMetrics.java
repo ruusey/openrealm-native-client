@@ -5,47 +5,24 @@ import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
-/**
- * Lightweight perf overlay mirroring the web client's {@code _perfEl}
- * (main.js {@code perfMetrics}). Tracks FPS, JVM heap usage, ping, and
- * jitter (stddev of one-way ping samples). Drawn in the corner of the
- * HUD by {@link PlayerUI#render}.
- *
- * Singleton because heartbeat record-points fire from network handler
- * code that doesn't have a cleaner way to reach the UI layer. The cost
- * is trivial — one tiny static object.
- */
 public final class PerfMetrics {
 
     private static final PerfMetrics INSTANCE = new PerfMetrics();
-    public static PerfMetrics get() { return INSTANCE; }
+    private static final Color COLOR_GOOD = new Color(0.4f, 1f, 0.4f, 1f);
+    private static final Color COLOR_WARN = new Color(1f, 1f, 0.4f, 1f);
+    private static final Color COLOR_BAD  = new Color(1f, 0.4f, 0.4f, 1f);
 
-    private PerfMetrics() {}
-
-    // FPS sampled every 500ms over the framecount; smoother than the
-    // raw Gdx.graphics.getFramesPerSecond() reading on machines with
-    // bursty frame deltas.
     private int fps = 0;
     private int frameCount = 0;
     private long lastFpsSampleMs = 0L;
-
-    // Latest observed JVM heap, refreshed alongside FPS so we don't
-    // call Runtime per frame.
     private int memoryMB = 0;
 
-    // Cached label strings — recomputed only when the value changes so
-    // render() doesn't allocate four Strings per frame from concatenation.
-    // Combined with the visibility-list reuse this trims another ~250
-    // String allocs/sec on a 60 FPS render loop.
     private String fpsLabel = "FPS: 0";
     private String memLabel = "MEM: 0MB";
     private String pingLabel = "PING: 0ms";
     private String jitLabel = "JIT: 0ms";
 
-    // Ping = mean of recent RTT samples (ms). Jitter = stddev of those
-    // samples. Capped at 16 samples — newest replaces oldest.
     private final long[] rttSamples = new long[16];
     private int rttCount = 0;
     private int rttHead = 0;
@@ -53,13 +30,15 @@ public final class PerfMetrics {
     private int ping = 0;
     private int jitter = 0;
 
-    // Toggled by the client-side /dev chat command. When on, PlayState draws
-    // the top-center FPS/PING/JITTER/RES bar (renderDevBar). Session-only.
     private boolean devVisible = false;
+    private final GlyphLayout devLayout = new GlyphLayout();
+
+    private PerfMetrics() {}
+
+    public static PerfMetrics get() { return INSTANCE; }
+
     public boolean isDevVisible() { return this.devVisible; }
     public boolean toggleDev() { this.devVisible = !this.devVisible; return this.devVisible; }
-    // Reused for measuring the dev bar width (centering) — no per-frame alloc.
-    private final GlyphLayout devLayout = new GlyphLayout();
 
     /** Frame-tick — call once per render frame from PlayerUI. */
     public void onFrame() {
@@ -72,8 +51,6 @@ public final class PerfMetrics {
             this.lastFpsSampleMs = now;
             final Runtime rt = Runtime.getRuntime();
             this.memoryMB = (int) ((rt.totalMemory() - rt.freeMemory()) / (1024L * 1024L));
-            // Refresh display strings only on the 2 Hz sample boundary
-            // — render() reuses these every frame.
             this.fpsLabel = "FPS: " + this.fps;
             this.memLabel = "MEM: " + this.memoryMB + "MB";
         }
@@ -109,8 +86,6 @@ public final class PerfMetrics {
             varSum += diff * diff;
         }
         this.jitter = (int) Math.round(Math.sqrt(varSum / this.rttCount));
-        // Refresh ping/jitter labels at heartbeat rate (1 Hz). render()
-        // reuses these every frame between updates.
         this.pingLabel = "PING: " + this.ping + "ms";
         this.jitLabel = "JIT: " + this.jitter + "ms";
     }
@@ -121,17 +96,12 @@ public final class PerfMetrics {
     public int getJitter() { return this.jitter; }
 
     /**
-     * Draw the FPS / MEM / PING / JITTER overlay. Caller passes the
-     * top-right corner of the panel; we lay out four lines downward.
-     * Caller is responsible for managing batch state — we draw font
-     * runs only, no shapes.
+     * Draw the FPS / MEM / PING / JITTER overlay. Caller passes the panel's
+     * top-right corner and manages batch state; we draw font runs only.
      */
     public void render(SpriteBatch batch, BitmapFont font, float rightX, float topY) {
         final float lineH = font.getLineHeight();
         final float labelW = 70f;
-        // FPS — green ≥55, yellow ≥30, red below. Cached Color singletons
-        // (FPS_GOOD/WARN/BAD, PING_*) so we don't allocate four Color
-        // objects per frame just to set the font color.
         font.setColor(this.fps >= 55 ? COLOR_GOOD
                 : this.fps >= 30 ? COLOR_WARN : COLOR_BAD);
         font.draw(batch, this.fpsLabel, rightX - labelW, topY + lineH);
@@ -139,7 +109,6 @@ public final class PerfMetrics {
         font.setColor(Color.LIGHT_GRAY);
         font.draw(batch, this.memLabel, rightX - labelW, topY + lineH * 2);
 
-        // Ping — green <50, yellow <120, red above.
         font.setColor(this.ping < 50 ? COLOR_GOOD
                 : this.ping < 120 ? COLOR_WARN : COLOR_BAD);
         font.draw(batch, this.pingLabel, rightX - labelW, topY + lineH * 3);
@@ -150,16 +119,9 @@ public final class PerfMetrics {
         font.setColor(Color.WHITE);
     }
 
-    private static final Color COLOR_GOOD = new Color(0.4f, 1f, 0.4f, 1f);
-    private static final Color COLOR_WARN = new Color(1f, 1f, 0.4f, 1f);
-    private static final Color COLOR_BAD  = new Color(1f, 0.4f, 0.4f, 1f);
-
     /**
-     * Single-line overlay mirroring the web client's /dev bar:
-     * {@code FPS n | PING n ms | JITTER n ms | RES WxH}, FPS/PING color-coded.
-     * Pinned just above the minimap (right-aligned to it, overlapping its top edge
-     * when there's no room above). Drawn by PlayState in UI-camera space (batch
-     * already active). Under the y-down flipped cam, font.draw y is the TOP of the glyphs.
+     * Single-line /dev bar right-aligned to the minimap's right edge, sitting
+     * just above it. Batch is already active; y is the TOP of the glyphs.
      */
     public void renderDevBar(SpriteBatch batch, BitmapFont font,
             float minimapX, float minimapY, float minimapSize) {
@@ -173,7 +135,6 @@ public final class PerfMetrics {
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.7f);
         this.devLayout.setText(font, fpsStr + sep + pingStr + sep + jitStr + sep + resStr);
-        // Right-align the bar to the minimap's right edge, sitting just above it.
         float x = (minimapX + minimapSize) - this.devLayout.width;
         if (x < 4f) x = 4f;
         final float y = Math.max(2f, minimapY - this.devLayout.height - 2f);
@@ -201,9 +162,4 @@ public final class PerfMetrics {
     public int getGdxFps() {
         return Gdx.graphics != null ? Gdx.graphics.getFramesPerSecond() : 0;
     }
-
-    // Keep `ShapeRenderer` import live so future expansions (mini RTT
-    // graph) don't need a re-import — small upfront cost, zero runtime.
-    @SuppressWarnings("unused")
-    private static void _unused(ShapeRenderer shapes) {}
 }

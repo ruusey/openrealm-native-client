@@ -16,45 +16,29 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Runtime-side companion to the editor's UI Atlas tab. Loads
- * {@code ui-components.json} once at boot, indexes every component by id,
- * and exposes helpers used by widget classes:
- *
- * <ul>
- *   <li>{@link #region(String)} — sheet rect for an atlas blit
- *   <li>{@link #componentOf(String)} — full component (incl. grid metadata)
- *   <li>{@link #gridCells(String)} — per-cell rects for a grid component
- *   <li>{@link #childrenOf(String)} — components whose id starts with parent + "."
- * </ul>
- *
- * Loaded by {@link GameDataManager#loadGameData(boolean)}; widgets and
- * {@code PlayerUI} read the static fields after that returns.
+ * {@code ui-components.json} once at boot and indexes every component by id.
+ * Loaded by {@link GameDataManager#loadGameData(boolean)}.
  */
 @Slf4j
 public class UiAtlas {
 
 	private static UiAtlasModel MODEL = null;
 	private static final Map<String, UiComponent> BY_ID = new HashMap<>();
-	// One bound texture per distinct sheet name (the root sheet plus any
-	// per-component overrides). Populated lazily on the GL thread via textureFor().
+	// One bound texture per distinct sheet name, populated lazily on the GL thread.
 	private static final Map<String, Texture> SHEETS = new HashMap<>();
-	// Mirrors the load() mode: when true (running against a data service), sheet
-	// PNGs are fetched over HTTP like every other sprite sheet; classpath:/ui/ is
-	// only the offline fallback.
+	// When true, sheet PNGs are fetched over HTTP; classpath:/ui/ is the offline fallback.
 	private static boolean REMOTE = false;
 
-	/** True once the JSON is loaded AND the root sheet texture is bound. The
-	 *  texture is created lazily on first {@link #sheet()} / {@link #region(String)}
-	 *  call from a GL-thread context, so this returns false during the initial
-	 *  data-load phase even if the JSON has already parsed. */
+	/** False during the initial data-load phase: the texture binds lazily on the
+	 *  first {@link #sheet()} call from a GL-thread context, after the JSON parses. */
 	public static boolean isReady() { return MODEL != null && sheet() != null; }
 
 	public static int getDisplayScale() { return MODEL == null ? 2 : MODEL.getDisplayScale(); }
 	public static int getIconScale()    { return MODEL == null ? 2 : MODEL.getIconScale(); }
 	public static int getContentInset() { return MODEL == null ? 4 : MODEL.getContentInset(); }
 
-	/** Lazy: binds the root sheet texture on first access. Must be called from
-	 *  the GL thread (i.e. inside {@code render()}); calling pre-create()
-	 *  would crash because Texture/Pixmap constructors need a GL context. */
+	/** Binds the root sheet texture on first access. GL-thread only (Texture/Pixmap
+	 *  constructors need a GL context). */
 	public static Texture sheet() {
 		return MODEL == null ? null : textureFor(MODEL.getSheet());
 	}
@@ -76,12 +60,7 @@ public class UiAtlas {
 		final Texture tex = textureFor(sheetName);
 		if (tex == null) return null;
 		final TextureRegion r = new TextureRegion(tex, c.getX(), c.getY(), c.getW(), c.getH());
-		// libGDX uses a y-DOWN ortho camera (setToOrtho(true, ...)), so a
-		// raw TextureRegion blits UPSIDE-DOWN. GameSpriteManager flips every
-		// region it builds (see loadSpriteRegions). We mirror that here so
-		// panel chrome renders right-side-up — without this flip, the
-		// equip ring + player viewport art lands at the BOTTOM of the
-		// rendered panel instead of the top.
+		// y-DOWN ortho camera blits raw regions upside-down; flip to match GameSpriteManager.
 		r.flip(false, true);
 		return r;
 	}
@@ -113,15 +92,6 @@ public class UiAtlas {
 		return out;
 	}
 
-	// -----------------------------------------------------------------
-	// Loading
-	// -----------------------------------------------------------------
-
-	/**
-	 * Hook called from {@link GameDataManager#loadGameData(boolean)}. Same
-	 * remote/local pattern as the other game-data files — the bundled copy
-	 * in {@code classpath:/ui/ui-components.json} acts as fallback.
-	 */
 	public static void load(final boolean remote) throws Exception {
 		log.info("Loading UI Atlas...");
 		REMOTE = remote;
@@ -144,26 +114,17 @@ public class UiAtlas {
 			if (c.getId() == null) continue;
 			BY_ID.put(c.getId(), c);
 		}
-		// Texture binding is lazy — see sheet() — because loadGameData runs
-		// before the GL context exists.
 		log.info("Loading UI Atlas... DONE ({} components, sheet={}, texture binds lazily)",
 				BY_ID.size(), MODEL.getSheet());
 	}
 
-	/**
-	 * Resolve (and lazily bind) the texture for a sheet by filename. Must be
-	 * called from the GL thread. The sheet PNG is fetched over HTTP from the
-	 * data service — the same {@link GameSpriteManager#loadTextureRemote(String)}
-	 * path every other sprite sheet uses — so the UI atlas is NOT bundled into
-	 * the EXE; classpath:/ui/ is only an offline fallback. {@code GameSpriteManager}'s
-	 * cache is the shared backing store so a sheet is only ever decoded once.
-	 * Fails-soft (returns null) if the sheet is unavailable so the game still boots.
-	 */
+	/** Resolve and lazily bind the texture for a sheet. GL-thread only; shares
+	 *  {@code GameSpriteManager.TEXTURE_CACHE} so a sheet decodes once. Fails-soft
+	 *  (returns null) so the game still boots if a sheet is unavailable. */
 	private static Texture textureFor(final String key) {
 		if (key == null) return null;
 		final Texture local = SHEETS.get(key);
 		if (local != null) return local;
-		// Check the shared sprite-manager cache — it may already have it.
 		Texture cached = GameSpriteManager.TEXTURE_CACHE != null
 				? GameSpriteManager.TEXTURE_CACHE.get(key)
 				: null;
@@ -172,7 +133,6 @@ public class UiAtlas {
 			return cached;
 		}
 		Texture tex = REMOTE ? GameSpriteManager.loadTextureRemote(key) : loadClasspathSheet(key);
-		// Last-ditch offline fallback if the server fetch fails mid-session.
 		if (tex == null && REMOTE) tex = loadClasspathSheet(key);
 		if (tex != null) {
 			SHEETS.put(key, tex);

@@ -22,38 +22,30 @@ import com.openrealm.net.client.ClientGameLogic;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Top-N leaderboard panel ported from the openrealm-data webclient
- * (loadLeaderboard in main.js).
- *
- * For each entry we render: rank, class sprite, account name, class name,
- * level, fame, and the four equipment slot icons inline. This matches the
- * web client's leaderboard rather than the previous text-only stub which
- * was unreadable in the corner of the screen.
+ * Top-N-by-fame leaderboard panel ported from the webclient (loadLeaderboard
+ * in main.js): rank, class sprite, name, class, level, fame, and equipment icons.
  */
 @Slf4j
 public class LeaderboardPanel {
 
-    /** Slot count rendered per leaderboard row. All classes use the same
-     *  5-slot layout (weapon/armor/gauntlets/boots/ring). */
+    /** All classes use the same 5-slot layout (weapon/armor/gauntlets/boots/ring). */
     private static final int EQUIP_SLOT_COUNT = 5;
+    private static final long REFRESH_MS = 30_000L;
+    private static final Color PANEL_FILL = new Color(0.10f, 0.09f, 0.12f, 0.95f);
+    private static final Color PANEL_BORDER = new Color(0.78f, 0.66f, 0.43f, 1f);
+    private static final Color UNDERLINE_COLOR = new Color(0.40f, 0.32f, 0.18f, 0.8f);
+    private static final Color ROW_STRIPE = new Color(0.16f, 0.13f, 0.16f, 0.55f);
+    private static final Color SLOT_FILL = new Color(0.06f, 0.06f, 0.08f, 0.9f);
+    private static final Color SLOT_BORDER = new Color(0.30f, 0.26f, 0.20f, 1f);
 
     private List<LeaderboardRow> rows = Collections.emptyList();
     private long lastFetchAt = 0L;
-    private static final long REFRESH_MS = 30_000L;
     private boolean failed = false;
 
-    /** Index of the topmost visible row. Mouse wheel adjusts this; render
-     *  clamps it against the visible row count so the user can't scroll
-     *  past the end of the list. Row-snapped (not pixel) so a wheel notch
-     *  always advances exactly one row. */
+    /** Topmost visible row; render clamps it against visible row count. Row-snapped. */
     private int scrollIdx = 0;
-    /** Bounds of the panel's clickable area as drawn in the last render
-     *  pass. Mouse-wheel handlers consult this so scrolling only fires
-     *  when the cursor is actually over the leaderboard, not when it's
-     *  hovering over an unrelated UI element on top of it. */
+    /** Panel bounds from the last render, so scroll only fires when the cursor is over it. */
     private int lastX = 0, lastY = 0, lastW = 0, lastH = 0;
-    /** Cached visible-row capacity from the last render so the scroll
-     *  clamp can prevent advancing past the last row. */
     private int lastRowsAvail = 1;
 
     /**
@@ -119,34 +111,15 @@ public class LeaderboardPanel {
         this.refreshIfStale();
         this.lastX = x; this.lastY = y; this.lastW = w; this.lastH = h;
 
-        // Panel background + border
-        batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.10f, 0.09f, 0.12f, 0.95f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.78f, 0.66f, 0.43f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        batch.begin();
+        UiRender.panel(batch, shapes, x, y, w, h, PANEL_FILL, PANEL_BORDER);
 
-        // Coordinate convention: this project uses a Y-down orthographic camera
-        // and a flipped BitmapFont, so larger Y = further down the screen.
-        // (x, y) is the top-left of the panel; (x+w, y+h) is the bottom-right.
         int headerH = 28;
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
         font.draw(batch, "LEADERBOARD - TOP BY FAME", x + 10, y + 20);
 
-        // Underline beneath header
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.40f, 0.32f, 0.18f, 0.8f);
-        shapes.rect(x + 8, y + headerH, w - 16, 1);
-        shapes.end();
-        batch.begin();
+        UiRender.fillRect(batch, shapes, x + 8, y + headerH, w - 16, 1, UNDERLINE_COLOR);
 
         if (this.rows.isEmpty()) {
             font.setColor(Color.LIGHT_GRAY);
@@ -156,22 +129,8 @@ public class LeaderboardPanel {
             return;
         }
 
-        // Each row: 92 px tall — three vertical bands so the 1.8x font's
-        // descender on line 1 doesn't collide with the equipment row below.
-        //   [rank][40x40 class icon]  AccountName - ClassName Lv N
-        //                             [item][item][item][item]              Fame N
-        // Plenty of right-column space on a 1080p home screen — earlier
-        // 56-px row packed both lines too tight and the equipment icons
-        // overdrew the trailing characters of long player names.
-        // Bumped from 92 -> 104 so the Fame line has breathing room beneath
-        // the equipment-icon band — at the previous height the descenders
-        // of "Fame N,NNN" overlapped the top of the next row's
-        // alternating-stripe background, reading as cut off.
         int rowH = 104;
         int rowsAvail = Math.max(1, (h - headerH - 8) / rowH);
-        // Row-snapped scroll: clamp scrollIdx so we never scroll past the
-        // last row (always show a full window). Stored back to lastRowsAvail
-        // so scrollBy() can clamp on subsequent mouse-wheel input.
         this.lastRowsAvail = rowsAvail;
         if (this.scrollIdx > Math.max(0, this.rows.size() - rowsAvail)) {
             this.scrollIdx = Math.max(0, this.rows.size() - rowsAvail);
@@ -181,39 +140,26 @@ public class LeaderboardPanel {
         int endIdx = Math.min(this.rows.size(), startIdx + rowsAvail);
         int firstRowTop = y + headerH + 6;
 
-        // Layout bands inside each row, all relative to rowTop:
-        //   nameBaseline  =  +28   (top text band)
-        //   eqY (top)     =  +42   (icon row)
-        //   eqIconSize    =   30
-        //   fameBaseline  =  +86   (bottom text band, vertically centered with icons)
         final int nameBaselineOff = 28;
         final int eqYOff          = 42;
         final int eqIconSize      = 30;
         final int eqGap           = 6;
-        final int fameBaselineOff = eqYOff + eqIconSize + 14;   // +86
+        final int fameBaselineOff = eqYOff + eqIconSize + 14;
 
         for (int visIdx = 0, i = startIdx; i < endIdx; i++, visIdx++) {
             LeaderboardRow r = this.rows.get(i);
             int rowTop = firstRowTop + visIdx * rowH;
 
-            // Subtle alternating background — keyed off VISUAL index so the
-            // stripe pattern stays consistent as the user scrolls.
+            // Stripe keyed off VISUAL index so the pattern stays stable while scrolling.
             if ((visIdx & 1) == 1) {
-                batch.end();
-                shapes.begin(ShapeRenderer.ShapeType.Filled);
-                shapes.setColor(0.16f, 0.13f, 0.16f, 0.55f);
-                shapes.rect(x + 4, rowTop, w - 8, rowH - 4);
-                shapes.end();
-                batch.begin();
+                UiRender.fillRect(batch, shapes, x + 4, rowTop, w - 8, rowH - 4, ROW_STRIPE);
             }
 
-            // Rank label, name baseline.
             int nameBaseline = rowTop + nameBaselineOff;
             int fameBaseline = rowTop + fameBaselineOff;
             font.setColor(0.85f, 0.78f, 0.55f, 1f);
             font.draw(batch, "#" + r.rank, x + 8, nameBaseline);
 
-            // Class icon — bigger now and vertically centered across the row.
             int iconX = x + 56;
             int iconSize = 40;
             int iconY = rowTop + (rowH - iconSize) / 2;
@@ -222,8 +168,6 @@ public class LeaderboardPanel {
                 batch.draw(classFrame, iconX, iconY, iconSize, iconSize);
             }
 
-            // Top text band: account name + class + level. Gets the full row
-            // width minus the rank/icon gutter.
             int textX = iconX + iconSize + 14;
             float rightEdge = x + w - 8;
             String header = r.accountName
@@ -233,45 +177,24 @@ public class LeaderboardPanel {
             font.setColor(Color.WHITE);
             font.draw(batch, header, textX, nameBaseline);
 
-            // Middle band: equipment icons (left of textX), no overlap with
-            // the name above thanks to the 14 px gap between nameBaseline
-            // descenders and the icon top. Order: weapon → armor → gauntlets
-            // → boots → ring (matches webclient leaderboard tooltip).
             int eqX = textX;
             int eqY = rowTop + eqYOff;
             for (int s = 0; s < EQUIP_SLOT_COUNT; s++) {
                 int slotX = eqX + s * (eqIconSize + eqGap);
-                batch.end();
-                shapes.begin(ShapeRenderer.ShapeType.Filled);
-                shapes.setColor(0.06f, 0.06f, 0.08f, 0.9f);
-                shapes.rect(slotX, eqY, eqIconSize, eqIconSize);
-                shapes.end();
-                shapes.begin(ShapeRenderer.ShapeType.Line);
-                shapes.setColor(0.30f, 0.26f, 0.20f, 1f);
-                shapes.rect(slotX, eqY, eqIconSize, eqIconSize);
-                shapes.end();
-                batch.begin();
-
+                UiRender.panel(batch, shapes, slotX, eqY, eqIconSize, eqIconSize, SLOT_FILL, SLOT_BORDER);
                 int itemId = r.equipment[s];
                 if (itemId >= 0 && GameSpriteManager.ITEM_SPRITES != null) {
                     TextureRegion sprite = GameSpriteManager.ITEM_SPRITES.get(itemId);
                     if (sprite != null) {
-                        // Inset the icon 3 px so it visually breathes inside
-                        // the slot border (mirrors webclient #item-slot).
-                        batch.draw(sprite, slotX + 3, eqY + 3,
-                                eqIconSize - 6, eqIconSize - 6);
+                        batch.draw(sprite, slotX + 3, eqY + 3, eqIconSize - 6, eqIconSize - 6);
                     }
                 }
             }
 
-            // Fame, right-aligned, vertically centered with the equipment icons.
-            String fameStr = "Fame " + formatLong(r.fame);
-            GlyphLayout fl = new GlyphLayout(font, fameStr);
             font.setColor(0.95f, 0.78f, 0.30f, 1f);
-            font.draw(batch, fameStr, rightEdge - fl.width, fameBaseline);
+            UiRender.drawRightAligned(batch, font, "Fame " + formatLong(r.fame), rightEdge, fameBaseline);
         }
 
-        // Scroll hint: shows position + how many rows are off-screen below.
         int hidden = this.rows.size() - endIdx;
         int hiddenAbove = startIdx;
         if (hidden > 0 || hiddenAbove > 0) {
@@ -317,7 +240,6 @@ public class LeaderboardPanel {
 
     private static String formatLong(long v) {
         if (v < 1000) return Long.toString(v);
-        // Insert thousands separators.
         StringBuilder sb = new StringBuilder(Long.toString(v));
         for (int i = sb.length() - 3; i > 0; i -= 3) sb.insert(i, ',');
         return sb.toString();

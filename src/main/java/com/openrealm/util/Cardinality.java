@@ -13,6 +13,7 @@ public enum Cardinality {
             map.put(c.getCardinalityId(), c);
         }
     }
+
     public byte cardinalityId;
 
     Cardinality(byte cardinalityId) {

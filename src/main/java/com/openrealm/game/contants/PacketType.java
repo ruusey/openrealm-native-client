@@ -23,7 +23,6 @@ public class PacketType {
     	try {
     		final Set<Class<? extends Packet>> packetsToMap = IOService.CLASSPATH_SCANNER.getSubTypesOf(Packet.class);
     		for (Class<?> clazz : packetsToMap) {
-    			// If not streamable at all dont bother
     			if (!IOService.isStreamableClass(clazz) || !clazz.getSuperclass().equals(Packet.class))
     				continue;
 

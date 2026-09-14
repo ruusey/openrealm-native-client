@@ -14,16 +14,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Server → clients in range when a player starts casting a non-instant ability.
- * Each visible client (including the caster) uses this to render a cast bar
- * over the player and disable input/movement for the cast duration. Cleared
- * when the cast resolves (no explicit "finish" packet — the projectile spawn
- * or status apply implicitly ends the cast on the client).
- *
- * Phase 2A: packet only — no consumers yet. Phase 2B's useAbility refactor
- * sends this when an ability's baseCastMs > 0.
- */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable
@@ -37,7 +27,6 @@ public class AbilityCastStartPacket extends Packet {
     private int abilityId;
     @SerializableField(order = 2, type = SerializableByte.class)
     private byte slot;
-    /** Cast duration in ms — already mutated by SPD-derived cast speed reduction. */
     @SerializableField(order = 3, type = SerializableInt.class)
     private int durationMs;
     @SerializableField(order = 4, type = SerializableFloat.class)

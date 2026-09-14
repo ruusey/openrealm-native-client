@@ -32,6 +32,10 @@ public class Enemy extends Entity {
     private int weaponId = -1;
     private float difficulty = 1.0f;
     private Stats stats;
+    // Difficulty-scaled max HP off the wire (NetEnemy.maxHealth). Health-bar
+    // fraction normalizes against THIS, not stats.getHp() — PlayerStatePacket
+    // carries no stats, so deriving max from stats left the bar stale.
+    private int maxHealth;
     private Vector2f spawnPos = null;
 
     public Enemy() {
@@ -45,6 +49,7 @@ public class Enemy extends Entity {
         this.weaponId = weaponId;
         this.stats = this.model.getStats().clone();
         this.health = stats.getHp();
+        this.maxHealth = stats.getHp();
         this.mana = stats.getMp();
         if (origin != null) {
             this.spawnPos = origin.clone();
@@ -75,7 +80,15 @@ public class Enemy extends Entity {
     }
 
     public int getMaxHealth() {
+        if (this.maxHealth > 0) return this.maxHealth;
         return (this.stats != null) ? this.stats.getHp() : this.health;
+    }
+
+    private void recomputeHealthPercent() {
+        final int max = this.getMaxHealth();
+        if (max > 0) {
+            this.healthpercent = Math.max(0f, Math.min(1f, (float) this.health / (float) max));
+        }
     }
 
     public void applyUpdate(UpdatePacket packet, PlayState state) {
@@ -84,8 +97,9 @@ public class Enemy extends Entity {
         this.health = packet.getHealth();
         this.mana = packet.getMana();
         if (this.stats != null && this.stats.getHp() > 0) {
-            this.healthpercent = (float) this.health / (float) this.stats.getHp();
+            this.maxHealth = this.stats.getHp();
         }
+        this.recomputeHealthPercent();
     }
 
     public void applyState(PlayerStatePacket packet) {
@@ -93,27 +107,18 @@ public class Enemy extends Entity {
         this.mana = packet.getMana();
         this.setEffectIds(packet.getEffectIds());
         this.setEffectTimes(packet.getEffectTimes());
-        if (this.stats != null && this.stats.getHp() > 0) {
-            this.healthpercent = (float) this.health / (float) this.stats.getHp();
-        }
+        this.recomputeHealthPercent();
     }
-
-    // ========== UPDATE LOOP ==========
 
     public void update(RealmManagerClient mgr, double time) {
         super.update(time);
-        // Select the active animation set (idle/walk/attack) from velocity +
-        // attack state. No-op for static enemies (hasAnimSets() == false).
         this.updateAnimation();
-        if (this.stats != null && this.stats.getHp() > 0) {
-            this.healthpercent = (float) this.getHealth() / (float) this.stats.getHp();
-        }
+        this.recomputeHealthPercent();
         if (this.stats != null && this.stats.getMp() > 0) {
             this.manapercent = (float) this.getMana() / (float) this.stats.getMp();
         }
-        // Dead reckoning extrapolation, viewport-gated so off-screen
-        // enemies don't drift while the server has stopped updating them.
-        // Pass the local player center as the gate reference.
+        // Extrapolation gated on the local player center so off-screen enemies
+        // don't drift while the server has stopped updating them.
         float refX = 0f, refY = 0f;
         try {
             final Player local = mgr != null && mgr.getState() != null
@@ -172,9 +177,8 @@ public class Enemy extends Entity {
         super.onRemoved();
         this.spawnPos = null;
         this.stats = null;
-        // model is a SHARED pointer into GameDataManager.ENEMIES — DO NOT null
-        // its registry entry, just drop our reference so the Enemy instance
-        // doesn't keep that EnemyModel reachable through us specifically.
+        // model is a SHARED pointer into GameDataManager.ENEMIES; just drop our
+        // reference, never null the registry entry.
         this.model = null;
     }
 
@@ -187,16 +191,11 @@ public class Enemy extends Entity {
             float wx = this.pos.getWorldVar().x;
             float wy = this.pos.getWorldVar().y;
 
-            // No outline pass, no SILHOUETTE-shader drop shadow. The user
-            // repeatedly asked for the chunky black halo to be gone; the
-            // web client renders enemies as just the body sprite, so do
-            // the same here.
+            // No outline / drop-shadow — web client renders enemies as just the body.
             Sprite.EffectEnum currentEffect = this.getSpriteSheet().getCurrentEffect();
             ShaderManager.applyEffect(batch, currentEffect);
-            // Scale draw rect by the frame's region size relative to the
-            // sheet's reference cell so wide/tall attack frames extend past
-            // the body instead of being squished — see Entity.renderBody for
-            // the anchor convention.
+            // Scale draw rect by frame region vs reference cell so wide/tall
+            // attack frames extend past the body (see Entity.renderBody anchor).
             final int refW = this.getSpriteSheet().getSpriteImageWidth();
             final int refH = this.getSpriteSheet().getSpriteImageHeight();
             final int rw = frame.getRegionWidth();

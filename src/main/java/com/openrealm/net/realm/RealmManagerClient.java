@@ -22,6 +22,7 @@ import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.item.LootContainer;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.state.PlayState;
+import com.openrealm.game.ui.PerfMetrics;
 import com.openrealm.net.Packet;
 import com.openrealm.net.client.ClientGameLogic;
 import com.openrealm.net.client.SocketClient;
@@ -83,15 +84,9 @@ public class RealmManagerClient implements Runnable {
     public void run() {
         RealmManagerClient.log.info("[CLIENT] Starting OpenRealm Client");
 
-        // Network-side tick: drain inbound packets only. DO NOT call
-        // state.update() here — the LibGDX render loop
-        // (OpenRealmGame.render -> gsm.update -> PlayState.update) is the
-        // single source of simulation ticks. Calling state.update from
-        // both paths makes Enemy.extrapolate() run at FPS+64Hz, each using
-        // the SAME stale Gdx frame delta, so velocity-based extrapolation
-        // advances ~2x as fast as the server's actual simulation.
-        // Symptom: enemies lurch forward, then snap back when the next
-        // ObjectMovePacket lands at the true server position.
+        // Drain inbound packets only. DO NOT call state.update() here - the LibGDX
+        // render loop is the sole simulation tick; ticking from both double-advances
+        // extrapolation and makes enemies lurch then snap back.
         final Runnable tick = this::processClientPackets;
 
         this.workerThread = new TimedWorkerThread(tick, 64);
@@ -105,7 +100,6 @@ public class RealmManagerClient implements Runnable {
             Packet toProcess = this.getClient().getInboundPacketQueue().remove();
             try {
 				Packet created = toProcess;
-				//log.info("[CLIENT] Processing client packet {} ", created);
                 created.setSrcIp(toProcess.getSrcIp());
                 created.setId(toProcess.getId());
                 BiConsumer<RealmManagerClient, Packet> consumer = this.packetCallbacksClient.get(created.getClass());
@@ -145,12 +139,11 @@ public class RealmManagerClient implements Runnable {
         this.registerPacketCallback(PlayerDeathPacket.class, ClientGameLogic::handlePlayerDeathClient);
         this.registerPacketCallback(PlayerStatePacket.class, ClientGameLogic::handlePlayerStateClient);
         this.registerPacketCallback(CompactMovePacket.class, ClientGameLogic::handleCompactMoveClient);
-        // Server echoes HeartbeatPacket with the original client timestamp
-        // so we can compute the true RTT and feed the dev-stats overlay.
+        // Server echoes HeartbeatPacket with the original send timestamp for RTT.
         this.registerPacketCallback(HeartbeatPacket.class, (cli, pkt) -> {
             try {
                 final HeartbeatPacket hb = (HeartbeatPacket) pkt;
-                com.openrealm.game.ui.PerfMetrics.get().recordHeartbeatRtt(hb.getTimestamp());
+                PerfMetrics.get().recordHeartbeatRtt(hb.getTimestamp());
             } catch (Exception ignored) { /* metrics never crash gameplay */ }
         });
         this.registerPacketCallback(RealmPurificationPacket.class, (cli, pkt) -> {
@@ -215,9 +208,8 @@ public class RealmManagerClient implements Runnable {
                 try {
                     long currentTime = Instant.now().toEpochMilli();
                     HeartbeatPacket pack = HeartbeatPacket.from(currentTime);
-                    // Record before send so PerfMetrics can match the
-                    // returned echo to the original send timestamp.
-                    com.openrealm.game.ui.PerfMetrics.get().recordHeartbeatSend(currentTime);
+                    // Record before send so the echo can match the send timestamp.
+                    PerfMetrics.get().recordHeartbeatSend(currentTime);
                     this.client.sendRemote(pack);
                     Thread.sleep(1000);
                 } catch (Exception e) {
@@ -267,12 +259,8 @@ public class RealmManagerClient implements Runnable {
         return bestPlayer;
     }
 
-    /**
-     * Remove a remote peer client-side — used both when it leaves render range
-     * and on the server's UnloadPacket. Routes through removePlayer so the
-     * spatialGrid + shortIdAllocator entries are released, then drops the
-     * short-id reverse mapping. No-op for the local player or an unknown id.
-     */
+    // Routes through removePlayer so spatialGrid + shortIdAllocator entries are
+    // released, then drops the short-id reverse mapping. No-op for local/unknown id.
     public boolean derenderRemotePlayer(final long playerId) {
         if (playerId == this.currentPlayerId) {
             return false;

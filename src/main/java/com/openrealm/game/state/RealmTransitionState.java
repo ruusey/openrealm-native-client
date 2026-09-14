@@ -3,28 +3,19 @@ package com.openrealm.game.state;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.Settings;
+import com.openrealm.game.ui.UiRender;
 
 /**
- * Brief full-screen overlay shown when the player crosses into a new realm
- * (overworld zone, dungeon, etc.). Mirrors the web client's transition
- * screen — title + zone name + difficulty skulls + fade in/out.
- *
- * This is NOT a {@link GameState} — the native client's GameStateManager
- * uses fixed slots, not a stack, so a transient screen would interfere with
- * the steady-state PlayState slot. Instead, this is a self-contained overlay
- * that PlayerUI renders on top of the HUD when {@link #isActive()} is true.
- *
- * Disabled at runtime if {@code Settings.showRealmTransition} is false.
+ * Full-screen realm-crossing overlay. NOT a {@link GameState}: the fixed-slot
+ * GameStateManager would clash with a transient screen, so PlayerUI renders
+ * this on top of the HUD while {@link #isActive()}.
  */
 public class RealmTransitionState {
 
-    // Web parity (main.js): min 2s visible, dismiss once map data lands, hard
-    // cap at 6s if it never does; 400ms fade-out.
     private static final long FADE_IN_MS = 200L;
     private static final long MIN_HOLD_MS = 2000L;
     private static final long MAX_MS = 6000L;
@@ -37,14 +28,9 @@ public class RealmTransitionState {
     private boolean active = false;
     private boolean dataReady = false;
 
-    /**
-     * Show the loading overlay at the START of a load-in / transition, before the
-     * new realm's map data has arrived. Held until {@link #onDataReady} + the
-     * minimum hold, or the hard timeout. No-op if already showing.
-     */
     public void begin(String zoneName) {
         if (!Settings.get().isShowRealmTransition()) return;
-        if (this.active) return; // don't restart an in-progress transition
+        if (this.active) return;
         this.zoneName = zoneName == null ? "Loading..." : zoneName;
         this.difficulty = 0f;
         this.dataReady = false;
@@ -53,11 +39,6 @@ public class RealmTransitionState {
         this.active = true;
     }
 
-    /**
-     * The new realm's map data has arrived — fill in the zone name/difficulty and
-     * let the overlay dismiss once the minimum hold elapses. Starts the overlay
-     * itself if {@link #begin} was never called for this transition.
-     */
     public void onDataReady(String zoneName, float difficulty) {
         if (!Settings.get().isShowRealmTransition()) return;
         if (!this.active) {
@@ -116,12 +97,9 @@ public class RealmTransitionState {
         shapes.end();
         batch.begin();
 
-        final GlyphLayout layout = new GlyphLayout();
         font.setColor(1f, 1f, 1f, alpha);
-        layout.setText(font, "OPENREALM");
-        font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f + 30);
-        layout.setText(font, this.zoneName);
-        font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f);
+        UiRender.drawCentered(batch, font, "OPENREALM", w / 2f, h / 2f + 30);
+        UiRender.drawCentered(batch, font, this.zoneName, w / 2f, h / 2f);
         // Difficulty line only once the map data has landed (avoids "Difficulty 0.0"
         // during the pre-data loading phase).
         if (this.dataReady && this.difficulty > 0f) {
@@ -130,8 +108,7 @@ public class RealmTransitionState {
             int skullCount = Math.min(10, Math.max(0, Math.round(this.difficulty)));
             for (int i = 0; i < skullCount; i++) skulls.append('X');
             String difficultyLine = "Difficulty " + String.format("%.1f  %s", this.difficulty, skulls.toString());
-            layout.setText(font, difficultyLine);
-            font.draw(batch, layout, w / 2f - layout.width / 2f, h / 2f - 30);
+            UiRender.drawCentered(batch, font, difficultyLine, w / 2f, h / 2f - 30);
         }
         font.setColor(1f, 1f, 1f, 1f);
     }

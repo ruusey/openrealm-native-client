@@ -2,7 +2,6 @@ package com.openrealm.game.ui;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,8 +17,6 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.contants.CharacterClass;
 import com.openrealm.game.data.GameDataManager;
-import com.openrealm.game.model.DungeonGraphNode;
-import com.openrealm.game.model.MapModel;
 import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.graphics.Sprite;
 import com.openrealm.game.entity.Player;
@@ -36,6 +33,8 @@ import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.model.AnimationSetModel;
 import com.openrealm.game.model.AnimationFrameModel;
 import com.openrealm.net.entity.NetPartyMember;
+import com.openrealm.net.entity.NetGameItem;
+import com.openrealm.game.model.CharacterClassModel;
 import com.badlogic.gdx.graphics.Texture;
 import com.openrealm.game.state.PlayState;
 import com.openrealm.game.state.RealmTransitionState;
@@ -55,7 +54,6 @@ import com.openrealm.util.MouseHandler;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.openrealm.game.entity.Portal;
@@ -69,10 +67,6 @@ import com.openrealm.game.graphics.SpriteRecolorCache;
 public class PlayerUI {
     private static final String LOG_NS = "[CLIENT](player-ui)";
 
-    /** Cached chat-role nameplate colors used by the hover tooltip, mirrors
-     *  webclient renderer.js GameRenderer.getNameColorHex. Kept here as
-     *  well as PlayState (where the in-world nameplate uses them) so
-     *  PlayerUI doesn't need a static cross-class import dance. */
     private static final Color UI_ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
     private static final Color UI_ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
     private static final Color UI_ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
@@ -80,24 +74,31 @@ public class PlayerUI {
     private static final Color UI_ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
     private static final Color UI_ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
 
-    /** Width / height of the trade-tp context menu. Two rows of options
-     *  plus a name header. Wide enough for "Teleport to <NAME>" with
-     *  a 10-char trimmed name (longest expected label). */
     private static final int CTX_MENU_W = 180;
     private static final int CTX_MENU_HEADER_H = 22;
     private static final int CTX_MENU_OPTION_H = 22;
 
-    /** itemId of the bundled HP/MP potion entries in game-items.json.
-     *  Used by the bottom-bar potion oval renderer to look up the actual
-     *  potion sprite (so the side panels show a small bottle, not text). */
     private static final int HP_POTION_ITEM_ID = 296;
     private static final int MP_POTION_ITEM_ID = 297;
 
-    /** Total cells in the bottom-center ability hotbar. Mirrors the webclient
-     *  layout (ui-widgets.updateAbilityBar): cell 0 = class passive (label),
-     *  cells 1..4 = active abilities bound via hotbarBindings[0..3]. Must
-     *  match panel.hud.equipment.grid.cols in ui-components.json. */
-    private static final int HOTBAR_SLOT_COUNT = 4; // cell 0 = passive, 1..3 = active abilities
+    /** cell 0 = class passive label, cells 1..3 = active abilities bound via hotbarBindings[0..3]. */
+    private static final int HOTBAR_SLOT_COUNT = 4;
+
+    private static final float DRAG_THRESHOLD = 8.0f;
+    private static final long DOUBLE_CLICK_MS = 400L;
+
+    private static final int INV_PAGE_BASE = Player.EQUIPMENT_SLOT_COUNT;
+    private static final int INV_PAGE_SIZE = 20;
+
+    /** Off-screen parking coordinate for hidden slot buttons: far enough out that Button.bounds.inside() never matches. */
+    private static final float OFFSCREEN_PARK = -100000f;
+
+    private static final int PANEL_INSET     = 8;
+    private static final int SLOT_SIZE       = 56;
+    private static final int SLOT_GAP        = 4;
+    private static final int HEADER_Y        = 16;
+    private static final int FAME_Y          = 28;
+    private static final int FAME_H          = 24;
 
     private boolean isTrading;
     private FillBars hp;
@@ -109,13 +110,6 @@ public class PlayerUI {
 
     private PlayState playState;
 
-    /** Local player's classId, or -1 if not in a game yet. Used by the
-     *  ItemTooltip ctor to render the "Compatible / Cannot equip" row. */
-    private int viewerClassId() {
-        if (this.playState == null) return -1;
-        final Player p = this.playState.getPlayer();
-        return (p == null) ? -1 : p.getClassId();
-    }
     private PlayerChat playerChat;
     private Minimap minimap;
     private long lastAction = Instant.now().toEpochMilli();
@@ -123,156 +117,164 @@ public class PlayerUI {
 
     private NetTradeSelection currentTradeSelection = null;
     private String tradePartnerName = null;
-    /** Pending incoming trade request — name of the player who sent
-     *  the /trade. Triggers an Accept / Decline popup (rendered under
-     *  the right HUD column). Cleared on accept, decline, or 15s
-     *  timeout (matches the server-side TTL). Webclient parity
-     *  (trade.js showTradeRequestPopup). */
     @lombok.Getter @lombok.Setter
     private String pendingTradeRequestFrom = null;
-    /** Phase 4 — party invite prompt state. Set by showPartyInvitePrompt
-     *  when SYSTEM chat reports "X invited you to a party". Cleared on
-     *  Accept/Decline click or 60s TTL (matches server invite eviction). */
     private String pendingPartyInviteFrom = null;
     private long   pendingPartyInviteExpiresAt = 0L;
     private Button partyInviteAcceptBtn = null;
     private Button partyInviteDeclineBtn = null;
-    public void showPartyInvitePrompt(String inviterName) {
-        this.pendingPartyInviteFrom = inviterName;
-        this.pendingPartyInviteExpiresAt = System.currentTimeMillis() + 60_000L;
-        // Force re-create on next render so the button click handlers bind
-        // to the current inviter (not whoever was in the slot before).
-        this.partyInviteAcceptBtn = null;
-        this.partyInviteDeclineBtn = null;
-    }
     @lombok.Getter @lombok.Setter
     private long pendingTradeRequestStartMs = 0L;
-    /** Buttons for the pending-trade-request popup — Accept fires
-     *  /accept, Decline fires /decline. Lazy built when the popup
-     *  first renders so we know the panel position. */
     private Button tradeRequestAcceptBtn = null;
     private Button tradeRequestDeclineBtn = null;
-    /** Wall-clock timestamp at which the trade overlay should close
-     *  after a trade completes. Set to System.currentTimeMillis()+1000
-     *  by {@link #scheduleTradeOverlayClose} so both players can see
-     *  the dual-CONFIRMED state for a beat before the UI dismisses. 0
-     *  means no scheduled close. */
+    /** 0 means no scheduled close. */
     private long tradeOverlayCloseAtMs = 0L;
-
-    /** Defer the trade overlay close by 1 second so the dual-CONFIRMED
-     *  status is visible after a successful trade completes. Called
-     *  from ClientGameLogic.handleAcceptTrade when the server sends an
-     *  AcceptTradeRequestPacket(false) closing the trade — but we want
-     *  to keep the overlay up briefly first. */
-    public void scheduleTradeOverlayClose() {
-        this.tradeOverlayCloseAtMs = System.currentTimeMillis() + 1000L;
-    }
-    /** Snapshot of the partner's inventory at trade-accept time. The
-     *  on-wire trade-selection packets carry only Boolean[] flags (no
-     *  items), so we cache the partner's full 20-slot inventory from
-     *  AcceptTradeRequestPacket and use Boolean[] flags from
-     *  {@link #currentTradeSelection} purely as overlay highlights.
-     *  Webclient parity (game.tradePartnerInv).
-     */
+    /** Snapshot of the partner's full inventory at trade-accept; on-wire selection packets carry only Boolean[] flags. */
     @lombok.Getter @lombok.Setter
     private GameItem[] partnerInventory = null;
-    /** Class id of the trade partner, used by the trade overlay header
-     *  portrait + the in-tooltip class label. Captured at trade accept. */
     @lombok.Getter @lombok.Setter
     private int partnerClassId = 0;
-    /** Dye id of the trade partner. Captured at trade accept. */
     @lombok.Getter @lombok.Setter
     private int partnerDyeId = 0;
     private Button confirmTradeButton = null;
     private Button cancelTradeButton = null;
-    /** 8 click-targets that overlay the left (mine) grid in the trade
-     *  panel. Click toggles selection on inventory[4..11] — same path
-     *  the legacy right-click on the sidebar took, just routed through
-     *  the centered overlay so the trade UI is self-contained. */
     private Button[] tradeMyButtons = null;
-    /** Local-only "I have hit Confirm" flag — the network types
-     *  (NetInventorySelection / NetTradeSelection) don't carry a
-     *  per-side confirmed bit, so we mirror the webclient pattern of
-     *  tracking it client-side and clearing on selection change. */
+    /** Local-only confirm flag; the network types carry no per-side confirmed bit. Cleared on any selection change. */
     private boolean myTradeConfirmed = false;
 
     private Map<Integer, TextureRegion> classIconCache = new HashMap<>();
     private List<Button> nearbyPlayerButtons = new ArrayList<>();
     private List<Player> nearbyPlayerList = new ArrayList<>();
     private Player hoveredPlayer = null;
-    // Screen rect of the nearby-list button the pointer is currently on.
-    // Stored at hover-in so the tooltip lands flush next to that entry
-    // rather than at a fixed corner of the screen.
     private int hoveredBtnX = 0;
     private int hoveredBtnY = 0;
     private int hoveredBtnW = 0;
     private int hoveredBtnH = 0;
     private long lastNearbyRefresh = 0;
 
-    // Click-context menu shown next to a nearby-player entry. Mirrors
-    // webclient trade.js showPlayerContextMenu — Trade / Teleport options
-    // wired to the same SERVER_COMMAND payloads (/trade <name>, /tp <name>)
-    // the chat box uses. Set on player-name click; cleared on menu-button
-    // click or click-elsewhere.
     private Player contextMenuPlayer = null;
     private int contextMenuX = 0;
     private int contextMenuY = 0;
     private boolean prevContextMenuMouseDown = false;
-    /** Edge-trigger flag for the loot-pickup click diagnostic log so we
-     *  print bounds + mouse pos exactly once per click cycle (on the
-     *  press transition), not every frame the button is held. */
+    private boolean prevPartyKickMouseDown = false;
     private boolean prevLootDebugMouseDown = false;
 
     private int dragSourceIndex = -1;
     private boolean isDragging = false;
     private Vector2f dragStartPos = null;
-    private static final float DRAG_THRESHOLD = 8.0f;
-    // Double-click detection for inventory slots — double-clicking a backpack item
-    // equips it to its target slot (or consumes a consumable), matching the
-    // webclient. Shift-click does the same in a single click.
     private long lastSlotClickTime = 0L;
     private int lastSlotClickIdx = -1;
-    private static final long DOUBLE_CLICK_MS = 400L;
     private ItemTooltip activeTooltip = null;
-    /** Hover tooltip for ability cells (own hotbar + party cd strip). Set
-     *  by updateTooltip on hover, consumed by the render pass. Mutually
-     *  exclusive with activeTooltip — whichever surface gets the cursor
-     *  first wins, and the other is cleared. */
+    /** Mutually exclusive with activeTooltip; reset every updateTooltip pass. */
     private AbilityTooltip activeAbilityTooltip = null;
-    /** Hover tooltip for the class-passive cell (hotbar cell 0). Same lifecycle
-     *  as {@link #activeAbilityTooltip} — reset every updateTooltip pass and
-     *  rebuilt iff the cursor is over cell 0. Two distinct fields rather than
-     *  one polymorphic surface because the passive description has no MP /
-     *  cooldown / SP machinery and uses different chrome colors. */
+    /** Distinct from activeAbilityTooltip: passives have no MP/cooldown/SP. */
     private PassiveTooltip activePassiveTooltip = null;
-    /** Per-cell rects captured during renderPartyMembers' cd-strip pass so
-     *  updateTooltip can hit-test them on hover. Each entry encodes
-     *  [x, y, w, h, abilityId, investedSp]. Cleared at the start of every
-     *  renderPartyMembers call so stale cells don't fire tooltips for
-     *  members that left the party. */
-    private final java.util.List<float[]> _lastPartyAbilityCells = new java.util.ArrayList<>();
-    /**
-     * Currently visible inventory page. 0 = MAIN (inventory slots 5–24),
-     * 1 = BACKPACK (slots 25–44). Mirrors the webclient's tab-switched
-     * inventory: one 20-slot page is on screen at a time, paged by the
-     * MAIN / BACKPACK tabs. The real backpack slot for page cell {@code c}
-     * is {@code INV_PAGE_BASE + activeBag * INV_PAGE_SIZE + c}.
-     */
+    /** Cd-strip cell rects captured by renderPartyMembers for hover hit-testing;
+     *  each entry is [x, y, w, h, abilityId, investedSp, vit, wis, hp, mp, str, def, spd, dex]. */
+    private final List<float[]> _lastPartyAbilityCells = new ArrayList<>();
+    /** Passive-cell rects for the party strip; each entry is [x, y, w, h, classId]. */
+    private final List<float[]> _lastPartyPassiveCells = new ArrayList<>();
+    /** Party member row rects + parallel refs, captured by renderPartyMembers. */
+    private final List<float[]> _lastPartyMemberRows = new ArrayList<>();
+    private final List<NetPartyMember> _lastPartyMemberRefs = new ArrayList<>();
+    /** Member whose inspect panel (full stats + equipment) is open. */
+    private NetPartyMember hoveredPartyMember = null;
+    /** Inspect-panel rect so the hover persists moving from row into panel. */
+    private float[] _partyInspectPanelRect = null;
+    /** Equipment icon cells in the inspect panel, paired for tooltip hover. */
+    private final List<GameItem> _lastPartyEquipItems = new ArrayList<>();
+    private final List<float[]> _lastPartyEquipRects = new ArrayList<>();
+    /** Row rect of the currently-hovered party member (inspect anchor). */
+    private float[] _hoveredPartyRowRect = null;
+    /** 0 = MAIN (slots 5..24), 1 = BACKPACK (slots 25..44); one 20-slot page shown at a time. */
     private int activeBag = 0;
 
-    /** First backpack slot index — equipment occupies 0..EQUIPMENT_SLOT_COUNT-1. */
-    private static final int INV_PAGE_BASE = Player.EQUIPMENT_SLOT_COUNT;
-    /** Slots per inventory page (one tab's worth). */
-    private static final int INV_PAGE_SIZE = 20;
+    private boolean prevInvTabMouseDown = false;
+    private boolean prevTabMouseDown = false;
+
+    private int spriteHudTabMainX = 0, spriteHudTabMainY = 0, spriteHudTabMainW = 0, spriteHudTabMainH = 0;
+    private int spriteHudTabBackX = 0, spriteHudTabBackY = 0, spriteHudTabBackW = 0, spriteHudTabBackH = 0;
+    private boolean spriteHudTabsEnabled = false;
+
+    private final ForgeWindow forgeWindow = new ForgeWindow();
+    private final FameStoreWindow fameStoreWindow = new FameStoreWindow();
+    private final ExchangeMarketWindow exchangeMarketWindow = new ExchangeMarketWindow();
+    private final OptionsWindow optionsWindow = new OptionsWindow();
+    private final RealmTransitionState realmTransition = new RealmTransitionState();
+    private final PotionStorageWindow potionStorageWindow = new PotionStorageWindow();
+    private final SkillsWindow skillsWindow = new SkillsWindow();
+    private final MetricsWindow metricsWindow = new MetricsWindow();
+
+    /** Reused per-frame to avoid slot-render allocations: 5 equipment + 20 page cells. */
+    private final Vector2f[] slotPositions = new Vector2f[Player.EQUIPMENT_SLOT_COUNT + INV_PAGE_SIZE];
+    private final Vector2f[] groundLootPositions = new Vector2f[10];
+    {
+        for (int i = 0; i < slotPositions.length; i++) slotPositions[i] = new Vector2f();
+        for (int i = 0; i < 10; i++) groundLootPositions[i] = new Vector2f();
+    }
+
+    private final Map<String, TextureRegion> _hudIdleCache = new HashMap<>();
+
+    private int layoutMinimapY  = 60;
+    private int layoutMinimapBot = 260;
+    private int layoutBarsY     = 264;
+    private int layoutStatsY    = 348;
+    private int layoutEquipY    = 408;
+    private int layoutBagTabY   = 478;
+    private int layoutBag1Y     = 506;
+    private int layoutPotionY   = 506 + (SLOT_SIZE + SLOT_GAP) * 4 + 10;
+    private int layoutNearbyY   = 506 + (SLOT_SIZE + SLOT_GAP) * 4 + 10 + SLOT_SIZE + 16;
+
+    // Sprite HUD panel positions cached each frame for hit-testing empty slots
+    // (which have no Button to interrogate).
+    private int spriteHudNearbyX = 0;
+    private int spriteHudNearbyY = 0;
+    private int spriteHudNearbyW = 0;
+    private int spriteHudInvExtX = 0;
+    private int spriteHudInvExtY = 0;
+    private int spriteHudInvOnlyX = 0;
+    private int spriteHudInvOnlyY = 0;
+    private int spriteHudEquipStatsX = 0;
+    private int spriteHudEquipStatsY = 0;
+    /** Outer chrome right edge - the player tooltip anchors here. */
+    private int spriteHudNearbyPanelRight = 0;
+    private int spriteHudNearbyPanelTop = 0;
+    private int spriteHudNearbyPanelBottom = 0;
+    private boolean spriteHudNearbyEnabled = false;
+    private int spriteHudPartyX = 0;
+    private int spriteHudPartyY = 0;
+    private int spriteHudPartyW = 0;
+    private boolean spriteHudPartyEnabled = false;
+    /** When true, renderNearbyPlayers skips its internal party section so the caller draws it in its own chrome. */
+    private boolean suppressInternalParty = false;
+
+    /** Cached pixel rects for the 4 hotbar slots, set during the sprite pass and consumed by renderAbilityHotbarOverlays. */
+    private float[][] _lastHotbarCellPx;
+
+    /** Local player's classId, or -1 if not in a game yet. */
+    private int viewerClassId() {
+        if (this.playState == null) return -1;
+        final Player p = this.playState.getPlayer();
+        return (p == null) ? -1 : p.getClassId();
+    }
+
+    public void showPartyInvitePrompt(String inviterName) {
+        this.pendingPartyInviteFrom = inviterName;
+        this.pendingPartyInviteExpiresAt = System.currentTimeMillis() + 60_000L;
+        // Rebind click handlers to the current inviter on next render.
+        this.partyInviteAcceptBtn = null;
+        this.partyInviteDeclineBtn = null;
+    }
+
+    /** Defer the trade overlay close by 1s so the dual-CONFIRMED status stays visible after a successful trade. */
+    public void scheduleTradeOverlayClose() {
+        this.tradeOverlayCloseAtMs = System.currentTimeMillis() + 1000L;
+    }
 
     /** Real inventory index for visible page cell {@code cell} (0..19). */
     private int pageSlotIndex(int cell) {
         return INV_PAGE_BASE + this.activeBag * INV_PAGE_SIZE + cell;
     }
-
-    /** Off-screen parking coordinate for hidden slot buttons. Far enough
-     *  outside the window that Button.bounds.inside() never matches. */
-    private static final float OFFSCREEN_PARK = -100000f;
 
     /** Move every backpack slot button NOT on the active page off-screen so
      *  only the visible page (plus the always-visible equipment row) hit-tests
@@ -306,7 +308,7 @@ public class PlayerUI {
 
     /** Screen rects [x,y,w,h] for the inv_only page in MAIN/BACKPACK tab order
      *  (0..19). When the atlas grid carries the full 20 cells (V3 sheet) those
-     *  exact cells are used; otherwise a 5×4 grid is synthesized across the
+     *  exact cells are used; otherwise a 5x4 grid is synthesized across the
      *  panel so the offline V1 atlas still renders all 20 page slots. */
     private float[][] invPageCellRects(UiComponent cInvOnly, float invOnlyX, float invOnlyY, int s) {
         final int[][] cells = UiAtlas.gridCells("panel.hud.inv_only.grid");
@@ -320,7 +322,7 @@ public class PlayerUI {
             }
             return out;
         }
-        // Synthesize a 5×4 grid inside the panel (V1 atlas only has 16 cells).
+        // Synthesize a 5x4 grid inside the panel (V1 atlas only has 16 cells).
         // Reserve a header band at the top for the MAIN / BACKPACK tab strip.
         final int cols = 5, rows = 4;
         final float pad = 4f * s;
@@ -343,15 +345,7 @@ public class PlayerUI {
         return out;
     }
 
-    // Sprite-HUD MAIN / BACKPACK tab strip rects (screen space), cached each
-    // render so handleInvPageTabClick + drag-to-tab can hit-test them.
-    private int spriteHudTabMainX = 0, spriteHudTabMainY = 0, spriteHudTabMainW = 0, spriteHudTabMainH = 0;
-    private int spriteHudTabBackX = 0, spriteHudTabBackY = 0, spriteHudTabBackW = 0, spriteHudTabBackH = 0;
-    private boolean spriteHudTabsEnabled = false;
-
-    /** Draw the two MAIN / BACKPACK page tabs above the inv grid and cache
-     *  their screen rects for hit-testing. The active page reads tan, the
-     *  inactive muted, matching the webclient inv-page-tabbar. */
+    /** Draw the two MAIN / BACKPACK page tabs above the inv grid and cache their screen rects. */
     private void renderInvPageTabs(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
             UiComponent cInvOnly, float invOnlyX, float invOnlyY, float[][] invRects, int s) {
         // Tab strip spans the grid width, sitting in the gap between the panel
@@ -415,8 +409,7 @@ public class PlayerUI {
         font.draw(batch, text, x + (w - gl.width) / 2f, y + (h + gl.height) / 2f);
     }
 
-    /** Sprite-HUD MAIN / BACKPACK tab click. Edge-triggered; switches the
-     *  active inventory page so the grid repaints the other 20 slots. */
+    /** Edge-triggered sprite-HUD MAIN / BACKPACK tab click; switches the active page. */
     private void handleInvPageTabClick(MouseHandler mouse) {
         if (!this.spriteHudTabsEnabled) return;
         boolean down = mouse.isPressed(1);
@@ -426,7 +419,6 @@ public class PlayerUI {
         final int page = this.tabHitPage(mouse.getX(), mouse.getY());
         if (page >= 0) this.activeBag = page;
     }
-    private boolean prevInvTabMouseDown = false;
 
     /** Page index (0 = MAIN, 1 = BACKPACK) whose tab rect contains the point,
      *  or -1 if the point is over neither tab. */
@@ -452,55 +444,6 @@ public class PlayerUI {
         return this.firstEmptyOnPage(page);
     }
 
-    // Web-parity UIs. These live on PlayerUI so packet handlers and the input
-    // loop can reach them via realmManager.state.pui.<name>.
-    private final ForgeWindow forgeWindow = new ForgeWindow();
-    private final FameStoreWindow fameStoreWindow = new FameStoreWindow();
-    private final ExchangeMarketWindow exchangeMarketWindow = new ExchangeMarketWindow();
-    private final OptionsWindow optionsWindow = new OptionsWindow();
-    private final RealmTransitionState realmTransition = new RealmTransitionState();
-    // Potion-storage UI: 32-slot dialog opened by F-key on tile 328 in the
-    // vault. See PotionStorageWindow for layout + drag-drop wiring.
-    private final PotionStorageWindow potionStorageWindow = new PotionStorageWindow();
-    // Account-wide skills grid, toggled with M.
-    private final SkillsWindow skillsWindow = new SkillsWindow();
-    // Lifetime character stats grid, toggled with the period key.
-    private final MetricsWindow metricsWindow = new MetricsWindow();
-
-    // Reusable position vectors for slot rendering to avoid per-frame
-    // allocations: 5 equipment (0..4) + 20 inventory page cells (5..24).
-    private final Vector2f[] slotPositions = new Vector2f[Player.EQUIPMENT_SLOT_COUNT + INV_PAGE_SIZE];
-    private final Vector2f[] groundLootPositions = new Vector2f[10];
-    {
-        for (int i = 0; i < slotPositions.length; i++) slotPositions[i] = new Vector2f();
-        for (int i = 0; i < 10; i++) groundLootPositions[i] = new Vector2f();
-    }
-
-    private final Map<String, TextureRegion> _hudIdleCache = new HashMap<>();
-
-    // Right-sidebar layout, mirroring the webclient #hud column order:
-    //   [name+lvl header] [fame badge] [square minimap] [HP/MP/XP bars]
-    //   [stats grid] [Equipment label + 4 slots] [Bag tabs + 8 slots]
-    //   [Potion row] [Players Nearby]
-    // Constants below are referenced by both render() and the slot/click
-    // hit-test helpers so visual + hit bounds stay in sync.
-    private static final int PANEL_INSET     = 8;
-    private static final int SLOT_SIZE       = 56;
-    private static final int SLOT_GAP        = 4;
-    private static final int HEADER_Y        = 16;   // name + level baseline
-    private static final int FAME_Y          = 28;   // fame badge top
-    private static final int FAME_H          = 24;
-    // Anchors recomputed per frame from these
-    private int layoutMinimapY  = 60;
-    private int layoutMinimapBot = 260;
-    private int layoutBarsY     = 264;
-    private int layoutStatsY    = 348;
-    private int layoutEquipY    = 408;
-    private int layoutBagTabY   = 478;
-    private int layoutBag1Y     = 506;
-    private int layoutPotionY   = 506 + (SLOT_SIZE + SLOT_GAP) * 4 + 10;
-    private int layoutNearbyY   = 506 + (SLOT_SIZE + SLOT_GAP) * 4 + 10 + SLOT_SIZE + 16;
-
     public PlayerUI(PlayState p) {
         int panelWidth = OpenRealmGame.width / 5;
         int startX = OpenRealmGame.width - panelWidth;
@@ -521,35 +464,24 @@ public class PlayerUI {
         this.minimap = new Minimap(p);
     }
 
-    /**
-     * Recompute the right-sidebar Y anchors based on the current window size.
-     * The webclient layout (name -> fame -> minimap -> bars -> stats -> equip ->
-     * bags -> potions -> nearby) collapses gracefully on shorter windows; we
-     * mirror that by deriving everything from the panel width / window height.
-     */
+    /** Recompute the right-sidebar Y anchors from the current window size. */
     private void recomputeLayout() {
         final int panelW = OpenRealmGame.width / 5;
         final int minimapSize = Math.max(96, Math.min(panelW - 2 * PANEL_INSET,
                 OpenRealmGame.height / 4));
         this.layoutMinimapY = PANEL_INSET;
         this.layoutMinimapBot = this.layoutMinimapY + minimapSize;
-        this.layoutBarsY    = this.layoutMinimapBot + 6;          // 3 bars * 22 = 66
-        this.layoutStatsY   = this.layoutBarsY + 22 * 3 + 8;      // 3-row stats
+        this.layoutBarsY    = this.layoutMinimapBot + 6;
+        this.layoutStatsY   = this.layoutBarsY + 22 * 3 + 8;
         this.layoutEquipY   = this.layoutStatsY + 22 * 3 + 14;
         this.layoutBagTabY  = this.layoutEquipY + SLOT_SIZE + 18;
-        this.layoutBag1Y    = this.layoutBagTabY + 24 + 4;       // top row of the page
-        // The inventory page is now 4 rows tall (5×4 = 20 slots) — push the
-        // potion row and nearby panel below the full page so they don't
-        // overlap the taller grid.
+        this.layoutBag1Y    = this.layoutBagTabY + 24 + 4;
         final int pageBottomY = this.layoutBag1Y + 4 * (SLOT_SIZE + SLOT_GAP);
         this.layoutPotionY  = pageBottomY + 10;
         this.layoutNearbyY  = this.layoutPotionY + 56 + 14;
     }
 
-    /** Screen X for slot column 0..{@link Player#EQUIPMENT_SLOT_COUNT}-1.
-     *  Divides the full usable HUD width into equal cells per equipment slot
-     *  and centers the slot inside each cell. Phase 1B bumped EQUIPMENT_SLOT_COUNT
-     *  from 4 to 5; this layout adapts automatically. */
+    /** Screen X for equipment slot column, centered in an equal-width cell. */
     private int slotX(int col) {
         final int slots = Player.EQUIPMENT_SLOT_COUNT;
         final int panelW = OpenRealmGame.width / 5;
@@ -559,8 +491,6 @@ public class PlayerUI {
         return rowStart + col * (SLOT_SIZE + SLOT_GAP);
     }
 
-    /** Legacy-fallback page grid: 5 columns × 4 rows. Column X reuses slotX
-     *  (already EQUIPMENT_SLOT_COUNT-wide); rows stack down from layoutBag1Y. */
     private int legacyPageColX(int cell) {
         return this.slotX(cell % 5);
     }
@@ -569,8 +499,6 @@ public class PlayerUI {
     }
 
     private int groundLootRowY(int row) {
-        // Ground loot anchors to the bottom of the screen so it doesn't fight
-        // the rest of the (taller) sidebar layout. Two rows of four 56 px slots.
         final int bottom = OpenRealmGame.height - 16;
         return bottom - (2 - row) * (SLOT_SIZE + SLOT_GAP);
     }
@@ -604,49 +532,28 @@ public class PlayerUI {
     public void setEquipment(GameItem[] loot) {
         // CRITICAL: do NOT recreate the inventory array on every UpdatePacket.
         // UpdatePackets fire at 5 Hz from the server; the old `this.inventory
-        // = new Slots[...]` blew away every Button's bounds + clicked state
-        // mid-click, so press→release transitions for click/drag/right-click
-        // were silently lost (user reported "can't pick up loot / drag items
-        // / shift-drop is broken" on the native client). Same defect was
-        // already fixed for ground loot in setGroundLoot — we mirror that
-        // pattern here:
-        //   - empty → empty:    keep null
-        //   - empty → populated: build a fresh Slots + Button
-        //   - populated → empty: drop the slot (button + handlers go away)
-        //   - populated → populated: KEEP existing Button (preserves bounds
-        //     reposition done by renderSpriteHud + the click state machine),
-        //     just swap the item field. This is the equivalent of the
-        //     webclient updating the slot's <img>/dataset without ripping
-        //     down the <div>.
+        // = new Slots[...]` blew away every Button's bounds mid-click. Swap the
+        // item field on existing slots; only build/drop a Button on empty<->populated.
         if (this.inventory == null || this.inventory.length != Player.INVENTORY_SIZE) {
             this.inventory = new Slots[Player.INVENTORY_SIZE];
         }
         final int eq = Player.EQUIPMENT_SLOT_COUNT;
         final int total = Math.min(Player.INVENTORY_SIZE, loot != null ? loot.length : 0);
-        // For each slot, decide rebuild vs swap.
         for (int i = 0; i < this.inventory.length; i++) {
             final GameItem next = (i < total) ? loot[i] : null;
             final boolean nextEmpty = (next == null || next.getItemId() == -1);
             final Slots existing = this.inventory[i];
             if (nextEmpty) {
-                // Item left this slot — drop the Slots so its Button stops
-                // hit-testing. Without this an empty slot would still pick
-                // up clicks from the ghost button of the previous item.
                 this.inventory[i] = null;
                 continue;
             }
             if (existing == null) {
-                // Empty → populated: build the appropriate button. Equipment
-                // (0..eq-1) vs backpack (eq..INVENTORY_SIZE-1) take different
-                // handlers — buildEquipmentSlotButton vs buildInventorySlotsButton.
                 if (i < eq) {
                     this.buildEquipmentSlotButton(i, next);
                 } else {
                     this.buildInventorySlotsButton(i - eq, next);
                 }
             } else {
-                // Populated → populated: swap the item, keep the Button so
-                // in-progress click/drag state survives the UpdatePacket.
                 existing.setItem(next);
             }
         }
@@ -656,17 +563,8 @@ public class PlayerUI {
         if (this.isTrading && this.currentTradeSelection != null) {
             loot = this.getOtherPlayerSelectedItems();
         }
-        // CRITICAL: only REBUILD a slot's Button if that slot transitioned
-        // from empty→item or item→empty. For an item-id change in an
-        // existing slot, swap the Slots' item field but keep the same
-        // Button instance (which has its sprite-HUD position from the
-        // previous render's repositionSlotButton). Rebuilding every
-        // call wiped the sprite-HUD positions back to legacy slotX()/
-        // groundLootRowY() — those legacy coords sit OFF-SCREEN on the
-        // new HUD layout, so Button.bounds.inside() never matched the
-        // user's click on the visible bag and NO loot click ever fired.
-        // Webclient parity: createSlot rebuilds DOM nodes, but the DOM
-        // is positioned by CSS so layout is never lost on rebuild.
+        // Only build/drop a Button on empty<->populated; swap the item field otherwise.
+        // Rebuilding wipes the sprite-HUD position back to off-screen legacy coords.
         if (this.groundLoot == null || this.groundLoot.length != 10) {
             this.groundLoot = new Slots[10];
         }
@@ -677,29 +575,14 @@ public class PlayerUI {
             if (isEmpty) {
                 this.groundLoot[i] = null;
             } else if (existing == null) {
-                // Empty -> populated: build a fresh Button (will be
-                // repositioned by renderSpriteHud on the next render
-                // tick). The first click on the FIRST frame after
-                // building may still miss because input runs before
-                // render — this is unavoidable for a freshly-spawned
-                // bag and only affects the very first click.
                 this.buildGroundLootSlotButton(i, item);
             } else {
-                // Populated -> populated (same slot, possibly different
-                // item or stack count): swap the item field and keep
-                // the existing Button + handler + position.
                 existing.setItem(item);
             }
         }
     }
 
-    /**
-     * Get the other player's NetInventorySelection (not filtered).
-     */
-    /** Local player's NetInventorySelection (the side keyed to our id).
-     *  Used by the trade overlay to read the server-broadcast confirmed
-     *  flag (the only authoritative signal that the server has accepted
-     *  my /confirm true). */
+    /** Local player's NetInventorySelection (the side keyed to our id). */
     private NetInventorySelection getMyTradeSelection() {
         if (this.currentTradeSelection == null || this.playState == null) return null;
         final long myId = this.playState.getPlayerId();
@@ -722,10 +605,7 @@ public class PlayerUI {
         }
     }
 
-    /**
-     * Get the items that the OTHER player has selected for trade.
-     * Determines which selection is "other" based on local player ID.
-     */
+    /** Items the OTHER player has selected for trade. */
     private GameItem[] getOtherPlayerSelectedItems() {
         NetInventorySelection otherSelection = this.getOtherPlayerSelection();
         if (otherSelection == null || otherSelection.getItemRefs() == null) {
@@ -778,12 +658,9 @@ public class PlayerUI {
         this.recomputeLayout();
         if (item != null) {
             final int actualIdx = index;
-            // Try to position the new Button directly at its sprite-HUD
-            // grid cell so the FIRST click after a fresh loot bag spawn
-            // doesn't miss (input runs before render — the legacy
-            // slotX()/groundLootRowY() seed put the bounds off-screen
-            // until renderSpriteHud could reposition). Falls back to
-            // the legacy coords if the atlas hasn't loaded yet.
+            // Seed the Button at its sprite-HUD grid cell so the first click after
+            // a fresh loot bag spawn (input runs before render) lands. Legacy
+            // coords are the fallback until the atlas loads.
             int x = this.slotX((index > 3) ? index - 4 : index);
             int y = this.groundLootRowY((index > 3) ? 1 : 0);
             try {
@@ -804,29 +681,16 @@ public class PlayerUI {
                     LOG_NS, actualIdx, item.getItemId(), x, y, SLOT_SIZE);
 
             b.onMouseUp(event -> {
-                // Always log entry so a missing log makes it obvious the
-                // click never reached the handler (button bounds wrong /
-                // input order issue) vs reached but blocked by a guard.
                 log.info("{} loot-click FIRED slot={} itemId={} trading={} dragging={} canSwap={}",
                         LOG_NS, actualIdx, item != null ? item.getItemId() : -1,
                         this.isTrading, this.isDragging, this.canSwap());
                 if (this.isTrading) return;
                 if (this.isDragging) return;
                 this.activeTooltip = null;
-                // No swap-cooldown gate here: the webclient lets you chain-click
-                // loot to grab a bag fast, and the 1s canSwap() throttle DROPPED
-                // (not queued) rapid clicks, so quick picks silently failed. Each
-                // click sends its own moveItem; the server is authoritative and
-                // no-ops a duplicate pick of an already-taken slot.
-                // Mirror webclient onSlotClick: just send moveItem with
-                // target=first-backpack-slot and let the server's
-                // ground-loot branch route it via firstEmptyInvSlot() —
-                // covers BAG 1 + BAG 2, potions, and stack merging.
-                // Wire protocol (Phase 1B): ground loot is indices
-                // [21..28] (MoveItemPacket.GROUND_LOOT_IDX). The stale
-                // `+ 20` offset sent fromIdx=20 (last backpack) for the
-                // first loot item, which the server rejected as
-                // "invalid from slot" → every loot click was a no-op.
+                // No canSwap() gate: it drops (not queues) rapid picks. Each click
+                // sends its own moveItem; the server no-ops an already-taken slot.
+                // target = first backpack slot; the server ground-loot branch routes
+                // via firstEmptyInvSlot (covers both pages, potions, stack merge).
                 final int wireFromIdx = actualIdx + MoveItemPacket.groundLootBase();
                 final byte wireTargetSlot = (byte) Player.EQUIPMENT_SLOT_COUNT;
                 try {
@@ -858,9 +722,7 @@ public class PlayerUI {
             }
             Button b = new Button(new Vector2f(this.slotX(actualIdx), this.layoutEquipY), SLOT_SIZE);
 
-            // Equipment-slot right-click = drop the equipped item to
-            // ground. Using closure-captured actualIdx directly (was
-            // routing through getOverlapping which scanned only 0..11).
+            // Right-click drops the equipped item to ground.
             final int dropEquipIdx = actualIdx;
             b.onRightClick(event -> {
                 if (this.isTrading) return;
@@ -885,34 +747,17 @@ public class PlayerUI {
 
     private void buildInventorySlotsButton(int index, GameItem item) {
         this.recomputeLayout();
-        // Phase 1B (combat rework) grew equipment from 4 → 5 slots. This
-        // offset MUST match Player.EQUIPMENT_SLOT_COUNT and the wire
-        // protocol in MoveItemPacket (backpack starts at index 5). The
-        // stale `= 4` here was the root cause behind every backpack click
-        // mapping to the wrong slot — right-click drop in the first
-        // backpack cell was actually dropping the ring, etc.
         final int inventoryOffset = Player.EQUIPMENT_SLOT_COUNT;
 
         if (item != null) {
             final int actualIdx = index + inventoryOffset;
-            // Seed at this item's cell within its page (renderSpriteHud /
-            // the legacy render then reposition each frame). index is the
-            // backpack offset (0..BACKPACK_SIZE-1); cell-within-page is a
-            // 5×4 grid.
             final int cell = index % INV_PAGE_SIZE;
             final int x = this.legacyPageColX(cell);
             final int y = this.legacyPageRowY(cell);
             Button b = new Button(new Vector2f(x, y), SLOT_SIZE);
 
             b.onRightClick(event -> {
-                // Right-click on inventory slot = drop the item to ground
-                // (or toggle trade selection while in a trade). The
-                // previous version routed through getOverlapping(event) /
-                // getOverlapIdx(event), both of which scanned ONLY slots
-                // 0..11 — so right-click in BAG 2 (slots 12..19)
-                // returned null and dropped silently. Using the
-                // closure-captured actualIdx directly is both simpler
-                // AND covers the full 20-slot inventory.
+                // Right-click drops to ground, or toggles trade selection during a trade.
                 if (this.isTrading) {
                     final Slots slot = (actualIdx < this.inventory.length) ? this.inventory[actualIdx] : null;
                     if (slot != null && slot.getItem() != null) {
@@ -929,13 +774,7 @@ public class PlayerUI {
                 } else {
                     if (!this.canSwap()) return;
                     this.setActionTime();
-                    // Shift+right-click on a stackable item with stackCount>1:
-                    // ask the server to split the stack. Source keeps ceil(N/2),
-                    // floor(N/2) lands in the first empty backpack slot. Server
-                    // rejects if the inventory is full so we never silently lose
-                    // half a stack. Checked BEFORE quick-store so a stackable
-                    // gem (none today, but defensively) can still be split
-                    // when held and otherwise auto-stored.
+                    // Shift+right-click a stack of >1: split it (checked before quick-store).
                     final boolean shiftHeld = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
                             || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
                     if (shiftHeld && item != null && item.isStackable() && item.getStackCount() > 1) {
@@ -949,21 +788,13 @@ public class PlayerUI {
                         }
                         return;
                     }
-                    // Quick-store: if the potion-storage modal is open AND the
-                    // item is storage-eligible (stackable || category=='gem'),
-                    // route right-click to the auto-place flow instead of
-                    // drop-to-ground. Server figures out the destination
-                    // (first mergeable stack, else first empty slot) so the
-                    // user can mass-stash with a flurry of right-clicks
-                    // without dragging. Mirrors the webclient onSlotRightClick
-                    // branch.
+                    // Quick-store to the potion-storage modal when open + item eligible.
                     if (this.potionStorageWindow != null
                             && this.potionStorageWindow.isVisible()
                             && item != null
                             && (item.isStackable() || "gem".equals(item.getCategory()))) {
                         try {
-                            // toIdx=-1 = auto-place sentinel; server picks
-                            // first mergeable stack, else first empty slot.
+                            // toIdx=-1 = auto-place sentinel (server picks the destination).
                             final ItemStoreMovePacket pkt = new ItemStoreMovePacket(
                                     this.potionStorageWindow.getStoreKind(),
                                     ItemStoreMovePacket.SIDE_INV, actualIdx,
@@ -983,12 +814,8 @@ public class PlayerUI {
             });
 
             b.onMouseDown(btn -> {
-                // Shift-click or double-click a backpack item = smart equip/use
-                // (equip to its target slot, or consume a consumable). Mirrors the
-                // webclient double-click / shift-click. A plain single left-click
-                // just arms a drag and otherwise does nothing — there is no
-                // click-to-select-then-move/drop mode on either client. Move is
-                // drag; drop is right-click.
+                // Shift-click or double-click smart-equips/uses the item. A plain
+                // left-click only arms a drag (move = drag, drop = right-click).
                 if (this.isTrading || item == null) return;
                 final boolean shiftHeld = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
                         || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
@@ -1009,10 +836,6 @@ public class PlayerUI {
     }
 
     public void update(double time) {
-        // Tick the deferred trade-overlay close timer. When the server
-        // closes a completed trade we keep the overlay rendered for ~1s
-        // showing both 'CONFIRMED' badges, then run the actual close
-        // here so the player can see that both sides accepted.
         if (this.tradeOverlayCloseAtMs > 0L
                 && System.currentTimeMillis() >= this.tradeOverlayCloseAtMs) {
             this.tradeOverlayCloseAtMs = 0L;
@@ -1039,7 +862,6 @@ public class PlayerUI {
             }
         }
 
-        // Update trade buttons
         if (this.isTrading) {
             if (this.confirmTradeButton != null) {
                 this.confirmTradeButton.update(time);
@@ -1049,27 +871,21 @@ public class PlayerUI {
             }
         }
 
-        // Update nearby player buttons
         for (Button btn : this.nearbyPlayerButtons) {
             btn.update(time);
         }
     }
 
     public void input(MouseHandler mouse, KeyHandler key) {
-        // Bag-tab clicks have to fire BEFORE drag-drop / slot input so a
-        // tab click doesn't get swallowed by a slot underneath. Position
-        // math mirrors the render() tab strip exactly so click bounds and
-        // visual bounds line up.
-        // Sprite-HUD inv page tabs (MAIN / BACKPACK) take precedence when the
-        // atlas HUD is live; the legacy sidebar tab handler covers the fallback.
+        // Tab clicks must run BEFORE drag-drop / slot input so a slot underneath
+        // doesn't swallow them.
         if (UiAtlas.isReady()) {
             this.handleInvPageTabClick(mouse);
         } else {
             this.handleBagTabClick(mouse);
         }
 
-        // Minimap zoom + click-to-teleport — runs before drag-drop so a
-        // click that lands on the minimap doesn't get consumed by a slot.
+        // Minimap runs before drag-drop so a minimap click isn't consumed by a slot.
         if (this.minimap != null) {
             this.minimap.input(mouse);
         }
@@ -1083,10 +899,6 @@ public class PlayerUI {
             }
         }
 
-        // Debug-log loot slot bounds whenever the LEFT mouse JUST went
-        // down (not held) — surfaces 'click went here, button is at
-        // these coords' so we can see why a click on a visible loot
-        // bag isn't reaching the handler.
         final boolean lootDebugLogThisFrame = mouse.isPressed(1) && !this.prevLootDebugMouseDown;
         this.prevLootDebugMouseDown = mouse.isPressed(1);
         for (int i = 0; i < this.groundLoot.length; i++) {
@@ -1104,10 +916,8 @@ public class PlayerUI {
             }
         }
 
-        // Poll-based tooltip: check mouse position against all slots each frame
         this.updateTooltip(mouse);
 
-        // Handle trade button input
         if (this.isTrading) {
             if (this.confirmTradeButton != null) {
                 this.confirmTradeButton.input(mouse, key);
@@ -1122,27 +932,22 @@ public class PlayerUI {
             }
         }
 
-        // Trade-request popup input — Accept / Decline buttons.
         if (this.pendingTradeRequestFrom != null) {
             if (this.tradeRequestAcceptBtn != null) this.tradeRequestAcceptBtn.input(mouse, key);
             if (this.tradeRequestDeclineBtn != null) this.tradeRequestDeclineBtn.input(mouse, key);
         }
-        // Party-invite popup input — Accept / Decline buttons. Sits left,
-        // routed identically to the trade prompt.
         if (this.pendingPartyInviteFrom != null) {
             if (this.partyInviteAcceptBtn != null)  this.partyInviteAcceptBtn.input(mouse, key);
             if (this.partyInviteDeclineBtn != null) this.partyInviteDeclineBtn.input(mouse, key);
         }
 
-        // Handle nearby player button input
         for (Button btn : this.nearbyPlayerButtons) {
             btn.input(mouse, key);
         }
 
-        // Trade/Teleport context menu — runs LAST in the pipeline so a
-        // click on a menu row isn't first consumed by an underlying
-        // nearby-player button (which would re-open the same menu).
+        // Runs LAST so a menu-row click isn't consumed by the nearby-player button under it.
         this.handleContextMenuInput(mouse);
+        this.handlePartyKickClick(mouse);
 
         try {
             this.playerChat.input(mouse, key, this.playState.getRealmManager().getClient());
@@ -1157,18 +962,12 @@ public class PlayerUI {
         int startX = OpenRealmGame.width - panelWidth;
         int tooltipX = startX - panelWidth - 8;
 
-        // Viewer's computed stats — drives the weapon DPS estimate on item
-        // tooltips. Null when there's no local player yet (the DPS line then
-        // simply doesn't render).
         final Player viewer = (this.playState != null) ? this.playState.getPlayer() : null;
         final Stats viewerStats = (viewer != null) ? viewer.getComputedStats() : null;
 
-        // Reset all three tooltip surfaces — exactly one (or none) will be
-        // re-armed below depending on what the cursor is hovering.
         this.activeAbilityTooltip = null;
         this.activePassiveTooltip = null;
 
-        // Check inventory slots (equipment + backpack)
         for (int i = 0; i < this.inventory.length; i++) {
             Slots s = this.inventory[i];
             if (s != null && s.getButton() != null && s.getItem() != null) {
@@ -1182,7 +981,6 @@ public class PlayerUI {
             }
         }
 
-        // Check ground loot slots
         for (int i = 0; i < this.groundLoot.length; i++) {
             Slots s = this.groundLoot[i];
             if (s != null && s.getButton() != null && s.getItem() != null) {
@@ -1196,9 +994,6 @@ public class PlayerUI {
             }
         }
 
-        // Check potion-storage cells when the modal is open. getCellRect
-        // returns flipped-ortho screen coords matching the cells' rendered
-        // position so hover land-on works the same as inventory slots.
         if (this.potionStorageWindow != null && this.potionStorageWindow.isVisible()) {
             final GameItem[] storageItems = this.potionStorageWindow.getItems();
             if (storageItems != null) {
@@ -1218,19 +1013,8 @@ public class PlayerUI {
             }
         }
 
-        // Own hotbar — 5 cells whose pixel rects were captured by
-        // renderSpriteHud last frame. Cell layout mirrors the webclient:
-        //   cell 0      → class passive (always-on, no Key-N subtitle)
-        //   cells 1..4  → active abilities, bindingIdx = cellIdx - 1
-        //                  → cellIdx == "Key N" subtitle in the tooltip
-        // The AbilityTooltip is built only for actives (it scales DAMAGE
-        // off the viewer's stats and shows MP / CD / cast / SP — none of
-        // which apply to a passive). Slot 0 hover is intentionally a
-        // no-op for now; the cell still displays the passive's name
-        // label so the player can read it at a glance.
+        // Own hotbar: cell 0 = passive (PassiveTooltip), cells 1..4 = actives (bindingIdx = cell - 1).
         final Player local = (this.playState != null) ? this.playState.getPlayer() : null;
-        // Cell 0 — class passive. Distinct tooltip surface (PassiveTooltip)
-        // since passives have no MP / CD / SP / damage breakdown.
         if (local != null && this._lastHotbarCellPx != null && this._lastHotbarCellPx.length > 0) {
             final float[] cell0 = this._lastHotbarCellPx[0];
             if (cell0 != null
@@ -1240,7 +1024,7 @@ public class PlayerUI {
                 if (pa != null) {
                     this.activePassiveTooltip = new PassiveTooltip(
                             pa, local.getStats(),
-                            new Vector2f(tooltipX, 100), panelWidth);
+                            new Vector2f(cell0[0], cell0[1]), panelWidth).anchorAbove();
                     this.activeTooltip = null;
                     return;
                 }
@@ -1259,18 +1043,15 @@ public class PlayerUI {
                     final Stats stats = local.getStats();
                     this.activeAbilityTooltip = new AbilityTooltip(
                             ab, slot, invested, stats,
-                            new Vector2f(tooltipX, 100), panelWidth);
+                            new Vector2f(cell[0], cell[1]), panelWidth).anchorAbove();
                     this.activeTooltip = null;
                     return;
                 }
             }
         }
 
-        // Party member cooldown-strip cells (cached by renderPartyMembers).
-        // Each entry encodes [x, y, w, h, abilityId, investedSp, vit, wis,
-        // hp, mp, str, def, spd, dex] — the trailing 8 floats are the
-        // member's computed stats so stat-scaled damage in the tooltip
-        // can use THEIR numbers instead of falling back to base damage.
+        // Party member cd-strip cells (cached by renderPartyMembers) carry the
+        // member's computed stats so tooltip damage uses THEIR numbers.
         if (!this._lastPartyAbilityCells.isEmpty()) {
             for (float[] cell : this._lastPartyAbilityCells) {
                 if (mx >= cell[0] && mx < cell[0] + cell[2]
@@ -1280,8 +1061,7 @@ public class PlayerUI {
                     final Ability ab = (GameDataManager.ABILITIES != null)
                             ? GameDataManager.ABILITIES.get(aid) : null;
                     if (ab == null) continue;
-                    // Stats: hp is int, the other 7 fields are short — match
-                    // the field types or Lombok's @Builder rejects the call.
+                    // hp is int, the other 7 are short - match or @Builder rejects the call.
                     final Stats memberStats = (cell.length >= 14)
                             ? Stats.builder()
                                     .vit((short) cell[6])
@@ -1296,14 +1076,68 @@ public class PlayerUI {
                             : null;
                     this.activeAbilityTooltip = new AbilityTooltip(
                             ab, 0, invested, memberStats,
-                            new Vector2f(tooltipX, 100), panelWidth);
+                            new Vector2f(cell[0], cell[1]), panelWidth).anchorAbove();
                     this.activeTooltip = null;
                     return;
                 }
             }
         }
 
-        // Mouse not over any item slot
+        // Party passive cell -> class-passive tooltip.
+        for (float[] pcell : this._lastPartyPassiveCells) {
+            if (mx >= pcell[0] && mx < pcell[0] + pcell[2]
+                    && my >= pcell[1] && my < pcell[1] + pcell[3]) {
+                final PassiveAbility pa = this.classPassive((int) pcell[4]);
+                if (pa != null) {
+                    this.activePassiveTooltip = new PassiveTooltip(pa, viewerStats,
+                            new Vector2f(pcell[0], pcell[1]), panelWidth).anchorAbove();
+                    this.activeTooltip = null;
+                    return;
+                }
+            }
+        }
+
+        // Party member equipment icon -> full item tooltip (inventory parity).
+        for (int i = 0; i < this._lastPartyEquipRects.size(); i++) {
+            final float[] r = this._lastPartyEquipRects.get(i);
+            if (mx >= r[0] && mx < r[0] + r[2] && my >= r[1] && my < r[1] + r[3]) {
+                final GameItem it = this._lastPartyEquipItems.get(i);
+                if (it != null) {
+                    final int vcId = (this.hoveredPartyMember != null)
+                            ? this.hoveredPartyMember.getClassId() : this.viewerClassId();
+                    final Stats ms = (this.hoveredPartyMember != null
+                            && this.hoveredPartyMember.getStats() != null)
+                            ? this.hoveredPartyMember.getStats().asStats() : viewerStats;
+                    this.activeTooltip = new ItemTooltip(it,
+                            new Vector2f(r[0], r[1]), panelWidth, 0, vcId);
+                    this.activeTooltip.setViewerStats(ms);
+                    this.activeAbilityTooltip = null;
+                    this.activePassiveTooltip = null;
+                    return;
+                }
+            }
+        }
+
+        // Which member is being inspected: row hover opens it; the hover
+        // persists while the cursor is inside the open inspect panel.
+        NetPartyMember hoveredMember = null;
+        for (int i = 0; i < this._lastPartyMemberRows.size(); i++) {
+            final float[] r = this._lastPartyMemberRows.get(i);
+            if (mx >= r[0] && mx < r[0] + r[2] && my >= r[1] && my < r[1] + r[3]) {
+                hoveredMember = this._lastPartyMemberRefs.get(i);
+                this._hoveredPartyRowRect = r;
+                break;
+            }
+        }
+        if (hoveredMember == null && this.hoveredPartyMember != null
+                && this._partyInspectPanelRect != null) {
+            final float[] r = this._partyInspectPanelRect;
+            if (mx >= r[0] && mx < r[0] + r[2] && my >= r[1] && my < r[1] + r[3]) {
+                hoveredMember = this.hoveredPartyMember;
+            }
+        }
+        this.hoveredPartyMember = hoveredMember;
+
         this.activeTooltip = null;
     }
 
@@ -1341,11 +1175,7 @@ public class PlayerUI {
         return posX >= startX;
     }
 
-    /** True iff the cursor sits over any cell of the bottom-center ability
-     *  hotbar (cells 0..4 — passive plus the four bindings). Used by
-     *  PlayState.input to suppress the basic-attack shot when the click
-     *  was intended for a hotbar cell, regardless of whether that cell is
-     *  the passive (no-op) or an active ability (fire). */
+    /** True iff the cursor sits over any hotbar cell; used to suppress the basic-attack shot. */
     public boolean isHoveringHotbarCell(int mx, int my) {
         if (this._lastHotbarCellPx == null) return false;
         for (float[] cell : this._lastHotbarCellPx) {
@@ -1358,16 +1188,10 @@ public class PlayerUI {
         return false;
     }
 
-    /** If the cursor is over an active-ability hotbar cell (cells 1..4),
-     *  returns the corresponding hotbarBindings index (0..3). Returns -1
-     *  when over the passive cell (cell 0) or no cell at all — the caller
-     *  uses this to decide whether to send a UseAbilityPacket. Mirrors
-     *  the webclient ui-widgets click handler that calls
-     *  {@code __webclientFireAbilityFromUI(s)} where {@code s} is 0..3
-     *  for cells 1..4. */
+    /** hotbarBindings index (0..3) for an active-ability cell under the cursor, else -1 (passive/none). */
     public int getHotbarBindingAtScreen(int mx, int my) {
         if (this._lastHotbarCellPx == null) return -1;
-        // Start at cell 1 — cell 0 is the passive and is not a fire target.
+        // Start at cell 1 - cell 0 is the passive and is not a fire target.
         for (int slot = 1; slot < this._lastHotbarCellPx.length; slot++) {
             final float[] cell = this._lastHotbarCellPx[slot];
             if (cell == null) continue;
@@ -1390,9 +1214,7 @@ public class PlayerUI {
         }
     }
 
-    /** Lazy-construct the Confirm/Cancel buttons over the container's
-     *  baked-in button art, then re-anchor them to the supplied atlas
-     *  rects each frame so they follow the centered overlay on resize. */
+    /** Lazy-construct the Confirm/Cancel buttons, then re-anchor them to the atlas rects each frame. */
     private void ensureTradeButtons(float[] confirmRect, float[] cancelRect) {
         if (this.confirmTradeButton == null) {
             this.confirmTradeButton = new Button("Confirm",
@@ -1416,11 +1238,7 @@ public class PlayerUI {
         this.cancelTradeButton.getPos().y = cancelRect[1];
     }
 
-    /** Lazy-construct the click-targets that overlay my-side trade cells —
-     *  one per tradeable main-page slot. Click toggles selection on
-     *  inventory[i + EQUIPMENT_SLOT_COUNT] and fires
-     *  UpdatePlayerTradeSelectionPacket. Position is updated each frame
-     *  by {@link #renderTradeUI}. */
+    /** Lazy-construct the my-side trade-cell click targets; repositioned each frame by renderTradeUI. */
     private void ensureTradeMyButtons() {
         if (this.tradeMyButtons != null && this.tradeMyButtons.length == Player.TRADE_SLOT_COUNT) return;
         this.tradeMyButtons = new Button[Player.TRADE_SLOT_COUNT];
@@ -1430,10 +1248,7 @@ public class PlayerUI {
         for (int i = 0; i < Player.TRADE_SLOT_COUNT; i++) {
             final int slotIdx = i + Player.EQUIPMENT_SLOT_COUNT;
             final Button b = new Button(new Vector2f(0, 0), cellW);
-            // onMouseDown so the toggle fires ONCE per click cycle —
-            // onMouseUp fires twice (press + release), which toggled
-            // selection on→off in a single click and looked like the
-            // selection wasn't sticking.
+            // onMouseDown fires once per click; onMouseUp fires twice and would toggle back off.
             b.onMouseDown(event -> {
                 if (!this.isTrading) return;
                 if (slotIdx >= this.inventory.length) return;
@@ -1480,11 +1295,10 @@ public class PlayerUI {
         final String mods = realm.getPurificationModifiers();
         if (mods != null && !mods.isEmpty()) label += "  -  " + mods;
         font.setColor(Color.WHITE);
-        final GlyphLayout layout = new GlyphLayout(font, label);
-        font.draw(batch, label, barX + (barW - layout.width) / 2f, barY + (barH - layout.height) / 2f);
+        UiRender.drawCenteredIn(batch, font, label, barX, barY, barW, barH);
     }
 
-    /** Difficulty tint matching the webclient minimap badge (green → red as difficulty rises). */
+    /** Difficulty tint matching the webclient minimap badge (green to red as difficulty rises). */
     private float[] difficultyColor(float diff) {
         final float r = diff <= 2 ? 0.24f : diff <= 4 ? 0.71f : diff <= 6 ? 0.86f : 1.0f;
         final float g = diff <= 2 ? 0.71f : diff <= 4 ? 0.63f : diff <= 6 ? 0.31f : 0.16f;
@@ -1497,8 +1311,6 @@ public class PlayerUI {
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
 
-        // Reposition HP/MP/XP bars + size to match new layout.
-        // Bar width = panel width - 2 * inset; height fixed at 22 px each.
         final int barX = startX + PANEL_INSET;
         final int barW = panelWidth - 2 * PANEL_INSET;
         final int barH = 22;
@@ -1506,62 +1318,44 @@ public class PlayerUI {
         if (this.mp != null) { this.mp.getPos().x = barX;  this.mp.getPos().y = this.layoutBarsY + barH;   this.mp.setBarWidth(barW); this.mp.setBarHeight(barH); }
         if (this.xp != null) { this.xp.getPos().x = barX;  this.xp.getPos().y = this.layoutBarsY + barH*2; this.xp.setBarWidth(barW); this.xp.setBarHeight(barH); }
 
-        // Web-parity inventory: 5 equipment + one 20-slot page (MAIN 5..24 or
-        // BACKPACK 25..44) paged by activeBag. Only the active page's 20 slots
-        // are on screen; the other page is hidden behind its tab.
         Slots[] equips = this.getSlots(0, Player.EQUIPMENT_SLOT_COUNT);
         final int bagBase = INV_PAGE_BASE + this.activeBag * INV_PAGE_SIZE;
         final Slots[] page = this.getSlots(bagBase,
                 Math.min(bagBase + INV_PAGE_SIZE, this.inventory.length));
 
-        // Sprite-HUD migration: when the atlas is loaded, draw the new
-        // sprite-based HUD here and skip the legacy sidebar block below.
-        // The new method also repositions slot Buttons so click/drag still
-        // works at the new locations.
+        // Atlas loaded: draw the sprite HUD (also repositions slot Buttons) and skip the legacy sidebar.
         final boolean useSpriteHud = UiAtlas.isReady();
         if (useSpriteHud) {
             this.renderSpriteHud(batch, shapes, font);
         }
 
-        // Centered overworld purification bar — shown in both HUD modes.
         this.renderPurificationBar(batch, shapes, font);
 
-        // Color palette — mirrors webclient style.css (#1a1218cc panels,
-        // #3a2a38 borders, #c8a86e tan accent). Pulled here so any tweak
-        // touches one spot.
         final Color cPanel  = new Color(0.10f, 0.07f, 0.09f, 0.95f);
         final Color cBorder = new Color(0.23f, 0.16f, 0.22f, 1f);
         final Color cAccent = new Color(0.78f, 0.66f, 0.43f, 1f);
         final Color cMuted  = new Color(0.53f, 0.47f, 0.41f, 1f);
 
         if (!useSpriteHud) {
-        // ====== SHAPES PASS: all backgrounds in one ShapeRenderer batch ======
+        // One ShapeRenderer batch for all sidebar backgrounds; do not insert
+        // batch flushes into this rect loop.
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA,
                 GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // Sidebar background — dark plum, not the legacy grey, to match the
-        // webclient's almost-black HUD column.
         shapes.setColor(0.07f, 0.05f, 0.06f, 0.96f);
         shapes.rect(startX, 0, panelWidth, OpenRealmGame.height);
 
-        // Fame badge background (tan, will hold "+N FAME" text in sprite pass)
         shapes.setColor(0.20f, 0.15f, 0.10f, 0.95f);
         shapes.rect(startX + PANEL_INSET, FAME_Y, panelWidth - 2 * PANEL_INSET, FAME_H);
 
-        // Stats panel background (between bars and equipment)
         shapes.setColor(cPanel);
         final int statsH = 22 * 3 + 8;
         shapes.rect(startX + PANEL_INSET, this.layoutStatsY - 4,
                 panelWidth - 2 * PANEL_INSET, statsH);
 
-        // Equipment slot backgrounds — uniform grey for ALL equipment slots
-        // regardless of whether they hold an item, so empty slots don't
-        // show the dark panel underneath. Slots are spread across the
-        // full HUD column width via slotX(i) which divides the usable
-        // width into EQUIPMENT_SLOT_COUNT equal cells.
         final Color cSlotBg     = new Color(0.18f, 0.16f, 0.18f, 1f);
         final Color cSlotBorder = new Color(0.30f, 0.24f, 0.28f, 1f);
         final Color cSlotSelected = new Color(0.55f, 0.45f, 0.18f, 1f);
@@ -1575,37 +1369,28 @@ public class PlayerUI {
                 sx = this.slotX(i);
                 sy = this.layoutEquipY;
             }
-            // Track the slot's screen pos so renderItem / hit-test
-            // downstream still see the real layout.
             final Vector2f pos = slotPositions[i];
             pos.x = sx; pos.y = sy;
             shapes.setColor(curr != null && curr.isSelected() ? cSlotSelected : cSlotBg);
             shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
         }
 
-        // MAIN / BACKPACK tab strip — split-tab look (active = tan, inactive = muted)
         final int tabY = this.layoutBagTabY;
         final int tabH = 24;
         final int tabW = (panelWidth - 2 * PANEL_INSET) / 2;
         final int tab1X = startX + PANEL_INSET;
         final int tab2X = startX + PANEL_INSET + tabW;
-        // MAIN tab
         shapes.setColor(this.activeBag == 0 ? 0.20f : 0.10f,
                         this.activeBag == 0 ? 0.15f : 0.08f,
                         this.activeBag == 0 ? 0.10f : 0.10f, 0.95f);
         shapes.rect(tab1X, tabY, tabW, tabH);
-        // BACKPACK tab
         shapes.setColor(this.activeBag == 1 ? 0.20f : 0.10f,
                         this.activeBag == 1 ? 0.15f : 0.08f,
                         this.activeBag == 1 ? 0.10f : 0.10f, 0.95f);
         shapes.rect(tab2X, tabY, tabW, tabH);
-        // Tab underline for the active tab
         shapes.setColor(cAccent);
         shapes.rect(this.activeBag == 0 ? tab1X : tab2X, tabY + tabH - 2, tabW, 2);
 
-        // Inventory page grid — one 5×4 page of 20 cells, paged by activeBag.
-        // Same uniform grey bg pattern as equipment so the grid reads as one
-        // coherent surface regardless of which slots hold items.
         for (int i = 0; i < page.length; i++) {
             final Slots curr = page[i];
             float sx, sy;
@@ -1622,10 +1407,6 @@ public class PlayerUI {
             shapes.rect(sx, sy, SLOT_SIZE, SLOT_SIZE);
         }
 
-        // Ground loot slot backgrounds — persistent 4x2 grid that always
-        // shows the same slot layout while a loot container is open, so
-        // the panel reads as a uniform grid (matching equipment / bag
-        // rows) instead of a sparse cluster of grey blobs.
         if (!this.isTrading && !this.isGroundLootEmpty()) {
             for (int i = 0; i < this.groundLoot.length; i++) {
                 Slots curr = this.groundLoot[i];
@@ -1644,59 +1425,40 @@ public class PlayerUI {
             }
         }
 
-        // HP/MP/XP bar shapes
         this.hp.renderShapes(shapes);
         this.mp.renderShapes(shapes);
         this.xp.renderShapes(shapes);
 
-        // HP / MP potion quick-slot backgrounds, side by side under the bags.
         final int potionY = this.layoutPotionY;
         final int potionSize = SLOT_SIZE;
         final int potionGapX = 12;
         final int potionTotalW = potionSize * 2 + potionGapX;
         final int potionStartX = startX + (panelWidth - potionTotalW) / 2;
-        // HP potion (Z) — red, blue stripe like webclient #hp-potion-slot
         shapes.setColor(0.55f, 0.10f, 0.10f, 0.95f);
         shapes.rect(potionStartX, potionY, potionSize, potionSize);
-        // MP potion (X) — blue
         shapes.setColor(0.10f, 0.18f, 0.55f, 0.95f);
         shapes.rect(potionStartX + potionSize + potionGapX, potionY, potionSize, potionSize);
 
         shapes.end();
 
-        // Light pass for borders / dividers — gives the panels a webclient-y
-        // outline without forcing every rect to be a stroked rect above.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(cBorder);
         shapes.rect(startX + PANEL_INSET, FAME_Y, panelWidth - 2 * PANEL_INSET, FAME_H);
         shapes.rect(startX + PANEL_INSET, this.layoutStatsY - 4,
                 panelWidth - 2 * PANEL_INSET, statsH);
-        // Equipment row underline (separates from bag rows below)
         shapes.line(startX + PANEL_INSET, this.layoutEquipY + SLOT_SIZE + 4,
                     startX + panelWidth - PANEL_INSET, this.layoutEquipY + SLOT_SIZE + 4);
         shapes.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
 
-        // ====== SPRITE PASS: all item sprites + text in one SpriteBatch ======
         batch.begin();
 
-        // BAG tab labels — centered horizontally AND vertically. Vertical
-        // formula matches TextField's centering: text baseline at
-        // `tabY + (tabH + gl.height)/2`, which puts the glyph visually centered
-        // in the tab rect rather than sitting on its bottom edge.
-        GlyphLayout gl = new GlyphLayout();
-        gl.setText(font, "MAIN");
-        float bagY = tabY + (tabH + gl.height) / 2f - 10f;
-        font.setColor(this.activeBag == 0 ? cAccent : cMuted);
-        float bag1X = tab1X + (tabW - gl.width) / 2f;
-        font.draw(batch, "MAIN", bag1X, bagY);
-        font.setColor(this.activeBag == 1 ? cAccent : cMuted);
-        gl.setText(font, "BACKPACK");
-        float bag2X = tab2X + (tabW - gl.width) / 2f;
-        font.draw(batch, "BACKPACK", bag2X, bagY);
+        this.drawCenteredTabLabel(batch, font, "MAIN", tab1X, tabY, tabW, tabH,
+                this.activeBag == 0 ? cAccent : cMuted);
+        this.drawCenteredTabLabel(batch, font, "BACKPACK", tab2X, tabY, tabW, tabH,
+                this.activeBag == 1 ? cAccent : cMuted);
         font.setColor(Color.WHITE);
 
-        // HP / MP potion labels + counts + hotkey hints (Z drinks HP, X drinks MP).
         int hpCount = 0, mpCount = 0;
         try {
             if (this.playState.getPlayer() != null) {
@@ -1717,28 +1479,21 @@ public class PlayerUI {
         font.draw(batch, "[X]",       potMpX + 18, potionY + 56);
         font.setColor(Color.WHITE);
 
-        // Equipment items
         for (int i = 0; i < equips.length; i++) {
             if (equips[i] != null) equips[i].renderItem(batch, slotPositions[i]);
         }
 
-        // Inventory page items
         for (int i = 0; i < page.length; i++) {
             if (page[i] != null) page[i].renderItem(batch, slotPositions[Player.EQUIPMENT_SLOT_COUNT + i]);
         }
 
-        // Ground loot items
         if (!this.isTrading) {
             for (int i = 0; i < this.groundLoot.length; i++) {
                 if (this.groundLoot[i] != null) this.groundLoot[i].renderItem(batch, groundLootPositions[i]);
             }
         }
 
-        // Stack-count overlays — drawn AFTER all sprites so the "xN" text
-        // sits on top of the slot icon. Web parity: main.js' updateInventoryUI
-        // draws the .item-stack span over the item face for stackable items
-        // with count > 1. Only inventory + ground-loot stacks make sense
-        // (equipment is non-stackable in the current item set).
+        // Stack counts drawn AFTER all sprites so "xN" sits on top of the icon.
         for (int i = 0; i < page.length; i++) {
             if (page[i] != null) page[i].renderStackCount(batch, font, slotPositions[Player.EQUIPMENT_SLOT_COUNT + i]);
         }
@@ -1748,27 +1503,18 @@ public class PlayerUI {
             }
         }
 
-        // HP/MP/XP bar text
         this.hp.renderText(batch, font);
         this.mp.renderText(batch, font);
         this.xp.renderText(batch, font);
+        }
 
-        // (Difficulty / fame badge text removed alongside the shapes pass
-        // above — see note there.)
-        } // end if (!useSpriteHud) — sprite HUD draws bars/items in renderSpriteHud
-
-        // Trade UI (still uses old rendering for now - it's conditional/rare)
         if (this.isTrading) {
             this.renderTradeUI(batch, shapes, font, startX, panelWidth);
         }
 
-        // Render nearby players list — and, when the player is in a party,
-        // a SEPARATE party-members list in its own chrome above nearby.
-        // Sprite HUD reroutes both into dedicated bottom-left panels; the
-        // legacy path keeps the old single-panel right-sidebar layout.
+        // Sprite HUD reroutes nearby + party into dedicated bottom-left panels;
+        // the legacy path keeps the single right-sidebar layout.
         if (useSpriteHud && this.spriteHudNearbyEnabled) {
-            // Party panel (top) — only when in a party. Uses its own anchor
-            // so it lives in the upper chrome, not nested inside nearby.
             if (this.spriteHudPartyEnabled) {
                 final int prevNearbyY = this.layoutNearbyY;
                 this.layoutNearbyY = this.spriteHudPartyY;
@@ -1776,9 +1522,6 @@ public class PlayerUI {
                         this.spriteHudPartyX, this.spriteHudPartyW);
                 this.layoutNearbyY = prevNearbyY;
             }
-            // Nearby panel (bottom). renderNearbyPlayers will NOT also draw
-            // the party section because we pass useExternalParty=true via
-            // the suppressInternalParty flag set above.
             final int prevNearbyY = this.layoutNearbyY;
             this.layoutNearbyY = this.spriteHudNearbyY;
             this.suppressInternalParty = true;
@@ -1787,10 +1530,11 @@ public class PlayerUI {
             this.suppressInternalParty = false;
             this.layoutNearbyY = prevNearbyY;
         } else {
-            // Legacy single-panel layout — party still renders inside nearby.
             this.renderNearbyPlayers(batch, shapes, font, startX, panelWidth);
         }
 
+        // Inspect panel draws under the tooltips so a hovered equipment tooltip sits on top.
+        this.renderPartyMemberInspect(batch, shapes, font);
         if (this.activeTooltip != null) {
             this.activeTooltip.render(batch, shapes, font);
         }
@@ -1805,15 +1549,12 @@ public class PlayerUI {
         this.renderPlayerContextMenu(batch, shapes, font);
         this.renderTradeRequestPopup(batch, shapes, font);
         this.renderPartyInvitePrompt(batch, shapes, font);
-        if (!useSpriteHud) this.renderStats(batch, font); // sprite HUD draws stats in renderSpriteHud
+        if (!useSpriteHud) this.renderStats(batch, font);
         this.renderPortalPrompt(batch, shapes, font);
         this.renderInteractPrompt(batch, shapes, font);
         this.playerChat.render(batch, shapes, font);
 
         if (this.minimap.isInitialized()) {
-            // Position: sprite-HUD owns minimap layout (set inside renderSpriteHud
-            // → panel.container.large at top-left). Legacy path falls back to
-            // the right-sidebar position.
             if (!useSpriteHud) {
                 final int hudPanelW = OpenRealmGame.width / 5;
                 final int hudPanelX = OpenRealmGame.width - hudPanelW;
@@ -1821,13 +1562,8 @@ public class PlayerUI {
                         OpenRealmGame.height / 4));
                 this.minimap.setLayout(hudPanelX + PANEL_INSET, this.layoutMinimapY, size);
             }
-            // Wrap update + render in a try/catch so a transient failure
-            // inside the minimap (e.g. mid-realm-transition state where the
-            // Pixmap rebuild touches still-clearing tile data) doesn't
-            // propagate into the LWJGL render loop and kill the whole game.
-            // The portal-enter crash was a NullPointerException / Pixmap
-            // size assertion fired here; without this guard the JVM exits
-            // before the user can see anything.
+            // Guard the minimap: a transient failure (e.g. Pixmap rebuild mid
+            // realm-transition) must not propagate into the render loop and kill the game.
             try {
                 this.minimap.update();
                 this.minimap.render(batch, shapes);
@@ -1836,10 +1572,7 @@ public class PlayerUI {
             }
         }
 
-        // (Sprite-HUD already drawn earlier in render() when atlas is ready.)
-
-        // Web-parity overlays render last so they sit on top of the HUD.
-        // Each one is a no-op when its `visible` / `active` flag is false.
+        // Overlays render last so they sit on top of the HUD; each is a no-op when hidden.
         this.realmTransition.update();
         this.realmTransition.render(batch, shapes, font);
         this.forgeWindow.update();
@@ -1858,32 +1591,21 @@ public class PlayerUI {
         this.metricsWindow.update();
         this.metricsWindow.render(batch, shapes, font);
 
-        // Dev-stats overlay removed — the top-left corner now hosts the
-        // minimap panel. PerfMetrics still ticks for any other consumers
-        // (debug logs, future overlay re-enable) but doesn't render.
         PerfMetrics.get().onFrame();
     }
 
     /**
-     * Centered trade overlay built from the single panel.hud.trade chrome
-     * (v3 atlas). The container sprite already paints the title bar, the
-     * two name boxes, both 5x4 grids and the green/red buttons; this method
-     * blits it once and overlays the live text, item icons, selection
-     * borders and click targets at each sub-panel's atlas offset. Webclient
-     * parity with the #trade-overlay block in trade.js.
-     *
-     * Left grid  — MY main page (inventory[5..24]); every cell is clickable
-     *              to toggle trade selection. Right grid — PARTNER's main
-     *              page (read-only).
+     * Centered trade overlay: blit the panel.hud.trade chrome, then overlay live
+     * text, item icons, selection borders and click targets. Left grid = MY main
+     * page (inventory[5..24], clickable); right grid = partner's page (read-only).
      */
     private void renderTradeUI(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
                                 int startX, int panelWidth) {
         if (!UiAtlas.isReady()) return;
         final int s = UiAtlas.getDisplayScale();
         final UiComponent cTrade = UiAtlas.componentOf("panel.hud.trade");
-        if (cTrade == null) return; // atlas not loaded — bail to avoid NPE
+        if (cTrade == null) return;
 
-        // ---- Layout — center the container chrome on the screen. ----
         final int panelW = cTrade.getW() * s;
         final int panelH = cTrade.getH() * s;
         final int ox = (OpenRealmGame.width  - panelW) / 2;
@@ -1894,7 +1616,6 @@ public class PlayerUI {
         this.ensureTradeButtons(confirmRect, cancelRect);
         this.ensureTradeMyButtons();
 
-        // ---- Dimmed backdrop. ----
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -1904,20 +1625,15 @@ public class PlayerUI {
         shapes.end();
         batch.begin();
 
-        // ---- Container chrome. ----
         final TextureRegion rTrade = UiAtlas.region("panel.hud.trade");
         if (rTrade != null) {
             batch.draw(rTrade, ox, oy, panelW, panelH);
         }
 
-        // ---- Names + status text. The own name is role-colored, the
-        //       partner cyan; the title bar reflects the overall state. ----
         final Player me = (this.playState != null) ? this.playState.getPlayer() : null;
         final String myName    = (me != null && me.getName() != null) ? me.getName() : "YOU";
         final String partner   = (this.tradePartnerName != null) ? this.tradePartnerName : "...";
-        // Confirmed flags come from the live UpdateTradePacket (server
-        // broadcasts NetInventorySelection.confirmed). My own confirmed
-        // also mirrors the local flag in case the broadcast lags a frame.
+        // myTradeConfirmed mirrors the local flag in case the server broadcast lags a frame.
         final NetInventorySelection mySel    = this.getMyTradeSelection();
         final NetInventorySelection theirSel = this.getOtherPlayerSelection();
         final boolean iConfirmed    = this.myTradeConfirmed || (mySel != null && mySel.isConfirmed());
@@ -1937,7 +1653,6 @@ public class PlayerUI {
         this.drawCenteredText(batch, font, partner, this.tradeSubRect("panel.hud.trade.player1", cTrade, ox, oy, s));
         font.setColor(Color.WHITE);
 
-        // ---- Slot grids — the full 20-slot main page on each side. ----
         final int[][] myCells   = UiAtlas.gridCells("panel.hud.trade.player0.inv");
         final int[][] theirCells = UiAtlas.gridCells("panel.hud.trade.player1.inv");
         final int count = Player.TRADE_SLOT_COUNT;
@@ -1950,18 +1665,13 @@ public class PlayerUI {
                 final GameItem item = (slot != null) ? slot.getItem() : null;
                 final boolean selected = slot != null && slot.isSelected();
                 this.drawTradeSlot(batch, shapes, r[0], r[1], r[2], r[3], item, selected);
-                // Re-anchor the click target onto this cell so an overlay
-                // click routes through the same toggle as the sidebar.
                 if (this.tradeMyButtons != null && this.tradeMyButtons[i] != null) {
                     this.tradeMyButtons[i].getPos().x = r[0];
                     this.tradeMyButtons[i].getPos().y = r[1];
                 }
             }
         }
-        // Partner side — items come from the snapshot captured at
-        // trade-accept (partnerInventory); selection flags come from the
-        // live UpdateTradePacket. The on-wire selection packet carries no
-        // items, so .getGameItems() on it would NPE on null itemRefs.
+        // Partner items come from the trade-accept snapshot; the on-wire selection carries no items.
         final Boolean[] theirFlags = (theirSel != null) ? theirSel.getSelection() : null;
         final GameItem[] theirItems = this.partnerInventory;
         if (theirCells != null) {
@@ -1976,8 +1686,7 @@ public class PlayerUI {
             }
         }
 
-        // ---- Button labels. The colored button art is baked into the
-        //       container sprite, so we only overlay the centered text. ----
+        // Button art is baked into the container sprite; only overlay the centered label.
         font.setColor(Color.WHITE);
         this.drawCenteredText(batch, font, iConfirmed ? "Confirmed" : "Confirm", confirmRect);
         this.drawCenteredText(batch, font, "Cancel", cancelRect);
@@ -2011,25 +1720,12 @@ public class PlayerUI {
     private void drawCenteredText(SpriteBatch batch, BitmapFont font, String text, float[] rect) {
         if (text == null || rect == null) return;
         final GlyphLayout gl = new GlyphLayout(font, text);
-        // Matches drawTradeButton's vertical centering (font.draw y is the
-        // text-box top under the y-down ortho camera).
         font.draw(batch, text,
                 rect[0] + (rect[2] - gl.width)  / 2f,
                 rect[1] + (rect[3] + gl.height) / 2f - gl.height * 0.15f);
     }
 
-    /** Pop-up "X wants to trade — Accept / Decline" surfaced under the
-     *  right HUD column. Lazy-builds the two buttons on first render
-     *  so they sit underneath whatever the right column currently
-     *  resolves to. Buttons clear themselves on click and feed
-     *  /accept or /decline through the existing chat command path
-     *  (no need to actually type the command). Webclient parity. */
-    /**
-     * Phase 4 — party invite prompt with Accept/Decline buttons. Sits on
-     * the LEFT side of the screen (matches the webclient placement) so
-     * the player doesn't have to type /party accept. Auto-dismisses after
-     * 60s to match the server-side invite TTL.
-     */
+    /** Party-invite Accept/Decline prompt on the left; auto-dismisses after the 60s server TTL. */
     private void renderPartyInvitePrompt(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.pendingPartyInviteFrom == null) return;
         if (System.currentTimeMillis() > this.pendingPartyInviteExpiresAt) {
@@ -2041,7 +1737,6 @@ public class PlayerUI {
         final int boxW = 220;
         final int boxH = 80;
         final int boxX = 16;
-        // Center vertically — 28% from top matches the web placement.
         final int boxY = OpenRealmGame.height - (OpenRealmGame.height * 28 / 100) - boxH;
         if (this.partyInviteAcceptBtn == null || this.partyInviteDeclineBtn == null) {
             final int btnW = (boxW - 24) / 2;
@@ -2062,18 +1757,11 @@ public class PlayerUI {
                 this.partyInviteDeclineBtn = null;
             });
         }
-        batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f);
-        shapes.rect(boxX, boxY, boxW, boxH);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
-        shapes.rect(boxX, boxY, boxW, boxH);
-        shapes.end();
-        batch.begin();
+        UiRender.panel(batch, shapes, boxX, boxY, boxW, boxH,
+                new Color(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f),
+                new Color(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f));
         font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
         font.draw(batch, "PARTY INVITE", boxX + 10, boxY + boxH - 8);
         font.setColor(1f, 0.94f, 0.62f, 1f);
@@ -2093,8 +1781,6 @@ public class PlayerUI {
         final int boxW = panelW;
         final int boxH = 80;
         final int boxX = OpenRealmGame.width - panelW - 16;
-        // Sit underneath the inventory bag (~700 px) so it's clearly
-        // visible without overlapping minimap/equip-stats above it.
         final int boxY = OpenRealmGame.height - 16 - 36 - 8 - boxH - 16;
         if (this.tradeRequestAcceptBtn == null || this.tradeRequestDeclineBtn == null) {
             final int btnW = (boxW - 24) / 2;
@@ -2116,24 +1802,15 @@ public class PlayerUI {
             });
         }
 
-        // Background panel — same palette as the trade overlay header.
-        batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f);
-        shapes.rect(boxX, boxY, boxW, boxH);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
-        shapes.rect(boxX, boxY, boxW, boxH);
-        shapes.end();
-        batch.begin();
+        UiRender.panel(batch, shapes, boxX, boxY, boxW, boxH,
+                new Color(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f),
+                new Color(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f));
         font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
         font.draw(batch, this.pendingTradeRequestFrom + " wants to trade", boxX + 10, boxY + 22);
         font.setColor(Color.WHITE);
 
-        // Accept (green) / Decline (red) buttons.
         this.drawTradeButton(batch, shapes, font, this.tradeRequestAcceptBtn,
                 "ACCEPT", new Color(0.25f, 0.78f, 0.35f, 1f));
         this.drawTradeButton(batch, shapes, font, this.tradeRequestDeclineBtn,
@@ -2141,14 +1818,10 @@ public class PlayerUI {
         Gdx.gl.glDisable(GL20.GL_BLEND);
     }
 
-    /** Render a single trade-overlay slot: optional yellow selection
-     *  border + recessed background + item icon. Centralized so my-side
-     *  and partner-side render identically. */
+    /** One trade-overlay slot: selection border + item icon (the cell recess is baked into the sprite). */
     private void drawTradeSlot(SpriteBatch batch, ShapeRenderer shapes,
                                 float x, float y, float w, float h,
                                 GameItem item, boolean selected) {
-        // The cell recess is part of the panel.hud.trade sprite, so we only
-        // overlay the selection border and the item icon here.
         if (selected) {
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -2169,28 +1842,14 @@ public class PlayerUI {
     private void drawTradeButton(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
                                   Button b, String label, Color bg) {
         if (b == null) return;
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(bg);
-        shapes.rect(b.getPos().x, b.getPos().y, b.getWidth(), b.getHeight());
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0, 0, 0, 0.8f);
-        shapes.rect(b.getPos().x, b.getPos().y, b.getWidth(), b.getHeight());
-        shapes.end();
-        batch.begin();
+        UiRender.panel(batch, shapes, b.getPos().x, b.getPos().y, b.getWidth(), b.getHeight(),
+                bg, new Color(0, 0, 0, 0.8f));
         final GlyphLayout gl = new GlyphLayout(font, label);
         font.setColor(Color.WHITE);
-        // font.draw y is the TOP of the text bbox in y-down ortho (NOT
-        // the baseline). To vertically center: text_top = box_top +
-        // (box_h - text_h)/2 + text_h ≈ box_top + (box_h + text_h)/2 ?
-        // No — for TOP convention, text_top = box_top + (box_h-text_h)/2
-        // centers the text. The previous +text_h pushed it bottom-aligned.
         font.draw(batch, label,
                 b.getPos().x + (b.getWidth()  - gl.width)  / 2f,
                 b.getPos().y + (b.getHeight() + gl.height) / 2f - gl.height * 0.15f);
     }
-
 
     private TextureRegion getClassIcon(int classId) {
         TextureRegion cached = this.classIconCache.get(classId);
@@ -2261,13 +1920,8 @@ public class PlayerUI {
                     this.hoveredPlayer = null;
                 }
             });
-            // Open the trade/tp context menu on left-click RELEASE
-            // (onMouseUp). Releasing rather than pressing means the
-            // same-frame `handleContextMenuInput` doesn't see a fresh
-            // mouse-down and dismiss the menu we just opened —
-            // justClicked there requires a transition from up→down,
-            // which only happens on the NEXT click (which IS a menu
-            // option click, the path we want).
+            // Open the menu on RELEASE so handleContextMenuInput's mouse-down
+            // edge-trigger doesn't dismiss it the same frame.
             btn.onMouseUp(event -> {
                 this.contextMenuPlayer = hoverTarget;
                 this.contextMenuX = btnX + btnW + 4;
@@ -2283,19 +1937,14 @@ public class PlayerUI {
     private void renderNearbyPlayers(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, int startX, int panelWidth) {
         this.refreshNearbyPlayerButtons(startX, panelWidth);
 
-        // Phase 4 — Party section sits ABOVE the nearby list when the
-        // player is in a party. In the legacy single-panel layout it
-        // renders here (inline above the nearby header). The sprite-HUD
-        // two-panel layout calls renderPartyMembers separately into its
-        // own chrome and sets suppressInternalParty so we don't double-
-        // render it here.
+        // Party section sits above nearby (inline in the legacy layout); the
+        // sprite HUD draws it in its own chrome and sets suppressInternalParty.
         final int partyConsumed = this.suppressInternalParty
                 ? 0
                 : this.renderPartyMembers(batch, shapes, font, startX, panelWidth);
 
         int headerY = this.layoutNearbyY + partyConsumed;
-        font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent (matches name + level)
-        // Matches webclient #nearby-section label ("Players Nearby").
+        font.setColor(0.78f, 0.66f, 0.43f, 1f);
         font.draw(batch, "Players Nearby", startX, headerY);
         font.setColor(Color.WHITE);
 
@@ -2314,24 +1963,15 @@ public class PlayerUI {
             int x = startX + (col * colWidth);
             int y = startY + (row * entryHeight);
 
-            // Class icon — sized to the row so the avatar reads cleanly
-            // alongside the name. Sprite is centered vertically against
-            // the text baseline.
             TextureRegion icon = this.getClassIcon(p.getClassId());
             if (icon != null) {
                 batch.draw(icon, x, y + (entryHeight - iconSize) / 2f, iconSize, iconSize);
             }
 
-            // Hovered row: keep the row color the same as the role color
-            // (so the user still sees the role) but brighten with a yellow
-            // tint via blend. Simplest: just override to YELLOW when hovered,
-            // which matches the prior behavior the user expects.
             final Color nameColor = (this.hoveredPlayer == p)
                     ? Color.YELLOW
                     : roleColorFor(p.getChatRole());
             font.setColor(nameColor);
-            // Full name, no clip — the panel is wide enough now and the
-            // tooltip-on-hover already shows the canonical name anyway.
             font.draw(batch, p.getName(),
                     x + iconSize + 6,
                     y + (entryHeight + 10) / 2);
@@ -2339,12 +1979,8 @@ public class PlayerUI {
         font.setColor(Color.WHITE);
     }
 
-    /**
-     * Render the party-members section above the nearby-players list.
-     * Mirrors webclient trade.js _renderPartySection: gold-tinted member
-     * rows with class icon, name, and stacked HP/MP mini-bars. Returns the
-     * pixel height consumed so the caller can offset the nearby section
-     * below us. Returns 0 when the player isn't in a party.
+    /** Party-members section above nearby: class icon, name, HP/MP mini-bars, cd strip.
+     *  Returns the pixel height consumed, or 0 when not in a party.
      */
     private int renderPartyMembers(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
                                     int startX, int panelWidth) {
@@ -2355,79 +1991,84 @@ public class PlayerUI {
 
         final long localId = this.playState.getPlayer() != null
                 ? this.playState.getPlayer().getId() : 0L;
-        // Build display list — skip self so the panel matches webclient.
+        final long leaderId = this.playState.getPartyLeaderId();
+        final boolean localIsLeader = leaderId == localId;
         List<NetPartyMember> toDraw = new ArrayList<>();
         for (NetPartyMember m : members) {
             if (m != null && m.getPlayerId() != localId) toDraw.add(m);
         }
 
-        // Slightly taller rows so the cooldown strip below HP/MP has room.
-        final int rowH = 44;
-        final int iconSize = 24;
-        final int rowGap = 2;
-        final int cdCellSize = 14;
-        final int cdCellGap = 2;
-        // Reset per-cell hit-test cache before populating it this frame —
-        // members may leave/rejoin between frames and we don't want stale
-        // rects firing tooltips for cells that aren't drawn anymore.
+        // Cards enlarged for an at-a-glance party snapshot; the 5 ability cells
+        // auto-size to span the bar width so cooldowns read clearly.
+        final int rowH = 54;
+        final int iconSize = 30;
+        final int rowGap = 3;
+        final int cdCellGap = 3;
         this._lastPartyAbilityCells.clear();
+        this._lastPartyPassiveCells.clear();
+        this._lastPartyMemberRows.clear();
+        this._lastPartyMemberRefs.clear();
         int headerY = this.layoutNearbyY;
-        font.setColor(1.00f, 0.85f, 0.36f, 1f); // gold accent
-        // Header text mirrors webclient #party-section: "Players In Party N/4"
-        // (count includes self so the user sees their own membership).
+        font.setColor(1.00f, 0.85f, 0.36f, 1f);
         font.draw(batch, "Players In Party  " + members.length + "/4", startX, headerY);
         font.setColor(Color.WHITE);
         int y = headerY + 12;
         final long nowMs = System.currentTimeMillis();
         for (NetPartyMember m : toDraw) {
+            this._lastPartyMemberRows.add(new float[] { startX, y, panelWidth, rowH });
+            this._lastPartyMemberRefs.add(m);
             TextureRegion icon = this.getClassIcon(m.getClassId());
             if (icon != null) {
                 batch.draw(icon, startX, y + (rowH - iconSize) / 2f, iconSize, iconSize);
             }
             String name = m.getName() != null ? m.getName() : "?";
-            if (name.length() > 14) name = name.substring(0, 14);
+            if (name.length() > 12) name = name.substring(0, 12);
+            if (m.getPlayerId() == leaderId) name = "* " + name;
             font.setColor(1.00f, 0.94f, 0.62f, 1f);
             font.draw(batch, name, startX + iconSize + 6, y + 11);
             font.setColor(Color.WHITE);
+            if (localIsLeader) {
+                font.setColor(0xe0 / 255f, 0x40 / 255f, 0x40 / 255f, 1f);
+                font.draw(batch, "x", startX + panelWidth - 12, y + 11);
+                font.setColor(Color.WHITE);
+            }
             final float hpPct = m.getMaxHealth() > 0
                     ? Math.max(0f, Math.min(1f, m.getHealth() / (float) m.getMaxHealth())) : 0f;
             final float mpPct = m.getMaxMana() > 0
                     ? Math.max(0f, Math.min(1f, m.getMana() / (float) m.getMaxMana())) : 0f;
             final int barX = startX + iconSize + 6;
             final int barW = panelWidth - (iconSize + 6) - 4;
-            final int hpY = y + 14;
-            final int mpY = hpY + 5;
-            // Cooldown strip — 4 mini ability icons under the HP/MP bars.
-            // Each cell is a small sprite of the bound ability with a dark
-            // overlay that drains from the top as the cooldown ticks down.
-            // Mirrors the webclient party-cd-strip behavior.
-            final Integer[] bindings = m.getHotbarBindings();
-            final Long[]    cdEnds   = m.getAbilityCooldownEnds();
-            final int cdY = mpY + 5;
+            final int hpY = y + 16;
+            final int mpY = hpY + 6;
+            final int cdY = mpY + 6;
             final int cdStripX = barX;
+            final int cdCellSize = Math.max(12, Math.min(24, (barW - 4 * cdCellGap) / 5));
+            final Integer[] bindings = m.getHotbarBindings();
+            final Long[] cdEnds = m.getAbilityCooldownEnds();
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(0.10f, 0.06f, 0.06f, 0.88f);
-            shapes.rect(barX, hpY, barW, 4);
+            shapes.rect(barX, hpY, barW, 5);
             shapes.setColor(0.78f, 0.06f, 0.19f, 0.95f);
-            shapes.rect(barX, hpY, barW * hpPct, 4);
+            shapes.rect(barX, hpY, barW * hpPct, 5);
             shapes.setColor(0.06f, 0.06f, 0.12f, 0.88f);
-            shapes.rect(barX, mpY, barW, 3);
+            shapes.rect(barX, mpY, barW, 4);
             shapes.setColor(0.31f, 0.44f, 1.00f, 0.95f);
-            shapes.rect(barX, mpY, barW * mpPct, 3);
-            // Cell backplates so missing-icon cells still register visually.
-            for (int i = 0; i < 4; i++) {
+            shapes.rect(barX, mpY, barW * mpPct, 4);
+            for (int i = 0; i < 5; i++) {
                 final float cx = cdStripX + i * (cdCellSize + cdCellGap);
                 shapes.setColor(0.10f, 0.07f, 0.03f, 0.92f);
                 shapes.rect(cx, cdY, cdCellSize, cdCellSize);
             }
             shapes.end();
             batch.begin();
-            // Ability icons + cooldown overlay (drain-from-top dark rect).
+            // Passive cell (index 0): class icon marks the passive; cache for hover.
+            if (icon != null) {
+                batch.draw(icon, cdStripX + 1, cdY + 1, cdCellSize - 2, cdCellSize - 2);
+            }
+            this._lastPartyPassiveCells.add(new float[] {
+                    cdStripX, cdY, cdCellSize, cdCellSize, m.getClassId() });
             final Integer[] invested = m.getHotbarInvested();
-            // Cache the member's stats once outside the per-slot loop so we
-            // can stash them alongside each cell entry for the AbilityTooltip
-            // hover path (server-broadcast computed stats via NetPartyMember).
             final NetStats netStats = m.getStats();
             final int sVit = netStats != null ? netStats.getVit() : 0;
             final int sWis = netStats != null ? netStats.getWis() : 0;
@@ -2444,11 +2085,7 @@ public class PlayerUI {
                     final Ability ab = GameDataManager.ABILITIES == null ? null
                             : GameDataManager.ABILITIES.get(aid);
                     if (ab == null) continue;
-                    final float cx = cdStripX + i * (cdCellSize + cdCellGap);
-                    // Stash cell rect + ability + invested-SP + member's
-                    // computed stats so updateTooltip can spawn an
-                    // AbilityTooltip with the same stat-scaled damage
-                    // breakdown the owner sees on their own hotbar.
+                    final float cx = cdStripX + (i + 1) * (cdCellSize + cdCellGap);
                     final int inv = (invested != null && i < invested.length && invested[i] != null)
                             ? invested[i] : 0;
                     this._lastPartyAbilityCells.add(new float[] {
@@ -2463,8 +2100,6 @@ public class PlayerUI {
                             batch.draw(spr.getRegion(), cx + 1, cdY + 1, cdCellSize - 2, cdCellSize - 2);
                         }
                     }
-                    // Cooldown overlay (dark rect from top) — height tracks
-                    // remaining/total. Drawn via shapes pass.
                     final long cdEnd = cdEnds != null && i < cdEnds.length && cdEnds[i] != null ? cdEnds[i] : 0L;
                     final long baseCd = ab.getBaseCooldownMs();
                     if (cdEnd > nowMs && baseCd > 0) {
@@ -2479,8 +2114,6 @@ public class PlayerUI {
                     }
                 }
             }
-            // Dim if member is in a different realm — applied to whole row
-            // after sprites are drawn by drawing a translucent grey overlay.
             final boolean sameRealm = m.getRealmId() == 0L
                     || this.playState.getRealmManager().getRealm() == null
                     || this.playState.getRealmManager().getRealm().getRealmId() == m.getRealmId();
@@ -2497,6 +2130,136 @@ public class PlayerUI {
         return Math.max(0, y - headerY + 8);
     }
 
+    /** Class passive for a given classId (party members carry only classId). */
+    private PassiveAbility classPassive(int classId) {
+        if (GameDataManager.CHARACTER_CLASSES == null || GameDataManager.PASSIVES == null) return null;
+        final CharacterClassModel cls = GameDataManager.CHARACTER_CLASSES.get(classId);
+        if (cls == null || cls.getAbilityTree() == null) return null;
+        final int id = cls.getAbilityTree().getPassive();
+        return id > 0 ? GameDataManager.PASSIVES.get(id) : null;
+    }
+
+    /**
+     * Inspect panel for the hovered party member: full stats + equipped items.
+     * Stays open while the cursor is over the row or the panel, so the player
+     * can move onto an equipment icon to see its full item tooltip like an
+     * inventory hover. Populates the equip-cell caches for that hover pass.
+     */
+    private void renderPartyMemberInspect(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
+        this._lastPartyEquipRects.clear();
+        this._lastPartyEquipItems.clear();
+        final NetPartyMember m = this.hoveredPartyMember;
+        if (m == null || this._hoveredPartyRowRect == null) {
+            this._partyInspectPanelRect = null;
+            return;
+        }
+        final NetStats st = m.getStats();
+        final NetGameItem[] equip = m.getEquipment();
+        final int padX = 10;
+        final int padY = 10;
+        final int lineH = 15;
+        final int equipSlot = 30;
+        final int equipGap = 4;
+        final int panelW = 5 * equipSlot + 4 * equipGap + padX * 2;
+        final int panelH = padY * 2 + 7 * lineH + 8 + equipSlot;
+
+        final float[] row = this._hoveredPartyRowRect;
+        float px = row[0] + row[2] + 8;
+        if (px + panelW > OpenRealmGame.width - 4) px = row[0] - panelW - 8;
+        if (px < 4) px = 4;
+        float py = row[1] - 4;
+        if (py + panelH > OpenRealmGame.height - 4) py = OpenRealmGame.height - 4 - panelH;
+        if (py < 4) py = 4;
+        this._partyInspectPanelRect = new float[] { px, py, panelW, panelH };
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
+        UiRender.panel(batch, shapes, px, py, panelW, panelH,
+                new Color(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.96f),
+                new Color(0x4a / 255f, 0x3a / 255f, 0x58 / 255f, 1f));
+
+        final CharacterClass cls = CharacterClass.valueOf(m.getClassId());
+        final String className = (cls != null) ? cls.name() : "Unknown";
+        int ty = (int) py + padY + 12;
+        font.setColor(0xff / 255f, 0xf0 / 255f, 0xa0 / 255f, 1f);
+        font.draw(batch, m.getName() != null ? m.getName() : "Player", px + padX, ty);
+        ty += lineH;
+        font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
+        font.draw(batch, "Lv " + m.getLevel() + " " + className, px + padX, ty);
+        ty += lineH;
+        font.setColor(0xe0 / 255f, 0x55 / 255f, 0x55 / 255f, 1f);
+        font.draw(batch, "HP: " + m.getHealth() + "/" + m.getMaxHealth(), px + padX, ty);
+        ty += lineH;
+        font.setColor(0x55 / 255f, 0x77 / 255f, 0xe0 / 255f, 1f);
+        font.draw(batch, "MP: " + m.getMana() + "/" + m.getMaxMana(), px + padX, ty);
+        ty += lineH;
+        font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
+        if (st != null) {
+            final int colX2 = (int) px + panelW / 2;
+            font.draw(batch, "STR " + st.getStr(), px + padX, ty);
+            font.draw(batch, "VIT " + st.getVit(), colX2, ty);
+            ty += lineH;
+            font.draw(batch, "DEF " + st.getDef(), px + padX, ty);
+            font.draw(batch, "WIS " + st.getWis(), colX2, ty);
+            ty += lineH;
+            font.draw(batch, "SPD " + st.getSpd(), px + padX, ty);
+            font.draw(batch, "DEX " + st.getDex(), colX2, ty);
+            ty += lineH;
+        } else {
+            ty += lineH * 3;
+        }
+        ty += 8;
+        final int equipY = ty - 4;
+        for (int i = 0; i < 5; i++) {
+            final float sx = px + padX + i * (equipSlot + equipGap);
+            batch.end();
+            shapes.begin(ShapeRenderer.ShapeType.Filled);
+            shapes.setColor(0x2a / 255f, 0x20 / 255f, 0x30 / 255f, 1f);
+            shapes.rect(sx, equipY, equipSlot, equipSlot);
+            shapes.end();
+            shapes.begin(ShapeRenderer.ShapeType.Line);
+            shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
+            shapes.rect(sx, equipY, equipSlot, equipSlot);
+            shapes.end();
+            batch.begin();
+            final NetGameItem ng = (equip != null && i < equip.length) ? equip[i] : null;
+            if (ng != null && ng.getItemId() != -1) {
+                final GameItem gi = ng.asGameItem();
+                final TextureRegion region = GameSpriteManager.ITEM_SPRITES.get(gi.getItemId());
+                if (region != null) {
+                    batch.draw(region, sx + 2, equipY + 2, equipSlot - 4, equipSlot - 4);
+                }
+                this._lastPartyEquipItems.add(gi);
+                this._lastPartyEquipRects.add(new float[] { sx, equipY, equipSlot, equipSlot });
+            }
+        }
+        Gdx.gl.glDisable(GL20.GL_BLEND);
+        font.setColor(Color.WHITE);
+    }
+
+    /** Leader-only party kick: edge-triggered click on the row's "x" sends /party kick {name}. */
+    private void handlePartyKickClick(MouseHandler mouse) {
+        final boolean down = mouse.isPressed(1);
+        final boolean justClicked = down && !this.prevPartyKickMouseDown;
+        this.prevPartyKickMouseDown = down;
+        if (!justClicked || this.playState == null) return;
+        final long localId = this.playState.getPlayer() != null ? this.playState.getPlayer().getId() : 0L;
+        if (this.playState.getPartyLeaderId() != localId) return;
+        final int mx = mouse.getX();
+        final int my = mouse.getY();
+        for (int i = 0; i < this._lastPartyMemberRows.size(); i++) {
+            final float[] r = this._lastPartyMemberRows.get(i);
+            final float kx = r[0] + r[2] - 18;
+            if (mx >= kx && mx < r[0] + r[2] && my >= r[1] && my < r[1] + 16) {
+                final NetPartyMember target = this._lastPartyMemberRefs.get(i);
+                if (target != null && target.getName() != null) {
+                    this.sendServerCommand("party", "kick " + target.getName());
+                }
+                return;
+            }
+        }
+    }
+
     private static Color roleColorFor(String role) {
         if (role == null) return UI_ROLE_DEFAULT;
         switch (role) {
@@ -2509,13 +2272,7 @@ public class PlayerUI {
         }
     }
 
-    /**
-     * Render + input for the player context menu. Mirrors webclient
-     * trade.js {@code showPlayerContextMenu}: header with the player's
-     * name, then "Trade" / "Teleport" rows that send the same SERVER_COMMAND
-     * payloads chat would (/trade {@literal <name>}, /tp {@literal <name>}).
-     * Click anywhere outside dismisses, matching the web behavior.
-     */
+    /** Player context menu: name header + Trade / Teleport rows (send the same /trade, /tp commands). */
     private void renderPlayerContextMenu(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.contextMenuPlayer == null) return;
         final Player p = this.contextMenuPlayer;
@@ -2525,7 +2282,6 @@ public class PlayerUI {
         final int yTp = yTrade + CTX_MENU_OPTION_H;
         final int totalH = CTX_MENU_HEADER_H + 2 * CTX_MENU_OPTION_H;
 
-        // Background + border
         batch.end();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.96f);
@@ -2534,7 +2290,6 @@ public class PlayerUI {
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
         shapes.rect(x, yHeader, CTX_MENU_W, totalH);
-        // Row separators
         shapes.line(x, yTrade, x + CTX_MENU_W, yTrade);
         shapes.line(x, yTp, x + CTX_MENU_W, yTp);
         shapes.end();
@@ -2546,20 +2301,13 @@ public class PlayerUI {
 
         font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
         final String pname = (p.getName() != null) ? p.getName() : "Player";
-        // Fit the name into the 130-px menu width by trimming if needed.
         final String shortName = pname.length() > 10 ? pname.substring(0, 10) : pname;
         font.draw(batch, "Trade with "    + shortName, x + 6, yTrade + 14);
         font.draw(batch, "Teleport to "   + shortName, x + 6, yTp + 14);
         font.setColor(Color.WHITE);
     }
 
-    /**
-     * Mouse-driven hit-test for the context menu. Called from input()
-     * after the rest of the input pipeline so a click on a menu row
-     * doesn't get swallowed by anything below. Edge-triggered on
-     * mouse-down via prevContextMenuMouseDown to mirror the chat-tab
-     * click pattern; holding the button doesn't keep firing.
-     */
+    /** Edge-triggered context-menu hit-test; called last in input() so no row click is swallowed. */
     private void handleContextMenuInput(MouseHandler mouse) {
         final boolean down = mouse.isPressed(1);
         final boolean justClicked = down && !this.prevContextMenuMouseDown;
@@ -2577,7 +2325,6 @@ public class PlayerUI {
         final boolean inX = mx >= x && mx <= x + CTX_MENU_W;
         final boolean inMenuY = my >= yHeader && my <= yEnd;
         if (!inX || !inMenuY) {
-            // Click-elsewhere — dismiss without action (matches web).
             this.contextMenuPlayer = null;
             return;
         }
@@ -2594,12 +2341,7 @@ public class PlayerUI {
         this.contextMenuPlayer = null;
     }
 
-    /**
-     * Send a SERVER_COMMAND CommandPacket — same path
-     * {@link PlayerChat#input} uses for typed slash commands. Delegates
-     * the parsing to {@link ServerCommandMessage#parseFromInput} so
-     * server-side handling stays uniform.
-     */
+    /** Send a SERVER_COMMAND packet, same path PlayerChat uses for typed slash commands. */
     private void sendServerCommand(String command, String arg) {
         try {
             final String full = "/" + command + " " + (arg == null ? "" : arg);
@@ -2618,46 +2360,24 @@ public class PlayerUI {
         final Player p = this.hoveredPlayer;
         final int padX = 12;
         final int padY = 12;
-        // Tooltip anchors flush against the right edge of the entire
-        // nearby-players panel chrome — never overlaps the player list
-        // entries. Webclient parity (#player-tooltip lands to the right
-        // of the entry; we anchor to the panel for cleaner alignment).
         final int tooltipW = 240;
 
-        // Pull stats — guard nulls so a freshly-added remote player whose
-        // UpdatePacket hasn't landed yet doesn't NPE.
         final int hp = p.getHealth();
         final int mp = p.getMana();
         final int maxHp = (p.getStats() != null) ? p.getStats().getHp() : 0;
         final int maxMp = (p.getStats() != null) ? p.getStats().getMp() : 0;
         final CharacterClass cls = CharacterClass.valueOf(p.getClassId());
         final String className = (cls != null) ? cls.name() : "Unknown";
-        // Level: derive from broadcast experience via the same
-        // ExperienceModel the local player level uses. UpdatePacket
-        // ships experience for every player so this resolves nearby
-        // players, not just self. Falls back to "?" if the experience
-        // model hasn't loaded yet (cold-boot only).
         int level = -1;
         try {
             if (GameDataManager.EXPERIENCE_LVLS != null) {
                 level = GameDataManager.EXPERIENCE_LVLS.getLevel(p.getExperience());
             }
-        } catch (Exception ignored) { /* leave as -1 */ }
+        } catch (Exception ignored) { }
         final String levelStr = (level > 0) ? ("Lv " + level + " ") : "";
 
-        // Equipment slots 0-3. Server's stripped UpdatePacket
-        // (UpdatePacket.fromPlayerWithoutInventory) ships these for
-        // remote players; null until the first broadcast lands.
         final GameItem[] equips = p.getSlots(0, Player.EQUIPMENT_SLOT_COUNT);
 
-        // Vertical layout (top→down inside the tooltip):
-        //   nameRow   16   "Name [role]"
-        //   classRow  14   "Lv N Class"
-        //   hpRow     14   "HP: cur/max"
-        //   mpRow     14   "MP: cur/max"
-        //   gap        8
-        //   equipRow  40   4 slot icons (36 + 4 padding)
-        // Plus padY top + padY bottom.
         final int nameRowH  = 18;
         final int classRowH = 16;
         final int hpRowH    = 16;
@@ -2669,39 +2389,25 @@ public class PlayerUI {
         final int tooltipH = padY + nameRowH + classRowH + hpRowH + mpRowH
                             + gapBeforeEquip + equipRowH + padY;
 
-        // X anchor: flush right of the nearby-players panel chrome.
-        // Falls back to next-to-button if the panel rect isn't tracked
-        // (e.g. legacy non-sprite-HUD render path).
         int tooltipX = (this.spriteHudNearbyPanelRight > 0)
                 ? this.spriteHudNearbyPanelRight + 8
                 : this.hoveredBtnX + this.hoveredBtnW + 6;
         if (tooltipX + tooltipW > OpenRealmGame.width - 4) {
             tooltipX = Math.max(4, OpenRealmGame.width - tooltipW - 4);
         }
-        // Y anchor: vertically center against the hovered entry row,
-        // clamped to stay inside the window.
         int tooltipY = this.hoveredBtnY - 4;
         if (tooltipY < 4) tooltipY = 4;
         if (tooltipY + tooltipH > OpenRealmGame.height - 4) {
             tooltipY = Math.max(4, OpenRealmGame.height - tooltipH - 4);
         }
 
-        // Background panel — match the webclient's tooltip palette.
-        batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f);
-        shapes.rect(tooltipX, tooltipY, tooltipW, tooltipH);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0x4a / 255f, 0x3a / 255f, 0x58 / 255f, 1f);
-        shapes.rect(tooltipX, tooltipY, tooltipW, tooltipH);
-        shapes.end();
-        batch.begin();
+        UiRender.panel(batch, shapes, tooltipX, tooltipY, tooltipW, tooltipH,
+                new Color(0x1a / 255f, 0x12 / 255f, 0x18 / 255f, 0.94f),
+                new Color(0x4a / 255f, 0x3a / 255f, 0x58 / 255f, 1f));
 
         int y = tooltipY + padY + nameRowH;
-        // Name (role-colored). Append "[role]" badge if non-empty.
         font.setColor(roleColorFor(p.getChatRole()));
         final String nameLine = p.getName() == null ? "Player" : p.getName();
         font.draw(batch, nameLine, tooltipX + padX, y);
@@ -2711,30 +2417,19 @@ public class PlayerUI {
             font.draw(batch, "[" + p.getChatRole() + "]",
                     tooltipX + padX + nameGl.width + 6, y);
         }
-        // Level + class — webclient parity ("Lv 12 Wizard").
         y += classRowH;
         font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
         font.draw(batch, levelStr + className, tooltipX + padX, y);
-        // HP (cur/max) — red.
         y += hpRowH;
         font.setColor(0xe0 / 255f, 0x55 / 255f, 0x55 / 255f, 1f);
         font.draw(batch, "HP: " + hp + "/" + maxHp, tooltipX + padX, y);
-        // MP (cur/max) — blue.
         y += mpRowH;
         font.setColor(0x55 / 255f, 0x77 / 255f, 0xe0 / 255f, 1f);
         font.draw(batch, "MP: " + mp + "/" + maxMp, tooltipX + padX, y);
-        // Equipment row — left-justified beneath the stat lines so the
-        // 4 slot icons line up with the left edge of the text block.
         y += gapBeforeEquip;
-        // Left-justified beneath the stat lines (was centered, which
-        // made it visually disconnect from the text block above).
         int equipStartX = tooltipX + padX;
         for (int i = 0; i < equips.length; i++) {
             final int sx = equipStartX + i * (equipSlot + equipGap);
-            // Slot bg — uniform muted purple regardless of contents,
-            // mirrors webclient .tooltip-equip-slot styling and matches
-            // the inventory slot color so the surface reads as the same
-            // material across the whole HUD.
             batch.end();
             shapes.begin(ShapeRenderer.ShapeType.Filled);
             shapes.setColor(0x2a / 255f, 0x20 / 255f, 0x30 / 255f, 1f);
@@ -2756,12 +2451,7 @@ public class PlayerUI {
         font.setColor(Color.WHITE);
     }
 
-    /**
-     * Detect a click on the BAG 1 / BAG 2 tab strip and toggle the active
-     * bag. Edge-triggered on mouse press (using prevMouseDown) so holding
-     * the button doesn't flip back and forth every frame.
-     */
-    private boolean prevTabMouseDown = false;
+    /** Edge-triggered bag-tab click toggling the active page (legacy sidebar fallback). */
     private void handleBagTabClick(MouseHandler mouse) {
         boolean down = mouse.isPressed(1);
         boolean justClicked = down && !this.prevTabMouseDown;
@@ -2804,7 +2494,6 @@ public class PlayerUI {
         int mouseY = (int) mouse.getY();
 
         if (mouse.isPressed(1) && !this.isDragging && this.dragSourceIndex == -1) {
-            // Detect drag start: find slot with non-null dragPos
             for (int i = 0; i < this.inventory.length; i++) {
                 Slots slot = this.inventory[i];
                 if (slot != null && slot.getDragPos() != null && slot.getItem() != null) {
@@ -2817,10 +2506,6 @@ public class PlayerUI {
                 for (int i = 0; i < this.groundLoot.length; i++) {
                     Slots slot = this.groundLoot[i];
                     if (slot != null && slot.getDragPos() != null && slot.getItem() != null) {
-                        // Wire protocol: ground loot is GROUND_LOOT_IDX
-                        // = [21..28]. Was `i + 20` which collided with
-                        // backpack[15] (slot 20) AND produced server-
-                        // rejected fromIdx values for all loot picks.
                         this.dragSourceIndex = i + MoveItemPacket.groundLootBase();
                         this.dragStartPos = new Vector2f(mouseX, mouseY);
                         break;
@@ -2829,7 +2514,6 @@ public class PlayerUI {
             }
         }
 
-        // Only set isDragging after mouse moves past threshold
         if (this.dragSourceIndex != -1 && !this.isDragging && this.dragStartPos != null) {
             float dist = new Vector2f(mouseX, mouseY).distanceTo(this.dragStartPos);
             if (dist > DRAG_THRESHOLD) {
@@ -2837,18 +2521,9 @@ public class PlayerUI {
             }
         }
 
-        // On mouse release while a drag source is armed — whether or not the
-        // >8px DRAG_THRESHOLD was ever crossed. Gating this on isDragging broke
-        // drag-to-drop: dragStartPos is sampled a frame late (the source is only
-        // seen one frame after the press), so a quick drag off the panel never
-        // moved 8px from it, isDragging stayed false, and the release silently
-        // reset without dropping. Releasing over a DIFFERENT slot/area is the
-        // move/drop; releasing over the source slot stays a no-op (executeDrop
-        // early-returns when from == target), matching plain-click semantics.
+        // Fire on release even if the drag threshold was never crossed: dragStartPos
+        // is sampled a frame late, so gating on isDragging drops quick drags.
         if (!mouse.isPressed(1) && this.dragSourceIndex != -1) {
-            // Drag onto the OTHER page's tab → relocate to that page's first
-            // empty slot (webclient parity). Falls through to normal slot
-            // hit-testing when the release isn't over a tab.
             final int dropPage = this.tabHitPage(mouseX, mouseY);
             int targetIndex = this.tabDropTargetSlot(mouseX, mouseY);
             if (targetIndex < 0) {
@@ -2856,9 +2531,6 @@ public class PlayerUI {
             }
             if (targetIndex != this.dragSourceIndex) {
                 this.executeDrop(this.dragSourceIndex, targetIndex);
-                // Relocating onto a page tab: switch to that page so the moved
-                // item is visible where it landed instead of silently jumping
-                // to the hidden page.
                 if (dropPage >= 0 && targetIndex >= 0) {
                     this.activeBag = dropPage;
                 }
@@ -2869,18 +2541,8 @@ public class PlayerUI {
         }
     }
 
-    /**
-     * Hit-test a screen point against every slot rectangle (including
-     * empty slots) and return the slot's WIRE PROTOCOL index, or -1 for
-     * nothing-hit. Wire layout (per MoveItemPacket): equipment 0..4,
-     * backpack 5..20, ground loot 21..28.
-     *
-     * Sprite-HUD uses the atlas grid cells; each panel anchor is cached
-     * by renderSpriteHud so we can compute the cell rect for empty slots
-     * (which have no Button to interrogate). Falls back to the legacy
-     * sidebar layout when the atlas isn't ready yet — that path uses the
-     * pre-Phase-1B 4-equip/8-backpack/8-loot sidebar.
-     */
+    /** Hit-test a screen point against every slot rect (incl. empty) and return the
+     *  wire index (equipment 0..4, backpack 5..24, ground loot 25..34), or -1. */
     private int findSlotAtPositionByLayout(int mouseX, int mouseY) {
         this.recomputeLayout();
 
@@ -2937,10 +2599,7 @@ public class PlayerUI {
             return -1;
         }
 
-        // Legacy sidebar fallback (atlas not ready). Post-Phase-1B layout:
-        // 5 equipment slots (0..4) and one 5×4 inventory page paged by
-        // activeBag → real slot pageSlotIndex(cell). Ground loot is a 4×2
-        // grid at the bottom. Indices match the wire protocol.
+        // Legacy sidebar fallback (atlas not ready).
         int panelWidth = (OpenRealmGame.width / 5);
         int startX = OpenRealmGame.width - panelWidth;
         if (mouseX < startX || mouseX > OpenRealmGame.width) return -1;
@@ -2952,7 +2611,6 @@ public class PlayerUI {
         if (col >= 0 && mouseY >= this.layoutEquipY && mouseY < this.layoutEquipY + SLOT_SIZE) {
             return col;
         }
-        // Inventory page: 5 columns × 4 rows down from layoutBag1Y.
         if (col >= 0 && col < 5) {
             for (int row = 0; row < 4; row++) {
                 final int ry = this.layoutBag1Y + row * (SLOT_SIZE + SLOT_GAP);
@@ -2961,7 +2619,6 @@ public class PlayerUI {
                 }
             }
         }
-        // Ground loot — 4 columns × 2 rows.
         if (col >= 0 && col < 4) {
             int gl0 = this.groundLootRowY(0);
             int gl1 = this.groundLootRowY(1);
@@ -2978,12 +2635,7 @@ public class PlayerUI {
 
         this.setActionTime();
 
-        // Forge drop-zones take priority when the forge window is up:
-        // dragging an inventory item onto the Target / Crystal / Essence
-        // slot binds it to that forge slot (web parity, forge.js
-        // dropzones). Without this, drag-drop into the forge silently
-        // fell through to executeDrop's normal swap path and the forge
-        // slots stayed empty no matter what the player tried.
+        // Forge drop-zones take priority when the forge window is up.
         if (this.forgeWindow.isVisible() && fromIndex >= 0 && fromIndex < this.inventory.length) {
             final int mx = Gdx.input.getX();
             final int my = Gdx.input.getY();
@@ -2993,9 +2645,7 @@ public class PlayerUI {
             int crystalStatId = -1;
             if (srcItem != null) {
                 crystalItemId = srcItem.getItemId();
-                // The crystal's stat id is encoded as itemId - 808
-                // (see ServerFameStoreHelper.CRYSTAL_ITEM_MIN). For non-
-                // crystal drops the value is ignored by the forge slot.
+                // Crystal stat id is encoded as itemId - 808 (ServerFameStoreHelper.CRYSTAL_ITEM_MIN).
                 if (crystalItemId >= 808 && crystalItemId <= 815) {
                     crystalStatId = crystalItemId - 808;
                 }
@@ -3005,10 +2655,7 @@ public class PlayerUI {
             }
         }
 
-        // Potion-storage drop-zone takes priority when its window is up.
-        // Inventory→storage moves go through ItemStoreMovePacket, not
-        // the normal MoveItemPacket pipeline, because the storage state
-        // lives off-inventory on the server.
+        // Potion-storage moves go through ItemStoreMovePacket (storage lives off-inventory).
         if (this.potionStorageWindow.isVisible() && fromIndex >= 0 && fromIndex < this.inventory.length) {
             final int mx = Gdx.input.getX();
             final int my = Gdx.input.getY();
@@ -3025,12 +2672,10 @@ public class PlayerUI {
         boolean targetIsEquip = targetIndex >= 0 && targetIndex < Player.EQUIPMENT_SLOT_COUNT;
 
         if (targetIndex == -1) {
-            // Dropped outside any slot: drop item
             this.playState.getRealmManager().moveItem(-1, fromIndex, true, false);
         } else if (fromIsGround && !targetIsGround) {
-            // Ground -> inventory/equip: pickup. HP/MP potions route to the
-            // potion counters on the server; pinning targetSlot to a fixed
-            // inventory index avoids the equip-validation path on slots 0-3.
+            // Ground -> inventory/equip pickup. HP/MP potions pin to a fixed slot
+            // to skip the equip-validation path on slots 0-3.
             final Slots srcSlot = this.groundLoot[fromIndex - MoveItemPacket.groundLootBase()];
             final GameItem srcItem = srcSlot != null ? srcSlot.getItem() : null;
             if (srcItem != null
@@ -3041,19 +2686,13 @@ public class PlayerUI {
                 this.playState.getRealmManager().moveItem(targetIndex, fromIndex, false, false);
             }
         } else if (!fromIsGround && targetIsGround) {
-            // Inventory/equip -> ground area: drop
             this.playState.getRealmManager().moveItem(-1, fromIndex, true, false);
         } else {
-            // inv->equip, equip->inv, inv->inv: swap/equip/unequip
             this.playState.getRealmManager().moveItem(targetIndex, fromIndex, false, false);
         }
     }
 
-    /**
-     * Bottom-right interaction prompt — pinned to the lower-left corner of
-     * the right HUD column inside a black box so the text is legible against
-     * any tile background. Format: "PRESS SPACE TO ENTER {NAME}".
-     */
+    /** Bottom-center "PRESS SPACE TO ENTER {NAME}" portal prompt. */
     private void renderPortalPrompt(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
         try {
@@ -3070,23 +2709,14 @@ public class PlayerUI {
                 } else if (pm != null && pm.getLabel() != null && !pm.getLabel().isEmpty()) {
                     name = pm.getLabel();
                 }
-            } catch (Exception ignored) { /* fall back to generic label */ }
+            } catch (Exception ignored) { }
             this.renderHintBox(batch, shapes, font, "PRESS SPACE TO ENTER " + name.toUpperCase(), 0);
-        } catch (Exception ignored) { /* never block render on a UI hint */ }
+        } catch (Exception ignored) { }
     }
 
-    /**
-     * Forge / fame-store interaction prompt — same visual style as the
-     * portal prompt but stacked above it. Surfaced because the F-key
-     * interaction is invisible without a UI hint. Suppressed while any
-     * interactive modal (forge, fame store, potion storage) is open,
-     * since the player is already inside the UI they would otherwise
-     * be prompted to enter.
-     */
+    /** F-key interaction prompt (forge / fame store / etc.), stacked above the portal prompt. */
     private void renderInteractPrompt(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
-        // Hide prompt while the player is already in the relevant modal —
-        // "press F" is meaningless once they're inside.
         if (this.forgeWindow != null && this.forgeWindow.isVisible()) return;
         if (this.fameStoreWindow != null && this.fameStoreWindow.isVisible()) return;
         if (this.exchangeMarketWindow != null && this.exchangeMarketWindow.isVisible()) return;
@@ -3101,22 +2731,15 @@ public class PlayerUI {
             else if ("exchange_market".equalsIgnoreCase(type)) label = "PRESS F TO OPEN EXCHANGE MARKET";
             else label = "PRESS F TO INTERACT";
             this.renderHintBox(batch, shapes, font, label, 1);
-        } catch (Exception ignored) { /* never block render on a UI hint */ }
+        } catch (Exception ignored) { }
     }
 
-    /**
-     * Shared hint-box renderer for bottom-right interaction prompts. Stack
-     * index lifts the box upward so multiple hints can show at once.
-     */
+    /** Shared bottom-center hint box; stackIndex lifts it above the previous hint. */
     private void renderHintBox(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, String text, int stackIndex) {
         final GlyphLayout gl = new GlyphLayout(font, text);
         final int padX = 14, padY = 10;
         final int boxW = (int) gl.width + padX * 2;
         final int boxH = (int) gl.height + padY * 2;
-        // Center horizontally on the screen, anchor ABOVE the bottom-
-        // center hotbar (panel.hud.equipment is 36 px tall at 1x =
-        // 72 px at 2x display scale, plus the 16-px margin above it).
-        // Stack additional hints (e.g. forge prompt) ABOVE this one.
         final int hotbarReserve = 72 + 16;
         final int boxX = (OpenRealmGame.width  - boxW) / 2;
         final int boxY = OpenRealmGame.height - hotbarReserve - 12 - boxH - stackIndex * (boxH + 6);
@@ -3136,12 +2759,7 @@ public class PlayerUI {
         batch.begin();
 
         font.setColor(0.95f, 0.85f, 0.45f, 1f);
-        // Under the flipped y-down cam, font.draw's y is the TOP of the text, so
-        // center the block: top = boxTop + (boxH - textH)/2. The previous
-        // "+ gl.height/2" form dropped the text below center (riding the bottom).
-        font.draw(batch, text,
-                boxX + (boxW - gl.width) / 2f,
-                boxY + (boxH - gl.height) / 2f);
+        UiRender.drawCenteredIn(batch, font, text, boxX, boxY, boxW, boxH);
         font.setColor(Color.WHITE);
     }
 
@@ -3151,12 +2769,10 @@ public class PlayerUI {
         final int panelWidth = OpenRealmGame.width / 5;
         final int panelStartX = OpenRealmGame.width - panelWidth;
         final int textX = panelStartX + PANEL_INSET;
-        // Two columns inside the panel; right column starts halfway across
         final int colGap = (panelWidth - 2 * PANEL_INSET) / 2;
         final int yOffset = 22;
         final int startY = this.layoutStatsY + 14;
 
-        // Player name + level header (top of HUD column)
         font.setColor(new Color(0.78f, 0.66f, 0.43f, 1f));
         long fame = GameDataManager.EXPERIENCE_LVLS.getBaseFame(this.playState.getPlayer().getExperience());
         final String header;
@@ -3168,7 +2784,6 @@ public class PlayerUI {
         }
         font.draw(batch, header, textX, HEADER_Y);
 
-        // Fame badge text — centered inside the gold pill drawn earlier
         font.setColor(new Color(1.00f, 0.85f, 0.42f, 1f));
         final String fameStr = (fame > 0L) ? ("+ " + fame + " FAME") : "+ 0 FAME";
         GlyphLayout fameLayout = new GlyphLayout(font, fameStr);
@@ -3192,28 +2807,10 @@ public class PlayerUI {
         font.setColor(Color.WHITE);
     }
 
-    // ===================================================================
-    // Sprite HUD prototype (panel.hud.main only, for visual validation).
-    // ===================================================================
-
     /**
-     * Comprehensive sprite-HUD renderer — webclient parity layout. Draws all
-     * 8 panels at their final-target screen positions, populates them with
-     * live game data, and repositions the existing slot {@link Button}
-     * instances so click/drag hit-tests land at the new screen coordinates.
-     *
-     * Layout:
-     *   top-left      panel.container.large  →  minimap viewport
-     *   top-right     panel.container.small  →  name / fame / HP-MP-XP bars
-     *   below ↑       panel.container.small  →  8-stat grid
-     *   below ↑       panel.hud.main         →  player view + equip ring + 4×4 inv
-     *   below ↑       panel.hud.inv_ext      →  ground loot (when present)
-     *   bottom-center panel.hud.equipment    →  4-slot equipment hotbar (mirror inv 0..3)
-     *   flank ↑       panel.hud.potion ×2    →  HP / MP potions
-     *   bottom-left   panel.container.small  →  chat
-     *
-     * Coordinate system: PlayerUI uses Y-down (camera setToOrtho yDown=true),
-     * so child sheet-Y offsets translate directly to screen-Y.
+     * Sprite-HUD renderer: draws all panels at their screen positions, populates them
+     * with live data, and repositions slot Buttons so click/drag hit-tests follow.
+     * Y-down camera, so child sheet-Y offsets map directly to screen-Y.
      */
     private void renderSpriteHud(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
         if (!UiAtlas.isReady()) return;
@@ -3222,16 +2819,6 @@ public class PlayerUI {
         final int H = OpenRealmGame.height;
         final int margin = 16;
 
-        // Component lookups for the new dedicated panels. Names mirror the
-        // atlas component IDs exactly:
-        //   panel.hud.player_info        — class sprite + name + HP/MP/Fame bars
-        //   panel.hud.chat               — chat with dedicated text_area + input_box rects
-        //   panel.hud.equipment_with_stats — 4 equip slots + 8-stat grid
-        //   panel.hud.inv_only           — 4×4 inventory grid
-        //   panel.hud.inv_ext            — 4×2 ground-loot grid (conditional)
-        //   panel.hud.equipment          — bottom-center equipment hotbar
-        //   panel.hud.potion ×2          — HP / MP potion ovals
-        //   panel.container.small        — minimap chrome
         final UiComponent cPlayerInfo = UiAtlas.componentOf("panel.hud.player_info");
         final UiComponent cChat       = UiAtlas.componentOf("panel.hud.chat");
         final UiComponent cEquipStats = UiAtlas.componentOf("panel.hud.equipment_with_stats");
@@ -3245,29 +2832,18 @@ public class PlayerUI {
         if (cPlayerInfo == null || cChat == null || cEquipStats == null
                 || cInvOnly == null || cMinimap == null) return;
 
-        // ---- Compute panel screen positions ----
-        // LEFT  : playerInfo (top) → chat (bottom-anchored)
-        // RIGHT : minimap → equipStats → invOnly → invExt (top-down)
-        // BOT   : hotbar with potion ovals flanking
         final float playerInfoW = cPlayerInfo.getW() * s;
         final float playerInfoH = cPlayerInfo.getH() * s;
         final float playerInfoX = margin;
         final float playerInfoY = margin;
 
-        // Nearby-players panel sits BETWEEN playerInfo (top) and chat (bottom)
-        // on the left column. Uses panel.container.small chrome. When the
-        // player is in a party, a SECOND identical panel is stamped above
-        // nearby to hold the party-members list — same chrome twice, one
-        // labelled "PARTY", one "PLAYERS NEARBY", stacked with an 8px gap.
-        // Available vertical space is split between them.
+        // Nearby panel sits between playerInfo and chat on the left column. In a party,
+        // a second chrome is stamped above it and the vertical space is split in half.
         final float nearbyW = cNearby != null ? cNearby.getW() * s : 0;
         final float nearbyFullH = cNearby != null ? cNearby.getH() * s : 0;
         final float nearbyX = margin;
         final boolean partyVisible = (this.playState != null && this.playState.getPartyId() != 0L);
         final float panelGap = 8f;
-        // When in a party: split available height in half so two equal-sized
-        // chromes stack within the original nearby slot. Otherwise nearby
-        // gets the full slot to itself.
         final float partyH  = partyVisible ? (nearbyFullH - panelGap) / 2f : 0f;
         final float nearbyH = partyVisible ? (nearbyFullH - panelGap) / 2f : nearbyFullH;
         final float partyY  = playerInfoY + playerInfoH + 8;
@@ -3307,8 +2883,7 @@ public class PlayerUI {
         final float hotbarX = (W - hotbarW) / 2f;
         final float hotbarY = H - margin - hotbarH;
 
-        // Potion slots live INSIDE the bar art now — position from their atlas
-        // sub-rects relative to the bar's top-left (no flanking ovals).
+        // Potion slots live inside the bar art; position from their atlas sub-rects.
         final float potionW = cHpPot != null ? cHpPot.getW() * s : 0;
         final float potionH = cHpPot != null ? cHpPot.getH() * s : 0;
         final float hpPotX = cHpPot != null ? hotbarX + (cHpPot.getX() - cHotbar.getX()) * s : 0;
@@ -3316,7 +2891,7 @@ public class PlayerUI {
         final float mpPotX = cMpPot != null ? hotbarX + (cMpPot.getX() - cHotbar.getX()) * s : 0;
         final float mpPotY = cMpPot != null ? hotbarY + (cMpPot.getY() - cHotbar.getY()) * s : 0;
 
-        // ---- Pass 1: panel chrome (atlas blits) ----
+        // Panel chrome blits.
         final TextureRegion rPlayerInfo = UiAtlas.region("panel.hud.player_info");
         final TextureRegion rChat       = UiAtlas.region("panel.hud.chat");
         final TextureRegion rEquipStats = UiAtlas.region("panel.hud.equipment_with_stats");
@@ -3325,9 +2900,6 @@ public class PlayerUI {
         final TextureRegion rHotbar     = UiAtlas.region("panel.hud.ability_bar");
 
         if (rPlayerInfo != null) batch.draw(rPlayerInfo, playerInfoX, playerInfoY, playerInfoW, playerInfoH);
-        // Nearby-players panel chrome (small container, between playerInfo and chat).
-        // When in a party, also stamp a SECOND identical chrome ABOVE nearby
-        // for the party-members list — two distinct panels, same look.
         final TextureRegion rNearby = UiAtlas.region("panel.container.small");
         if (partyVisible && rNearby != null && cNearby != null) {
             batch.draw(rNearby, nearbyX, partyY, nearbyW, partyH);
@@ -3337,11 +2909,9 @@ public class PlayerUI {
         if (rInvOnly    != null) batch.draw(rInvOnly,    invOnlyX,    invOnlyY,    invOnlyW,    invOnlyH);
         if (lootVisible && rInvExt != null) batch.draw(rInvExt, invExtX, invExtY, invExtW, invExtH);
         if (rHotbar     != null) batch.draw(rHotbar,     hotbarX,     hotbarY,     hotbarW,     hotbarH);
-        // Chat chrome — only when chat is expanded.
         final boolean chatExpanded = (this.playerChat != null) && !this.playerChat.isCollapsed();
         if (rChat != null && chatExpanded) batch.draw(rChat, chatX, chatY, chatW, chatH);
 
-        // ---- Pass 2: player class sprite into player_info.player rect ----
         final UiComponent rPlayerSprite = UiAtlas.componentOf("panel.hud.player_info.player");
         if (rPlayerSprite != null && this.playState != null && this.playState.getPlayer() != null) {
             final float vx = playerInfoX + (rPlayerSprite.getX() - cPlayerInfo.getX()) * s;
@@ -3357,27 +2927,17 @@ public class PlayerUI {
                     batch.draw(frame, vx + (vw - spriteSize) / 2f, vy + (vh - spriteSize) / 2f,
                             spriteSize, spriteSize);
                 }
-            } catch (Exception ignore) { /* sprite sheet not ready yet */ }
+            } catch (Exception ignore) { }
             batch.setColor(prev);
         }
 
-        // ---- Pass 3: equipment slots (panel.hud.equipment_with_stats.0..4)
-        //              + inventory grid (panel.hud.inv_only.grid). ----
-        // Phase 1B: 5 equipment slots (weapon, armor, gauntlets, boots, ring).
-        // Cache panel origins so findSlotAtPositionByLayout (drop hit-test)
-        // can compute each slot's rectangle even when the slot is empty
-        // and has no Button to interrogate.
+        // Cache panel origins so findSlotAtPositionByLayout can rect empty slots (no Button).
         this.spriteHudEquipStatsX = (int) equipStatsX;
         this.spriteHudEquipStatsY = (int) equipStatsY;
         this.spriteHudInvOnlyX = (int) invOnlyX;
         this.spriteHudInvOnlyY = (int) invOnlyY;
-        // Equipment slot frames. The chrome sprite only has 4 slot frames
-        // baked in (pre-Phase-1B art), so the 5th equipment slot rendered
-        // its item floating in empty chrome. Draw a dark backdrop +
-        // border under EVERY equipment slot here so all 5 look uniform.
-        // Drawn via ShapeRenderer pass wrapped around the existing batch
-        // — the slight overdraw on slots 0-3 (where chrome already has
-        // a frame) is invisible at the alpha we use.
+        // Draw a dark backdrop + border under every equipment slot so all 5 look uniform
+        // (the chrome sprite only bakes 4 frames).
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -3415,18 +2975,9 @@ public class PlayerUI {
             this.drawHudItemIcon(batch, this.getInventoryItem(i),
                     ex, ey, eq.getW() * s, eq.getH() * s);
         }
-        // Inventory page grid — 20 cells (5×4) paged by activeBag. Each
-        // visible cell c maps to real slot pageSlotIndex(c) = 5 + page*20 + c
-        // so MAIN shows 5..24 and BACKPACK shows 25..44. Cell rects come from
-        // invPageCellRects (atlas grid when it carries 20 cells, else a
-        // synthesized 5×4 grid so the offline V1 atlas still pages cleanly).
         final float[][] invRects = this.invPageCellRects(cInvOnly, invOnlyX, invOnlyY, s);
-        // Park the hidden page's slot buttons off-screen first. Only the
-        // active page's 20 slots get repositioned onto the grid below; the
-        // other page keeps its buttons at the SAME grid coords from when it
-        // was last visible, so both pages' buttons would overlap the same
-        // cells and drag/click would resolve to whichever real index is lower
-        // (the hidden page), moving the wrong item.
+        // Park the hidden page's buttons off-screen; otherwise both pages' buttons
+        // overlap the same cells and a click resolves to the wrong (hidden) slot.
         this.parkInactivePageButtons();
         for (int i = 0; i < invRects.length; i++) {
             final float cx = invRects[i][0];
@@ -3437,22 +2988,11 @@ public class PlayerUI {
             this.repositionSlotButton(this.inventory, slotIdx, cx, cy);
             this.drawHudItemIcon(batch, this.getInventoryItem(slotIdx), cx, cy, cw, ch);
         }
-        // MAIN / BACKPACK page tabs in the inv_only panel header strip.
         this.renderInvPageTabs(batch, shapes, font, cInvOnly, invOnlyX, invOnlyY,
                 invRects, s);
 
-        // Bottom-center hotbar (panel.hud.equipment) — mirrors webclient
-        // ui-widgets.updateAbilityBar layout:
-        //   cell 0      → class passive (always-on, rendered as a NAME label
-        //                  since passives don't carry sprite coords)
-        //   cells 1..4  → active abilities bound via hotbarBindings[0..3];
-        //                  drawn via the standard spriteKey/row/col fields.
-        // The cooldown + SP-pip overlay pass below uses the same offset
-        // (overlay slot N reads hotbarBindings[N-1] / abilityCooldowns[N-1]).
-        // Earlier this class iterated cells 0..4 as if they were all active
-        // bindings, so the passive never appeared and slot 0 displayed an
-        // unrelated active ability whenever hotbarBindings[0] happened to
-        // resolve — neither matched the webclient.
+        // Bottom-center hotbar: cell 0 = passive (name label), cells 1..4 = active
+        // abilities via hotbarBindings[0..3]. The overlay pass below reads binding N-1.
         final UiComponent[] hotbarCells = {
                 UiAtlas.componentOf("panel.hud.ability_bar.passive"),
                 UiAtlas.componentOf("panel.hud.ability_bar.0"),
@@ -3460,8 +3000,6 @@ public class PlayerUI {
                 UiAtlas.componentOf("panel.hud.ability_bar.2"),
         };
         final Player localPlayer = (this.playState != null) ? this.playState.getPlayer() : null;
-        // Per-slot cell coords captured so the post-pass can paint cooldown
-        // overlays + SP pips without re-computing the layout.
         final float[][] hotbarCellPx = new float[HOTBAR_SLOT_COUNT][4]; // [slot] = {x, y, w, h}
         for (int i = 0; i < hotbarCells.length && i < HOTBAR_SLOT_COUNT; i++) {
             final UiComponent cell = hotbarCells[i];
@@ -3476,7 +3014,6 @@ public class PlayerUI {
             hotbarCellPx[i][3] = ch;
             if (localPlayer == null) continue;
             if (i == 0) {
-                // Cell 0 — class passive (always-on, not key-bound).
                 final PassiveAbility pa = localPlayer.getClassPassive();
                 if (pa != null) {
                     final String name = pa.getName() != null ? pa.getName() : "Passive";
@@ -3485,17 +3022,12 @@ public class PlayerUI {
                     final GlyphLayout gl = new GlyphLayout(font, name,
                             Color.valueOf("e8d8b8"), cw - 2, 1, true);
                     final float tx = cx + (cw - gl.width) * 0.5f;
-                    // font.draw y = TOP of the text under the flipped y-down cam,
-                    // and this wraps to multiple lines, so center the whole block:
-                    // top = cell top + (cellH - blockH)/2. (The + variant only
-                    // centers a single line and dropped the block off the bottom.)
+                    // gl wraps to multiple lines, so center the whole block.
                     final float ty = cy + (ch - gl.height) * 0.5f;
                     font.draw(batch, gl, tx, ty);
                     font.getData().setScale(origScale);
                 }
             } else {
-                // Cells 1..4 — active abilities. Binding index is offset by
-                // one because cell 0 is dedicated to the passive.
                 final int bindingIdx = i - 1;
                 final Ability ab = localPlayer.getActiveAbility(bindingIdx);
                 if (ab != null) {
@@ -3503,19 +3035,13 @@ public class PlayerUI {
                 }
             }
         }
-        // Stash for the cooldown/SP overlay pass below (drawn after batch.end()).
         this._lastHotbarCellPx = hotbarCellPx;
 
-        // Cache loot panel coords so buildGroundLootSlotButton can
-        // spawn freshly-built Buttons directly at the sprite-HUD
-        // grid position (instead of the off-screen legacy coords
-        // that dropped every first-click).
         if (cInvExt != null) {
             this.spriteHudInvExtX = (int) invExtX;
             this.spriteHudInvExtY = (int) invExtY;
         }
 
-        // Loot extension (panel.hud.inv_ext) — 8 ground-loot slots when present.
         if (lootVisible && cInvExt != null) {
             final int[][] lootCells = UiAtlas.gridCells("panel.hud.inv_ext.grid");
             for (int i = 0; i < lootCells.length && i < this.groundLoot.length; i++) {
@@ -3558,10 +3084,8 @@ public class PlayerUI {
         if (this.hp != null) this.hp.renderShapes(shapes);
         if (this.mp != null) this.mp.renderShapes(shapes);
         if (this.xp != null) this.xp.renderShapes(shapes);
-        // Hotbar cooldown overlay + SP pip column — drawn after the HP/MP
-        // bars but before batch.begin() so the dark fade sits ON TOP of
-        // the ability icons painted earlier in the batch pass. Mirrors
-        // ui-widgets.updateAbilityBar in the webclient.
+        // Overlay drawn in this shapes pass so the dark cooldown fade sits on top of
+        // the ability icons painted earlier in the batch pass.
         this.renderAbilityHotbarOverlays(shapes, localPlayer);
         shapes.end();
         Gdx.gl.glDisable(GL20.GL_BLEND);
@@ -3570,8 +3094,6 @@ public class PlayerUI {
         if (this.mp != null) this.mp.renderText(batch, font);
         if (this.xp != null) this.xp.renderText(batch, font);
 
-        // ---- Pass 5: name + level into player_info.player_name rect,
-        //              8-stat grid into equipment_with_stats.stats rect. ----
         final UiComponent rNameRect = UiAtlas.componentOf("panel.hud.player_info.player_name");
         if (rNameRect != null && this.playState != null && this.playState.getPlayer() != null) {
             final float nx = playerInfoX + (rNameRect.getX() - cPlayerInfo.getX()) * s;
@@ -3580,10 +3102,10 @@ public class PlayerUI {
                     ? this.playState.getPlayer().getName() : "Player";
             int lvl = 1;
             try { lvl = GameDataManager.EXPERIENCE_LVLS.getLevel(this.playState.getPlayer().getExperience()); }
-            catch (Exception ignore) { /* xp data not yet loaded */ }
+            catch (Exception ignore) { }
             final float origNameScale = font.getData().scaleX;
             font.getData().setScale(0.95f);
-            font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent
+            font.setColor(0.78f, 0.66f, 0.43f, 1f);
             font.draw(batch, nameLine + "  Lv " + lvl, nx + 4, ny + 4);
             font.setColor(Color.WHITE);
             font.getData().setScale(origNameScale);
@@ -3597,25 +3119,18 @@ public class PlayerUI {
             this.renderStatsAt(batch, font, (int) statsX, (int) statsW, (int) statsY, (int) statsH);
         }
 
-        // ---- Pass 6: potion icons + counts inside the oval panels ----
         this.drawPotionWidget(batch, font, hpPotX, hpPotY, potionW, potionH, true);
         this.drawPotionWidget(batch, font, mpPotX, mpPotY, potionW, potionH, false);
 
-        // ---- Pass 7: minimap into panel.container.small (top-RIGHT) ----
         if (this.minimap != null) {
             this.minimap.setLayout((int) minimapX, (int) minimapY, Math.max(32, (int) minimapSide));
         }
 
-        // ---- Pass 8: chat layout — full panel.hud.chat rect; PlayerChat's
-        //              internal layout splits into messages + input. ----
         if (this.playerChat != null) {
             this.playerChat.setLayout((int) chatX, (int) chatY, (int) chatW, (int) chatH);
         }
 
-        // Nearby-players list re-routed into its dedicated bottom-left
-        // panel.container.small. renderNearbyPlayers reads layoutNearbyY
-        // for the section header — set those fields so it lands inside
-        // the right rect.
+        // renderNearbyPlayers reads these + layoutNearbyY to land the list inside the panel.
         this.spriteHudNearbyX = (int)(nearbyX + 8);
         this.spriteHudNearbyW = (int)(nearbyW - 16);
         this.spriteHudNearbyY = (int)(nearbyY + 8);
@@ -3623,69 +3138,24 @@ public class PlayerUI {
         this.spriteHudNearbyPanelTop    = (int)(nearbyY);
         this.spriteHudNearbyPanelBottom = (int)(nearbyY + nearbyH);
         this.spriteHudNearbyEnabled = (cNearby != null);
-        // Party panel content rect — mirrors nearby. Only consulted when
-        // partyVisible is true; renderPartyMembers anchors its header at
-        // spriteHudPartyY so the gold "PARTY N/4" sits inside the upper
-        // chrome stamped above nearby.
         this.spriteHudPartyEnabled = partyVisible && cNearby != null;
         this.spriteHudPartyX = (int)(nearbyX + 8);
         this.spriteHudPartyW = (int)(nearbyW - 16);
         this.spriteHudPartyY = (int)(partyY + 8);
     }
 
-    // Sprite HUD — nearby panel position passed to renderNearbyPlayers().
-    private int spriteHudNearbyX = 0;
-    private int spriteHudNearbyY = 0;
-    private int spriteHudNearbyW = 0;
-    /** Cached sprite-HUD inv_ext (loot bag) panel coords — used by
-     *  buildGroundLootSlotButton so the new Button's bounds are
-     *  spawned at the correct sprite-HUD position from frame 1
-     *  instead of the legacy off-screen slotX/groundLootRowY. */
-    private int spriteHudInvExtX = 0;
-    private int spriteHudInvExtY = 0;
-    /** Cached sprite-HUD invOnly (backpack) panel coords — drop-zone
-     *  hit-testing in findSlotAtPositionByLayout consults the atlas
-     *  grid cells relative to these to compute each backpack slot
-     *  rectangle, including empty slots that have no Button to
-     *  hit-test against. */
-    private int spriteHudInvOnlyX = 0;
-    private int spriteHudInvOnlyY = 0;
-    /** Cached sprite-HUD equipment-with-stats panel coords — same
-     *  reason as spriteHudInvOnly, but for the 5 equipment slots. */
-    private int spriteHudEquipStatsX = 0;
-    private int spriteHudEquipStatsY = 0;
-    private int spriteHudNearbyPanelRight = 0; // outer chrome right edge — tooltip anchors here
-    private int spriteHudNearbyPanelTop = 0;
-    private int spriteHudNearbyPanelBottom = 0;
-    private boolean spriteHudNearbyEnabled = false;
-    // Sprite HUD — second panel stamped above nearby for the party list.
-    private int spriteHudPartyX = 0;
-    private int spriteHudPartyY = 0;
-    private int spriteHudPartyW = 0;
-    private boolean spriteHudPartyEnabled = false;
-    /** When true, renderNearbyPlayers skips its internal renderPartyMembers
-     *  call so the caller can draw the party section in its own panel
-     *  chrome instead (sprite-HUD two-panel layout). */
-    private boolean suppressInternalParty = false;
-
-    /** Move the inventory or groundLoot slot's {@link Button} to a new screen
-     *  position so existing click/right-click handlers fire at the sprite-HUD
-     *  location instead of the legacy sidebar position. The Button's bounds
-     *  Rectangle holds pos by reference, so just mutating pos updates hits. */
+    /** Reposition a slot's Button to a sprite-HUD cell; bounds hold pos by reference so hits track it. */
     private void repositionSlotButton(Slots[] arr, int idx, float x, float y) {
         if (arr == null || idx < 0 || idx >= arr.length) return;
         final Slots slot = arr[idx];
         if (slot == null || slot.getButton() == null) return;
-        // If the slot is currently being dragged, the button pos should follow
-        // the cursor; let the existing drag logic handle that and skip here.
+        // While dragging, the drag logic owns the button pos.
         if (slot.getDragPos() != null) return;
         slot.getButton().getPos().x = x;
         slot.getButton().getPos().y = y;
     }
 
-    /** Render a potion oval's contents — small potion bottle sprite drawn
-     *  on the LEFT half of the oval, count text drawn on the RIGHT half.
-     *  Mirrors the webclient {@code #hp-potion-slot} / {@code #mp-potion-slot}. */
+    /** Potion oval: bottle sprite on the left, count on the right, keybind hint below. */
     private void drawPotionWidget(SpriteBatch batch, BitmapFont font,
                                    float x, float y, float w, float h, boolean hp) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
@@ -3693,13 +3163,10 @@ public class PlayerUI {
         final int count = hp ? p.getHpPotions() : p.getMpPotions();
         final int itemId = hp ? HP_POTION_ITEM_ID : MP_POTION_ITEM_ID;
 
-        // Potion sprite — 8 px source × 2 (icon at HUD scale) = 16px display.
-        // Anchored to the left side of the oval with a small inset.
         final float iconSize = Math.min(h - 4, 18f);
         TextureRegion icon = GameSpriteManager.ITEM_SPRITES != null
                 ? GameSpriteManager.ITEM_SPRITES.get(itemId) : null;
         if (icon == null) {
-            // Lazy-load if the item def hasn't been processed yet.
             final GameItem item = GameDataManager.GAME_ITEMS != null
                     ? GameDataManager.GAME_ITEMS.get(itemId) : null;
             if (item != null) {
@@ -3711,26 +3178,22 @@ public class PlayerUI {
             drawIconOutlined(batch, icon, x + 4, y + (h - iconSize) / 2f, iconSize, iconSize);
         }
 
-        // Count text on the right half of the slot.
         font.setColor(Color.WHITE);
         final String label = String.valueOf(count);
         final GlyphLayout gl = new GlyphLayout(font, label);
         font.draw(batch, label, x + w - gl.width - 6, y + (h + gl.height) / 2f);
 
-        // Keybind hint in parentheses, centered just below the slot.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.6f);
         final String keyHint = hp ? "(Z)" : "(X)";
         final GlyphLayout kgl = new GlyphLayout(font, keyHint);
-        font.setColor(0.78f, 0.66f, 0.43f, 1f); // tan accent
+        font.setColor(0.78f, 0.66f, 0.43f, 1f);
         font.draw(batch, keyHint, x + (w - kgl.width) / 2f, y + h + kgl.height + 1f);
         font.setColor(Color.WHITE);
         font.getData().setScale(origScale);
     }
 
-    /** Variant of {@link #renderStats(SpriteBatch, BitmapFont)} that takes
-     *  explicit panel bounds so the 2-column grid renders inside the
-     *  sprite-HUD's statsBot panel. */
+    /** renderStats variant with explicit panel bounds, for the sprite-HUD stats rect. */
     private void renderStatsAt(SpriteBatch batch, BitmapFont font,
                                 int startX, int panelWidth, int statsY, int panelHeight) {
         if (this.playState == null || this.playState.getPlayer() == null) return;
@@ -3738,15 +3201,9 @@ public class PlayerUI {
         final Stats computed = p.getComputedStats();
         final Stats base     = p.getStats();
         if (computed == null) return;
-        // Six non-HP/MP stats laid out as 2 columns × 3 rows so each
-        // entry has horizontal room for "LBL VAL +BONUS" without
-        // bleeding past the panel edge. Yellow when maxed for class,
-        // green positive bonus / red negative — webclient parity.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.6f);
         final int rowH = 11;
-        // Center the 2-col × 3-row block within the stats rect instead of
-        // letting it cram into the top-left corner.
         final int gridH = rowH * 3;
         final int colTextW = (int) (panelWidth * 0.44f);
         final int blockLeft = startX + Math.max(0, (panelWidth - colTextW * 2) / 2);
@@ -3754,11 +3211,7 @@ public class PlayerUI {
         final int textXcol1 = blockLeft + colTextW;
         final int startY  = statsY + Math.max(2, (panelHeight - gridH) / 2) + 10;
 
-        // Stat order: STR, DEF, SPD, DEX, VIT, WIS — same as before.
-        // Layout (column-major so left col = first 3, right col = last 3):
-        //   STR   DEX
-        //   DEF   VIT
-        //   SPD   WIS
+        // Column-major: left col STR/DEF/SPD, right col DEX/VIT/WIS.
         final int[]    statMaxedIdx = {  3,    6,    4,    5,    2,    7  };
         final String[] statLabels   = { "STR", "DEF", "SPD", "DEX", "VIT", "WIS" };
         final int[] computedVals = { computed.getStr(), computed.getDef(),
@@ -3785,10 +3238,10 @@ public class PlayerUI {
                 gl.setText(font, main);
                 final float bonusX = textX + gl.width + 4;
                 if (bonus > 0) {
-                    font.setColor(0.25f, 0.78f, 0.25f, 1f); // green
+                    font.setColor(0.25f, 0.78f, 0.25f, 1f);
                     font.draw(batch, "+" + bonus, bonusX, y);
                 } else {
-                    font.setColor(0.91f, 0.31f, 0.31f, 1f); // red
+                    font.setColor(0.91f, 0.31f, 0.31f, 1f);
                     font.draw(batch, String.valueOf(bonus), bonusX, y);
                 }
             }
@@ -3797,19 +3250,14 @@ public class PlayerUI {
         font.getData().setScale(origScale);
     }
 
-    /** Static idle-front frame for the HUD preview canvas. Pulls the row/col
-     *  for {@code idle_front} (or {@code idle_side} as fallback) from the
-     *  class's animation data and builds a one-off TextureRegion off the
-     *  class sheet — independent of the in-world Player.spriteSheet, so
-     *  walking / attacking doesn't animate the HUD avatar. */
+    /** One-off idle-front frame for the HUD avatar, built off the class sheet so
+     *  in-world walk/attack animation doesn't move it. */
     private TextureRegion getHudIdleFrame(Player p) {
         if (p == null) return null;
         final int classId = p.getClassId();
         final AnimationModel anim =
                 GameDataManager.getAnimation("player", classId);
         if (anim == null || anim.getAnimations() == null) {
-            // Fallback to the live current frame so SOMETHING shows up
-            // until anim data lands.
             return (p.getSpriteSheet() != null) ? p.getSpriteSheet().getCurrentFrame() : null;
         }
         AnimationSetModel set = anim.getAnimations().get("idle_front");
@@ -3819,14 +3267,12 @@ public class PlayerUI {
         if (set == null || set.getFrames() == null || set.getFrames().isEmpty()) return null;
         final AnimationFrameModel f = set.getFrames().get(0);
         final int dyeId = p.getDyeId();
-        // Dye id is part of the cache key so a re-dye refreshes the avatar.
+        // dyeId is in the cache key so a re-dye refreshes the avatar.
         final String key = classId + ":" + f.getRow() + ":" + f.getCol() + ":" + dyeId;
         TextureRegion cached = _hudIdleCache.get(key);
         if (cached != null) return cached;
         final int spW = anim.getSpriteSize();
         final int spH = anim.getEffectiveSpriteHeight();
-        // Apply the equipped dye (web parity) so the preview matches the in-world
-        // sprite. getDyedRegion returns an already-flipped region.
         if (dyeId > 0) {
             final TextureRegion dyed = SpriteRecolorCache.getDyedRegion(
                     anim.getSpriteKey(), classId, f.getRow(), f.getCol(), spW, spH, spW, spH, dyeId);
@@ -3841,15 +3287,13 @@ public class PlayerUI {
         final TextureRegion region =
                 new TextureRegion(
                         tex, f.getCol() * spW, f.getRow() * spH, spW, spH);
-        // Match GameSpriteManager's flip convention so the avatar isn't
-        // upside-down on the y-down camera.
+        // Match GameSpriteManager's flip convention for the y-down camera.
         region.flip(false, true);
         _hudIdleCache.put(key, region);
         return region;
     }
 
-    /** Inventory accessor that handles both slot-list and direct backing
-     *  array shapes. Returns null for empty / out-of-range. */
+    /** Item at inventory index, or null for empty / out-of-range. */
     private GameItem getInventoryItem(int idx) {
         if (this.inventory == null || idx < 0 || idx >= this.inventory.length) return null;
         final Slots slot = this.inventory[idx];
@@ -3857,9 +3301,7 @@ public class PlayerUI {
         return slot.getItem();
     }
 
-    /** Centered item icon at iconScale × source-size (32×32 for 8px sprites).
-     *  Mirrors {@link Slots#renderItem} so per-item enchant overlays still
-     *  show up. No-op when the cell is empty. */
+    /** Centered item icon; no-op when the cell is empty. 16px+ sprites scale to the cell, 8px stay small. */
     private void drawHudItemIcon(SpriteBatch batch, GameItem item,
                                   float x, float y, float w, float h) {
         if (item == null || item.getItemId() == -1) return;
@@ -3869,17 +3311,13 @@ public class PlayerUI {
         TextureRegion icon = SpriteRecolorCache.getEnchantedItemRegion(item);
         if (icon == null) icon = GameSpriteManager.ITEM_SPRITES.get(item.getItemId());
         if (icon == null) return;
-        // Only 16×16 sprites render enlarged (capped to the cell); 8×8 stay at
-        // their original 32px so the simpler art doesn't look stretched.
         final float iconSize = (icon.getRegionWidth() >= 16)
                 ? Math.min(22f * UiAtlas.getDisplayScale(), Math.min(w, h) - 4f)
                 : 8f * UiAtlas.getIconScale() * UiAtlas.getDisplayScale();
         batch.draw(icon, x + (w - iconSize) / 2f, y + (h - iconSize) / 2f, iconSize, iconSize);
     }
 
-    /** Draw a HUD icon with a 1px black silhouette outline (8 tinted offset copies
-     *  behind the sprite), matching the webclient's drop-shadow stroke on potion +
-     *  ability icons. Leaves the batch color WHITE. */
+    /** Draw a HUD icon with a 1px black silhouette outline (8 offset copies). Leaves batch color WHITE. */
     private void drawIconOutlined(SpriteBatch batch, TextureRegion region, float x, float y, float w, float h) {
         final float o = 1f;
         batch.setColor(0f, 0f, 0f, 0.85f);
@@ -3895,17 +3333,10 @@ public class PlayerUI {
         batch.draw(region, x, y, w, h);
     }
 
-    /**
-     * Draw an ability icon using the standard {@code spriteKey} / {@code row} /
-     * {@code col} fields on {@link Ability} — same convention as every other
-     * data type (items/enemies/tiles).
-     */
+    /** Draw an ability icon via spriteKey/row/col, falling back to the slot number. */
     private void drawAbilityHudIcon(SpriteBatch batch, BitmapFont font, Ability ab,
                                      int number, float x, float y, float w, float h) {
         if (ab == null) return;
-        // Real icon from the class ability sheet (openrealm-ability-icons.png),
-        // resolved via spriteKey/row/col. Falls back to the per-class number if the
-        // sheet sprite isn't available (sheet missing, or ability has no spriteKey).
         final TextureRegion icon = GameSpriteManager.getAbilityIconRegion(ab);
         if (icon != null) {
             drawIconOutlined(batch, icon, x, y, w, h);
@@ -3924,24 +3355,12 @@ public class PlayerUI {
         font.setColor(Color.WHITE);
     }
 
-    /** Cached pixel rects for the 4 hotbar slots, set during the sprite pass
-     *  and consumed by {@link #renderAbilityHotbarOverlays}. Avoids re-running
-     *  the atlas math twice per frame. */
-    private float[][] _lastHotbarCellPx;
-
-    /**
-     * Paint cooldown fill + SP pip column on top of each ability icon.
-     * Mirror of webclient ui-widgets.updateAbilityBar. Driven by the
-     * player's {@code abilityCooldowns} and {@code abilitySkillPoints}
-     * — both are local mirrors that match the server.
-     */
+    /** Paint cooldown fill + SP pip column on top of each ability icon. */
     private void renderAbilityHotbarOverlays(ShapeRenderer shapes, Player localPlayer) {
         if (localPlayer == null || _lastHotbarCellPx == null) return;
         final long now = System.currentTimeMillis();
         final long[] cds = localPlayer.getAbilityCooldowns();
-        // Start at cell 1 — cell 0 is the passive (no cooldown, no SP pips).
-        // bindingIdx = slot - 1 because hotbarBindings + abilityCooldowns are
-        // indexed against the 4 active slots only, mirroring the webclient.
+        // Start at cell 1 (cell 0 is the passive); bindingIdx = slot - 1.
         for (int slot = 1; slot < HOTBAR_SLOT_COUNT; slot++) {
             final float[] cell = _lastHotbarCellPx[slot];
             if (cell == null) continue;
@@ -3949,9 +3368,6 @@ public class PlayerUI {
             final int bindingIdx = slot - 1;
             final Ability ab = localPlayer.getActiveAbility(bindingIdx);
             if (ab == null) continue;
-            // Cooldown overlay — dark fill from the TOP of the cell as the
-            // CD ticks down. Webclient uses the same "drain from top" idiom
-            // (height-based fill that shrinks over time).
             if (cds != null && bindingIdx < cds.length && cds[bindingIdx] > now) {
                 final long base = ab.getBaseCooldownMs();
                 if (base > 0) {
@@ -3961,9 +3377,7 @@ public class PlayerUI {
                     shapes.rect(cx, cy + ch * (1f - frac), cw, ch * frac);
                 }
             }
-            // SP pip column — vertical row of orange-or-grey 4px squares
-            // along the right edge of the cell. One pip per maxSkillPoints,
-            // filled up to invested level. Mirrors web "ability-sp-pipcol".
+            // SP pip column along the cell's right edge: one pip per maxSkillPoints, filled to invested.
             final int maxSp = ab.getMaxSkillPoints() <= 0 ? 5 : ab.getMaxSkillPoints();
             final int invested = localPlayer.getSkillLevel(ab.getId());
             if (maxSp > 0) {
@@ -3973,9 +3387,9 @@ public class PlayerUI {
                 for (int p = 0; p < maxSp; p++) {
                     final float py = cy + 2f + p * (pipH + 1f);
                     if (p < invested) {
-                        shapes.setColor(1.0f, 0.65f, 0.18f, 0.95f); // amber filled
+                        shapes.setColor(1.0f, 0.65f, 0.18f, 0.95f);
                     } else {
-                        shapes.setColor(0.18f, 0.16f, 0.13f, 0.75f); // dim empty
+                        shapes.setColor(0.18f, 0.16f, 0.13f, 0.75f);
                     }
                     shapes.rect(pipX, py, pipW, pipH);
                 }

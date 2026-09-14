@@ -110,52 +110,41 @@ public class PlayState extends GameState {
     private static final long QUICK_USE_COOLDOWN_MS = 250;
     private static final long PORTAL_COOLDOWN_MS = 1000;
     private static final long CAST_RING_DURATION_MS = 700L;
-    // De-render a remote peer once it passes this range from the local player —
-    // the server's player load radius (viewport 10 + 5 tiles). Past it the
-    // server stops sending its updates, so keeping it would freeze/extrapolate a
-    // ghost that then teleports when a lagged update lands.
+    // Matches the server's player load radius (viewport 10 + 5 tiles); past it
+    // the server stops sending peer updates, so a retained peer would ghost.
     private static final float REMOTE_DERENDER_PX = 15 * 32;
     private static final float REMOTE_DERENDER_PX_SQ = REMOTE_DERENDER_PX * REMOTE_DERENDER_PX;
-    // Enemy name labels: when a realm holds more than this many enemies (a horde),
-    // only enemies within NAME_HORDE_RADIUS of the local player get a name so we
-    // don't pay hundreds of text draws. Mirrors webclient renderer.js.
+    // Above this enemy count only enemies within NAME_HORDE_RADIUS get a label.
     private static final int NAME_HORDE_THRESHOLD = 50;
     private static final float NAME_HORDE_RADIUS_SQ = (32f * 5f) * (32f * 5f);
 
-    /** Cached chat-role nameplate colors. Mirrors webclient renderer.js
-     *  GameRenderer.getNameColorHex. Static so we don't allocate a Color
-     *  per name draw. */
     private static final Color ROLE_SYSADMIN = new Color(1.00f, 0.25f, 0.25f, 1f);
     private static final Color ROLE_ADMIN    = new Color(0.25f, 0.50f, 0.88f, 1f);
     private static final Color ROLE_MOD      = new Color(0.25f, 0.75f, 0.25f, 1f);
     private static final Color ROLE_EDITOR   = new Color(0.63f, 0.25f, 0.75f, 1f);
     private static final Color ROLE_DEMO     = new Color(0.80f, 0.80f, 0.80f, 1f);
     private static final Color ROLE_DEFAULT  = new Color(0.93f, 0.93f, 0.93f, 1f);
-    // Enemy nameplate colour — webclient renderEnemy uses 0xff8080 (light red).
     private static final Color ENEMY_NAME_COLOR = new Color(1f, 0.5f, 0.5f, 1f);
+    private static final int IDLE_KEEPALIVE_TICKS = 16;
+
+    /** Local player's privilege role, captured at login. STATIC so it survives a
+     *  PlayState re-created on a realm transition, then re-applied to the local
+     *  Player each frame so the name color holds. */
+    private static String localChatRole = null;
 
     private RealmManagerClient realmManager;
-    /** Server-wide players surfaced by GlobalPlayerPositionPacket — used
-     *  ONLY by the minimap to plot dots for players who aren't in our
-     *  local realm map. Webclient parity (game.minimapPlayers).
-     *  Previously the global-pos handler was overwriting our local
-     *  players' coords with these positions, which dragged the in-realm
-     *  dots around as players in OTHER realms moved. */
+    /** Server-wide players from GlobalPlayerPositionPacket, used ONLY by the
+     *  minimap to plot players outside our local realm map. Must NOT overwrite
+     *  local players' coords or in-realm dots drag around. */
     private NetPlayerPosition[] minimapPlayers = new NetPlayerPosition[0];
     private Queue<EffectText> damageText;
     private Queue<ActiveVisualEffect> activeEffects;
-    // Lazily-built swing frames per weapon archetype (animations "effect:62",
-    // set "swing_sword"/"_axe"/"_hammer"/"_dagger" or generic "swing"). Only
-    // successful builds are cached so a not-yet-loaded sheet retries next frame.
+    // Only successful builds are cached so a not-yet-loaded sheet retries next frame.
     private final Map<String, TextureRegion[]> swingFrameCache = new HashMap<>();
-    // Phase 4 — party state mirror of webclient game.partyId / partyMembers.
-    // Latest snapshot from PartyUpdatePacket. partyId == 0 means "not in
-    // a party"; the UI hides the panel in that case.
     private long partyId = 0L;
+    private long partyLeaderId = 0L;
     private NetPartyMember[] partyMembers = new NetPartyMember[0];
-    /** Active cast bars by playerId — set by AbilityCastStartPacket handler,
-     *  rendered as a bottom→top fill overlay on each casting player's
-     *  sprite. Auto-cleared by the renderer when the cast completes. */
+    /** Active cast bars by playerId; auto-cleared by the renderer on completion. */
     private final Map<Long, long[]> activeCasts = new ConcurrentHashMap<>();
     private List<Vector2f> shotDestQueue;
     private PlayerAccountDto account;
@@ -166,17 +155,10 @@ public class PlayState extends GameState {
     public long lastAbilityTick = 0;
     private long lastQuickUseTick = 0;
     private long lastPortalTick = 0;
-    /** Data-driven projectile FX particles (trails, muzzle/impact bursts). */
     private final ProjectileFxManager projectileFx = new ProjectileFxManager();
     public long playerId = -1l;
     /** Account-wide skill XP (PlayerSkill ordinal -> XP), synced by SkillsPacket. */
     private long[] skillXp = new long[9];
-    /** Local player's privilege role (sysadmin/admin/mod/editor/demo), captured
-     *  at login. STATIC so it survives a PlayState re-created on a realm
-     *  transition, then re-applied to the local Player each frame so the name
-     *  color holds — mirrors the webclient's module-level localChatRole. */
-    private static String localChatRole = null;
-    public void setLocalChatRole(String role) { PlayState.localChatRole = role; }
 
     private long lastSampleTime;
     private long frames;
@@ -186,108 +168,61 @@ public class PlayState extends GameState {
     private boolean sentChat = false;
     private boolean debugMode = false;
 
-    // Reusable per-frame visibility buffers. Previously these were
-    // allocated fresh in render() (3 ArrayLists per frame, ~150-300
-    // entries each on busy realms = 9-18K allocs/sec at 60 FPS). Held
-    // as fields and cleared at start of render so the underlying
-    // backing arrays are reused frame-to-frame. Initial capacity sized
-    // for a typical viewport.
+    // Reusable per-frame visibility buffers, cleared at start of render so the
+    // backing arrays are reused frame-to-frame instead of reallocated.
     private final List<Entity> visibleEntities = new ArrayList<>(256);
     private final List<Bullet> visibleBullets = new ArrayList<>(128);
     private final List<Enemy> visibleEnemies = new ArrayList<>(128);
     private final HashSet<Long> lockOnSeen = new HashSet<>();
 
-    // Scratch Vector2f reused for collision-check center-offset queries in
-    // movePlayer. Previously each call did p.getPos().clone(halfSize,
-    // halfSize) — 4 fresh Vector2f per moved player per frame, ~3K/sec on
-    // a busy realm. PlayState input/render run on the GL thread so a
-    // single field is safe.
+    // Scratch reused for collision center-offset queries in movePlayer; safe as
+    // a field because input/render run on the GL thread.
     private final Vector2f movePlayerScratch = new Vector2f();
 
-    // Scratch GlyphLayout reused for nameplate measurement / centering in
-    // the world-camera render pass. Without this each name draw allocated
-    // a fresh GlyphLayout (one per visible player per frame).
     private final GlyphLayout nameLayoutScratch = new GlyphLayout();
-
-    // Scratch GlyphLayout for chat-bubble measurement/centering, kept separate
-    // from nameLayoutScratch so the nameplate layout stays intact while a
-    // bubble is positioned relative to it.
+    // Kept separate from nameLayoutScratch so a bubble can be positioned relative
+    // to the still-intact nameplate layout.
     private final GlyphLayout chatBubbleLayoutScratch = new GlyphLayout();
 
-    // Chat bubbles keyed by sender name, floated briefly above the player's
-    // head. Written from the network thread (handleTextClient), read on the
-    // render thread — hence the concurrent map.
+    // Keyed by sender name. Written from the network thread, read on the render
+    // thread — hence the concurrent map.
     private final Map<String, ChatBubble> chatBubbles = new ConcurrentHashMap<>();
 
     /**
-     * Server-reconciliation input buffer. Mirrors the webclient's
-     * {@code _pendingInputs} array (game.js#handlePosAck): every client
-     * sim-tick we predict the next pos locally AND push a {@link PendingInput}
-     * record here, then on PlayerPosAckPacket we drop confirmed inputs,
-     * snap to the server pos, and replay the rest. Bounded to 128 entries
-     * (~2 s of inputs at 64 Hz) so a stuck connection can't grow it.
-     *
-     * Thread-safety: pushed from the GL/input thread, read+mutated under
-     * {@link #reconcileLocalPlayerPos} which is {@code synchronized} on
-     * PlayState so it can't race the input-loop drain.
+     * Server-reconciliation input buffer: every sim-tick we predict pos locally
+     * and push a {@link PendingInput}; on PlayerPosAckPacket we drop confirmed
+     * inputs, snap to the server pos, and replay the rest. Bounded to 128.
+     * Pushed from the GL/input thread, read+mutated under the synchronized
+     * {@link #reconcileLocalPlayerPos} so it can't race the input-loop drain.
      */
     private final ArrayDeque<PendingInput> pendingInputs = new ArrayDeque<>(128);
 
-    /** Visual-only smoothing offset applied to the local player's render
-     *  position when reconciliation finds a small mismatch (collision /
-     *  slow-tile divergence). The logical pos is snapped to the replay
-     *  result for accurate next-tick collisions, while the visual diff
-     *  decays toward zero each frame so the user doesn't see a hop. */
+    /** Visual-only smoothing offset on a small reconciliation mismatch: logical
+     *  pos snaps to the replay result (accurate next-tick collisions) while the
+     *  visual diff decays toward zero each frame so there's no hop. */
     private float smoothingOffsetX = 0f;
     private float smoothingOffsetY = 0f;
-
 
     private long castRingExpiresAt = 0L;
     private float castRingCx, castRingCy, castRingRadius;
 
-    /**
-     * Set when the initial login send fails. The state's first update() tick
-     * detects this and pops PlayState back to CharacterSelectState with the
-     * message, so the user can edit the server host and retry.
-     */
+    /** Set when the initial login send fails; update() pops PlayState back to
+     *  CharacterSelectState so the user can edit the host and retry. */
     private String connectError = null;
 
-    /** Frame counter for periodic debug logging. */
     private long frameCounter = 0;
-    /**
-     * Accumulator (seconds) for the fixed-tick movement loop. Render frames
-     * deposit dt here; whole 1/64-s ticks are drained off and applied at
-     * the server's authoritative rate, so 144 FPS rendering doesn't cause
-     * the client to predict 2.4× faster than the server simulates.
-     */
+    /** Accumulator (seconds) for the fixed 1/64-s movement tick, so high-FPS
+     *  rendering doesn't predict faster than the server simulates. */
     private float moveAccumulator = 0f;
-    // Movement send-gating (mirrors webclient main.js): only ship a PlayerMovePacket
-    // when the input vector is non-zero, on the stop-edge (one final 0,0 so the
-    // server halts prediction), or as a ~4Hz idle keepalive — instead of blasting
-    // 64Hz of (0,0) while standing still. lastSentVx/Vy track the last SENT vector.
+    // Send-gating: ship a PlayerMovePacket only on a non-zero input, the stop-edge
+    // (one final 0,0), or a ~4Hz idle keepalive. lastSentVx/Vy = last SENT vector.
     private float lastSentVx = 0f;
     private float lastSentVy = 0f;
     private int idleSendCounter = 0;
-    private static final int IDLE_KEEPALIVE_TICKS = 16;
-    /**
-     * Sub-tick interpolation state. Mirrors the web client's
-     * {@code _interpFromX/_interpToX/_renderX} system in main.js. Visual
-     * position lerps from the pre-tick to post-tick simulation positions
-     * over each 1/64 s tick window, so 144 FPS rendering stays smooth even
-     * though simulation is fixed at 64 Hz.
-     */
+    // Visual pos lerps from pre-tick to post-tick sim positions over each tick.
     private float interpFromX, interpFromY;
-    /**
-     * Smoothed camera position. Mirrors the web client's
-     * {@code game.cameraX/cameraY} (game.js ~line 1580). The camera
-     * exponentially eases toward the player's lerped render position
-     * each frame instead of being hard-locked to it. Hard-locking made
-     * the camera feel sticky / laggy under fast input changes — every
-     * direction flip jolted the world rather than letting the player
-     * drift inside a small dead zone before the camera caught up.
-     *
-     * NaN sentinel = "no anchor yet, snap on first frame".
-     */
+    /** Smoothed camera position; eases toward the lerped render pos each frame.
+     *  NaN sentinel = "no anchor yet, snap on first frame". */
     private float cameraX = Float.NaN;
     private float cameraY = Float.NaN;
     private float interpToX, interpToY;
@@ -295,9 +230,8 @@ public class PlayState extends GameState {
 
     private final Matrix4 worldTransformIdt = new Matrix4();
 
-    /** Labels MUST match webclient renderer.js STATUS_ICON_DEFS so a
-     *  player can read the same chip text on either client. Suffix
-     *  convention: '+' = buff modifier up, '-' = debuff modifier down. */
+    /** Labels MUST match webclient STATUS_ICON_DEFS. Suffix convention:
+     *  '+' = buff modifier up, '-' = debuff modifier down. */
     private static final StatusEffectIconDef[] STATUS_ICON_DEFS = new StatusEffectIconDef[] {
         new StatusEffectIconDef(StatusEffectType.HEALING.effectId,      "Heal",   0xFF4444),
         new StatusEffectIconDef(StatusEffectType.SPEEDY.effectId,       "Spd+",   0x44FF44),
@@ -314,12 +248,10 @@ public class PlayState extends GameState {
         new StatusEffectIconDef(StatusEffectType.POISONED.effectId,     "Pois",   0x40CC40),
         new StatusEffectIconDef(StatusEffectType.CURSED.effectId,       "Curse",  0xAA2255),
         new StatusEffectIconDef(StatusEffectType.ARMOR_BROKEN.effectId, "Armr-",  0x7060CC),
-        // Phase 3 — class kit statuses added during the combat rework.
         new StatusEffectIconDef(StatusEffectType.TAUNT_TARGET.effectId, "Taunt",  0xC8201F),
         new StatusEffectIconDef(StatusEffectType.BRACED.effectId,       "Def+",   0x88AACC),
         new StatusEffectIconDef(StatusEffectType.PROTECTED.effectId,    "Vit+",   0xFFE070),
         new StatusEffectIconDef(StatusEffectType.PHALANX_DOME.effectId, "Dome",   0x6CCCFF),
-        // Phase 3 (post-rework) expanded debuff palette.
         new StatusEffectIconDef(StatusEffectType.WEAKEN.effectId,       "Atk-",   0x8A5A30),
         new StatusEffectIconDef(StatusEffectType.BLIND.effectId,        "Blind",  0x1A1A1A),
         new StatusEffectIconDef(StatusEffectType.WARDED.effectId,       "Ward",   0xC8C0FF),
@@ -328,21 +260,14 @@ public class PlayState extends GameState {
         new StatusEffectIconDef(StatusEffectType.VULNERABLE.effectId,   "Vuln",   0xCC4080),
         new StatusEffectIconDef(StatusEffectType.GROUNDED.effectId,     "Grnd",   0x806040),
         new StatusEffectIconDef(StatusEffectType.MARKED_FOR_LOOT.effectId, "Mark", 0xFFD840),
-        // Heavy Buffer "Guiding Light" aura — split into two icons so STR
-        // and DEX each show as their own pip above the player's head.
+        // Guiding Light aura split so STR and DEX each show their own pip.
         new StatusEffectIconDef(StatusEffectType.EMPOWERED_STR.effectId, "Atk+",  0xFFAA44),
         new StatusEffectIconDef(StatusEffectType.EMPOWERED_DEX.effectId, "Dex+",  0xFFD060),
         new StatusEffectIconDef(StatusEffectType.SACRIFICE.effectId,    "Sac",    0xB03060),
     };
 
-    /**
-     * Cached shuriken texture regions, one per tier 0..5. Indexed by tier
-     * (col = 10 + tier on row 16 of openrealm-items.png). Lazily filled the
-     * first time a blade-orbit/blender effect renders. Frames are flipped
-     * once at load to match LibGDX's bottom-left origin convention; the
-     * SpriteBatch.draw calls below pass the un-flipped TextureRegion and
-     * rely on this baked-in orientation.
-     */
+    /** Cached shuriken regions per tier 0..5 (col = 10 + tier, row 16 of
+     *  openrealm-items.png). Flipped once at load; draw calls rely on that. */
     private TextureRegion[] _shurikenRegions;
 
     public PlayState(GameStateManager gsm, Camera cam) {
@@ -357,9 +282,8 @@ public class PlayState extends GameState {
         try {
             this.doLogin();
         } catch (Exception e) {
-            // Connection refused / unreachable host / etc. — don't kill the
-            // whole client; log it and bounce back to character-select so the
-            // user can change the game-server host and try again.
+            // Bounce back to character-select instead of killing the client so
+            // the user can change the game-server host and retry.
             log.error("{} failed to send initial LoginRequest, returning to character select: {}",
                     LOG_NS, e.getMessage());
             this.connectError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
@@ -367,6 +291,8 @@ public class PlayState extends GameState {
         }
         WorkerThread.submitAndForkRun(this.realmManager);
     }
+
+    public void setLocalChatRole(String role) { PlayState.localChatRole = role; }
 
     public String getConnectError() { return this.connectError; }
 
@@ -385,8 +311,6 @@ public class PlayState extends GameState {
         this.playerId = this.realmManager.getRealm().addPlayer(player);
         this.realmManager.setCurrentPlayerId(this.playerId);
         this.pui = new PlayerUI(this);
-        // Show the loading overlay from the moment the HUD exists (initial load-in);
-        // the first LoadMap marks it data-ready and it dismisses after the min hold.
         this.pui.getRealmTransition().begin(null);
 
         this.getPui().setEquipment(player.getInventory());
@@ -401,15 +325,8 @@ public class PlayState extends GameState {
     }
     
     public void doLogin() throws Exception {
-        // Mirror webclient main.js (~line 1548): when an existing session
-        // token is available, send THAT and let the game server resolve it
-        // via /admin/account/token/resolve — same as the webclient's
-        // network.sendLogin(uuid, '', '', token) path. The previous code
-        // always sent email/password from SocketClient.PLAYER_EMAIL/PASSWORD
-        // which are null when the user came in via the auto-login token
-        // path (form login was skipped). Server then logged
-        //   LoginRequestMessage(email=null, password=null, token=null)
-        // and /admin/account/login returned 400 ("originalPassword is null").
+        // Prefer an existing session token (auto-login path); fall back to
+        // email/password. Sending both null makes the server reject with 400.
         final String sessionToken = ClientGameLogic.DATA_SERVICE.getSessionToken();
         final LoginRequestMessage.LoginRequestMessageBuilder builder =
                 LoginRequestMessage.builder().characterUuid(SocketClient.CHARACTER_UUID);
@@ -439,21 +356,19 @@ public class PlayState extends GameState {
      *  discs. Caller sets the color and must be inside a Filled shapes pass. */
     private void drawRoundedRect(ShapeRenderer shapes, float x, float y, float w, float h, float r) {
         r = Math.min(r, Math.min(w, h) * 0.5f);
-        shapes.rect(x + r, y, w - 2 * r, h);          // center column (full height)
-        shapes.rect(x, y + r, r, h - 2 * r);          // left edge
-        shapes.rect(x + w - r, y + r, r, h - 2 * r);  // right edge
-        shapes.circle(x + r, y + r, r);               // bottom-left corner
-        shapes.circle(x + w - r, y + r, r);           // bottom-right corner
-        shapes.circle(x + r, y + h - r, r);           // top-left corner
-        shapes.circle(x + w - r, y + h - r, r);       // top-right corner
+        shapes.rect(x + r, y, w - 2 * r, h);
+        shapes.rect(x, y + r, r, h - 2 * r);
+        shapes.rect(x + w - r, y + r, r, h - 2 * r);
+        shapes.circle(x + r, y + r, r);
+        shapes.circle(x + w - r, y + r, r);
+        shapes.circle(x + r, y + h - r, r);
+        shapes.circle(x + w - r, y + h - r, r);
     }
 
     @Override
     public void update(double time) {
-        // Bail out cleanly if the constructor couldn't reach the game server.
-        // CharacterSelectState's transition handler watches for this and pops
-        // PlayState back to CHARSELECT so the user isn't stranded on a black
-        // screen with a broken realm.
+        // CharacterSelectState watches for this and pops PlayState back to
+        // CHARSELECT so a failed connect doesn't strand the user.
         if (this.connectError != null) return;
 
         final Player player = this.realmManager.getRealm().getPlayer(this.realmManager.getCurrentPlayerId());
@@ -461,28 +376,17 @@ public class PlayState extends GameState {
         if (player == null)
             return;
         if (!this.gsm.isStateActive(GameStateManager.PAUSE)) {
-            // Process all client-side updates inline — these are fast and
-            // pool dispatch overhead exceeds the work itself
             final Realm clientRealm = this.realmManager.getRealm();
             final GameObject[] gameObject = clientRealm.getAllGameObjects();
-            // Precompute bulletScale once per frame so we don't pay a
-            // System.nanoTime() syscall + division per bullet (was up to
-            // ~12K syscalls/sec at 200 in-flight bullets). Bullet.update()
-            // no-arg still works for legacy callers but the parametric form
-            // is the hot path. dt clamped to 1/30 to match the rest of the
-            // simulation's frame-skip cap.
+            // Precompute bulletScale once per frame; dt clamped to 1/30 like
+            // the rest of the sim's frame-skip cap.
             final float bulletDt = Gdx.graphics != null
                     ? Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f)
                     : 1f / 60f;
             final float bulletScale = bulletDt * 64f;
-            // Bullets that need to be evicted from the realm map this tick.
-            // We evict for: range exhaustion, the 10s wall-clock safety cap,
-            // and terrain collision (walls / non-void tiles, mirrors the
-            // server's processTerrainHit). Without local culling, predicted
-            // bullets — whose client-random IDs don't match the server's
-            // UnloadPacket — accumulate forever; non-predicted bullets also
-            // visibly fly through walls until the server's UnloadPacket
-            // round-trip lands.
+            // Local bullet culling (range, 10s cap, terrain). Without it,
+            // predicted bullets whose client IDs don't match the server's
+            // UnloadPacket accumulate forever.
             List<Long> bulletsToCull = null;
             List<Long> playersToDerender = null;
             final TileManager tm =
@@ -496,11 +400,8 @@ public class PlayState extends GameState {
                         GameObject tgt = clientRealm.getPlayer(bul.getTargetEntityId());
                         if (tgt == null && player != null && player.getId() == bul.getTargetEntityId()) tgt = player;
                         if (tgt == null) tgt = clientRealm.getEnemies().get(bul.getTargetEntityId());
-                        // Advance the seeker in fixed 1/64s ticks (steer then move,
-                        // once per tick) to match the server's discretization exactly.
-                        // Per-frame variable-bulletScale stepping drew a slightly
-                        // different pursuit curve, so the path drifted between snapshots
-                        // and the server's position sync visibly snapped/flipped.
+                        // Advance the seeker in fixed 1/64s ticks (steer then move) to
+                        // match the server's discretization, else the path drifts.
                         final float maxTurn = (float) Math.toRadians(bul.getFrequency());
                         float accum = bul.getHomingAccum() + bulletScale;
                         int guard = 0;
@@ -522,16 +423,13 @@ public class PlayState extends GameState {
                         if (src != null) bul.anchorFollow(src.getPos().x, src.getPos().y);
                     }
                     boolean expired = bul.remove(0L);
-                    // Terrain collision: skip for pass-through projectiles.
-                    // Use bullet center; isCollisionTile returns true for OOB
-                    // which is fine — bullets off the map should die anyway.
+                    // Terrain collision (skip for pass-through). OOB counts as a
+                    // hit, which is fine — off-map bullets should die anyway.
                     if (!expired
                             && !bul.hasFlag(ProjectileFlag.PASS_THROUGH_TERRAIN)
                             && bul.getPos() != null
                             && tm != null) {
                         final float half = bul.getSize() * 0.5f;
-                        // Thread-local reuse — was `pos.clone(half, half)`
-                        // which allocated per-bullet per-frame.
                         final Vector2f center = bul.getPos().centerOffset(half, half);
                         if (tm.isCollisionTile(center)) {
                             expired = true;
@@ -546,9 +444,8 @@ public class PlayState extends GameState {
                     final float localHalf = (player.getSize() > 0 ? player.getSize() : 32) * 0.5f;
                     final float refX = player.getPos().x + localHalf;
                     final float refY = player.getPos().y + localHalf;
-                    // De-render a peer the instant it leaves render range rather
-                    // than freezing/extrapolating a ghost that teleports when a
-                    // lagged update lands. Center-to-center to match the server.
+                    // Center-to-center (match the server). De-render on leave so a
+                    // stale peer doesn't ghost then teleport on a lagged update.
                     final float otherHalf = (playerOther.getSize() > 0 ? playerOther.getSize() : 32) * 0.5f;
                     final float ddx = (playerOther.getPos().x + otherHalf) - refX;
                     final float ddy = (playerOther.getPos().y + otherHalf) - refY;
@@ -558,12 +455,8 @@ public class PlayState extends GameState {
                         continue;
                     }
                     playerOther.update(time);
-                    // Mirror webclient's per-frame extrapolation for remote
-                    // entities: lerp pos toward targetX/Y at the velocity
-                    // the server reported. Without this we'd just sit at
-                    // the LoadPacket spawn pos forever (movePlayer would
-                    // burn CPU on dx/dy without smoothing toward the
-                    // authoritative target).
+                    // Extrapolate remote peers toward the server-reported target;
+                    // without it they'd sit at the spawn pos forever.
                     playerOther.extrapolate(refX, refY, true);
                 }
             }
@@ -581,23 +474,11 @@ public class PlayState extends GameState {
                 }
             }
 
-            // Client-side player-bullet hit prediction — mirrors webclient
-            // game.js around line 1499. Without this the bullet sprite
-            // visually flies through the enemy until the server's UnloadPacket
-            // arrives a frame or two later, which reads as "projectiles pass
-            // through enemies after a hit". Server stays authoritative for
-            // damage; this is purely a visual cull.
-            //
-            // Mark-consumed pattern (NOT remove): set Bullet.consumedClient
-            // and let the render path skip the sprite. Removing the bullet
-            // from the realm map was fighting the server's LoadPacket diff,
-            // which keeps re-adding the bullet at its slightly-stale
-            // server-side position until the kill packet lands — that
-            // produced visibly "frozen" projectiles after a hit.
-            //
-            // Circle-vs-circle test using GlobalConstants.HIT_RADIUS_FACTOR
-            // so hit radius matches the server's circleHit() exactly.
-            // Pass-through-enemies projectiles skip the cull and keep flying.
+            // Client-side player-bullet hit prediction (visual cull only; server
+            // stays authoritative for damage). Mark-consumed rather than remove:
+            // removing fights the server's LoadPacket diff, which re-adds the
+            // bullet at its stale pos until the kill packet lands, freezing it.
+            // Circle-vs-circle with HIT_RADIUS_FACTOR to match server circleHit().
             final Map<Long, Bullet> bullets = clientRealm.getBullets();
             final Map<Long, Enemy>  enemies = clientRealm.getEnemies();
             final long localId = this.playerId;
@@ -605,23 +486,14 @@ public class PlayState extends GameState {
                 for (final Bullet b : bullets.values()) {
                     if (b == null || b.getPos() == null) continue;
                     if (b.isConsumedClient()) continue;
-                    // Was filtering only PLAYER_PROJECTILE-flagged bullets,
-                    // which dropped many weapon projectiles whose data ships
-                    // with flags: [] (daggers etc). Those weren't culled
-                    // visually on enemy contact and pierced through until
-                    // the server's UnloadPacket landed a tick later. Now
-                    // also accept any bullet whose srcEntityId is the
-                    // local player — predicted bullets carry that, and
-                    // findMatchingPredictedBullet preserves it through the
-                    // dedup ID adoption — so a non-flagged dagger from
-                    // the local player still hit-culls correctly.
+                    // Accept flagged player projectiles AND any bullet sourced by
+                    // the local player, so unflagged weapons (daggers, flags: [])
+                    // still hit-cull.
                     final boolean isOwnBullet = (localId != -1L && b.getSrcEntityId() == localId);
                     if (!b.hasFlag(ProjectileFlag.PLAYER_PROJECTILE) && !isOwnBullet) continue;
                     if (b.hasFlag(ProjectileFlag.PASS_THROUGH_ENEMIES)) continue;
-                    // Homing bullets are server-driven — never client-consume them.
-                    // The server removes a homing bullet on its authoritative hit
-                    // (UnloadPacket); a predicted local cull deleted our copy before
-                    // the server killed its copy, which got re-sent and orbited.
+                    // Homing bullets are server-driven; a local cull would delete
+                    // our copy before the server's, which then re-sends and orbits.
                     if (b.hasFlag(ProjectileFlag.HOMING)) continue;
                     final float bSize = b.getSize() > 0 ? b.getSize() : 4f;
                     final float br = bSize * GlobalConstants.HIT_RADIUS_FACTOR;
@@ -660,24 +532,16 @@ public class PlayState extends GameState {
                 }
             }
 
-            // Animate the local player's sprite (walk/idle frames). All
-            // simulation, position update, and renderX/camera computation
-            // for the local player happens in input() now — the web client
-            // pattern of doing the entire processInput pipeline in one
-            // function. Splitting it produces visible lurch.
+            // Local player's sim / position / camera happens in input(); this
+            // only animates the sprite. Splitting the two produces visible lurch.
             player.update(time);
 
             if (this.pui != null) {
                 this.pui.update(time);
             }
 
-            // Iterator-remove avoids the per-frame `new ArrayList<>` for
-            // toRemove AND the O(n*m) cost of ConcurrentLinkedQueue.removeAll
-            // (n=queue size, m=ArrayList.contains lookup per element). The
-            // queue's iterator is weakly consistent and supports remove(),
-            // which is what we want here — we're the only mutator on the
-            // render thread, and concurrent producers (network thread
-            // adding damage text) don't conflict with the iterator.
+            // Iterator-remove: the queue's iterator is weakly consistent, and the
+            // render thread is the only mutator, so concurrent producers are safe.
             for (Iterator<EffectText> it = this.damageText.iterator(); it.hasNext(); ) {
                 final EffectText text = it.next();
                 text.update();
@@ -710,13 +574,8 @@ public class PlayState extends GameState {
     }
 
     private void movePlayer(Player p) {
-        // PARALYZED check moved out — live-tick caller now applies it
-        // before invoking this method, and the reconcile-replay loop
-        // filters paralyzed-at-send-time inputs via PendingInput.paralyzed.
-        // Reuse a single scratch vector for the center-offset queries
-        // instead of pos.clone(...) — those clone calls were the largest
-        // single allocation source on the per-frame other-player movement
-        // path (~3K Vector2f / sec on a populated realm).
+        // PARALYZED is filtered by the caller (live tick) and by the reconcile
+        // replay via PendingInput.paralyzed, so it isn't re-checked here.
         final Vector2f scratch = this.movePlayerScratch;
         final float halfSize = p.getSize() / 2f;
         scratch.x = p.getPos().x + halfSize;
@@ -726,12 +585,9 @@ public class PlayState extends GameState {
         // populates the tile layers; skip the frame so collision queries don't
         // index an empty collision layer.
         if (!tm.isMapLoaded()) return;
-        // Webclient parity (game.js simulateTick): apply the slow-tile divisor
-        // to the delta FIRST, then run every collision query and commit against
-        // that same reduced delta. Checking the full delta but committing a
-        // divided one made the client refuse moves the server allowed, which
-        // desynced prediction from reconciliation and bounced the player off
-        // walls bordering water/lava.
+        // Apply the slow-tile divisor to the delta FIRST, then query and commit
+        // against that same reduced delta (else prediction desyncs from the
+        // server near water/lava-bordering walls).
         final float slow = tm.collidesSlowTile(p) ? 3.0f : 1.0f;
         final float dx = p.getDx() / slow;
         final float dy = p.getDy() / slow;
@@ -780,36 +636,11 @@ public class PlayState extends GameState {
     }
 
     /**
-     * Server-reconciliation entry point — call from the network thread on
-     * PlayerPosAckPacket arrival. Mirrors the webclient's
-     * {@code Game.handlePosAck} (game.js#840):
-     *
-     * <ol>
-     *   <li>Drop all pending inputs whose seq ≤ the acked seq (the server
-     *       has confirmed those).</li>
-     *   <li>Save the current locally-predicted pos.</li>
-     *   <li>Snap pos to the server's authoritative pos at acked seq.</li>
-     *   <li>Replay the remaining pending inputs through {@link #movePlayer}
-     *       so we reproduce the same collision-aware physics the original
-     *       prediction did.</li>
-     *   <li>Compare the replayed pos to the saved pos:
-     *     <ul>
-     *       <li>err > 64 px : hard teleport (realm transition / kick)</li>
-     *       <li>err > 2 px  : keep the replayed pos as logical (correct
-     *           collisions next tick), absorb the visual diff into a
-     *           smoothing offset that decays over ~50 ms</li>
-     *       <li>err ≤ 2 px  : agree — revert to the saved pos so there's
-     *           zero visible change (the common case at any ping when
-     *           client + server physics line up)</li>
-     *     </ul>
-     *   </li>
-     * </ol>
-     *
-     * Without this, every PlayerPosAck hard-snapped pos to a position
-     * that was {@code (latency × speed)} pixels behind the predicted
-     * state, producing the visible rubber-banding the user reported on
-     * high-latency clients.
-     *
+     * Server-reconciliation entry point, called from the network thread on
+     * PlayerPosAckPacket. Drops acked inputs, snaps to the server pos, replays
+     * remaining inputs through {@link #movePlayer}, then classifies the error:
+     * over 64 px teleports, over 2 px keeps the replay pos and smooths the visual
+     * diff, at/under 2 px adopts the replay pos too (see the branch note below).
      * Synchronized so it can't race the input loop's pending-input drain.
      */
     public synchronized void reconcileLocalPlayerPos(int ackSeq, float ackPosX, float ackPosY) {
@@ -831,19 +662,11 @@ public class PlayState extends GameState {
         local.getPos().x = ackPosX;
         local.getPos().y = ackPosY;
 
-        // Step 4: replay remaining unacked inputs. Per-input paralyzed
-        // snapshot wins over the player's CURRENT paralyzed state — an
-        // input sent BEFORE paralyze landed still moves; one sent DURING
-        // paralyze stays frozen. Without this snapshot the replay reads
-        // current state for every iteration, mis-zeroing pre-paralyze
-        // inputs (or mis-moving during-paralyze inputs) and diverging
-        // from the server's actual per-tick decisions.
+        // Step 4: replay remaining unacked inputs. OR the per-input paralyzed/
+        // slowed snapshot with the CURRENT effect state so an effect that landed
+        // mid-flight applies the same way the server will process it.
         synchronized (this.pendingInputs) {
             for (final PendingInput input : this.pendingInputs) {
-                // OR the per-input snapshot with the CURRENT effect state so an
-                // effect that landed mid-flight (between send and ack) is applied
-                // to the still-unacked inputs the server is about to process the
-                // same way. Matches webclient game.js simulateTick.
                 if (local.hasEffect(StatusEffectType.PARALYZED) || input.paralyzed) continue;
                 final boolean slowed = local.hasEffect(StatusEffectType.SLOWED) || input.slowed;
                 final float step = input.basePxPerTick * (slowed ? 0.5f : 1.0f);
@@ -866,19 +689,9 @@ public class PlayState extends GameState {
             this.smoothingOffsetX = 0f;
             this.smoothingOffsetY = 0f;
         } else if (errSq > 4f /* 2 px */) {
-            // Genuine mismatch (collision / slow-tile divergence). Logical
-            // pos stays at the replayed result so the next tick's collision
-            // checks are correct, but the visible diff is absorbed into a
-            // smoothing offset that the render path decays out over ~50 ms.
-            //
-            // SET, don't ACCUMULATE: previously this was
-            //     smoothingOffsetX += (saved - replay)
-            // clamped at 6 px. At 30+ acks/sec each contributing ~0.5-2 px,
-            // the offset rode the 6 px cap continuously, producing a
-            // constant sticky-jitter feel during rapid input. Webclient
-            // parity: setting it to the current divergence lets the
-            // existing decay actually win between acks instead of fighting
-            // an accumulating new addition.
+            // Genuine mismatch. Logical pos stays at the replay result; the
+            // visible diff is absorbed into a decaying smoothing offset.
+            // SET (don't accumulate) or 30+ acks/sec ride the 6 px cap and jitter.
             final float dx = savedX - replayX;
             final float dy = savedY - replayY;
             final float dmagSq = dx * dx + dy * dy;
@@ -892,16 +705,9 @@ public class PlayState extends GameState {
                 this.smoothingOffsetY = dy;
             }
         } else {
-            // Under 2 px: still adopt the REPLAY result, not the saved
-            // prediction. Even tiny per-ack diffs (0.5-2 px from float
-            // rounding, slow-tile edges, status-effect timing) compound
-            // across every ack; clinging to savedX/Y let the client drift
-            // ~5-10 px per minute until it eventually crossed the 2 px
-            // threshold mid-game and visibly snapped, then resumed
-            // drifting. Always trusting the replay keeps the client
-            // anchored to the server's authoritative position — under
-            // identical physics on both sides replay essentially equals
-            // saved within float noise, so there's no visible jerk.
+            // Under 2 px: adopt the REPLAY result, not saved. Clinging to saved
+            // lets tiny per-ack diffs compound into a slow drift that eventually
+            // snaps; trusting the replay stays anchored with no visible jerk.
             local.getPos().x = replayX;
             local.getPos().y = replayY;
         }
@@ -950,13 +756,9 @@ public class PlayState extends GameState {
         return this.realmManager.getRealm().addBullet(b);
     }
 
-    // WHY: Without local prediction the firing player sees their own
-    // projectile stream gap whenever a LoadPacket is delayed (jitter, GC
-    // hitch, packet loss) — other observers stay smooth because the
-    // server's continuous broadcast is unaffected. Mirrors webclient
-    // main.js ~2215 (negative-id predicted bullets) + game.js ~770
-    // (server-bullet dedup) so the predicted sprite is the one that
-    // renders end-to-end with zero perceived latency.
+    // Local shot prediction so a delayed LoadPacket doesn't gap the firing
+    // player's own projectile stream. The predicted sprite renders until the
+    // server bullet dedups against it.
     private void spawnPredictedBullets(Player player, Vector2f source, Vector2f dest) {
         if (player == null || player.getInventory() == null) return;
         final GameItem weapon = player.getSlot(0);
@@ -971,20 +773,14 @@ public class PlayState extends GameState {
         final short atkBonus = (short) player.getStats().getStr();
         final Realm realm = this.realmManager.getRealm();
 
-        // Server's symmetric multishot fan — mirror exactly or predicted
-        // bullets dedup poorly against the authoritative spawn and the player
-        // sees ghosts. Sources of bullets per shot:
-        //   archetype.projectileCount (built-in fan)
-        //   MultishotGem (gemstoneType=3) → +1 extra (1 base + 1 = 2 fanned, no center)
-        // Spread / range / piercing also pulled from the archetype so a
-        // pierce-archetype bow's predicted bullet carries PASS_THROUGH_ENEMIES
-        // and matches the server bullet's flag set.
+        // Mirror the server's multishot fan (archetype.projectileCount +1 for a
+        // MultishotGem) and its spread/range/piercing exactly, or the predicted
+        // bullets dedup poorly and the player sees ghosts.
         final WeaponArchetypeModel _archShot =
                 (weapon == null || weapon.getArchetypeId() <= 0 || GameDataManager.WEAPON_ARCHETYPES == null)
                         ? null
                         : GameDataManager.WEAPON_ARCHETYPES.get(weapon.getArchetypeId());
-        // Melee swings are invisible server-side AoEs — no travelling projectile to
-        // predict. The swing animation is triggered at the firing site regardless.
+        // Melee swings are server-side AoEs; no travelling projectile to predict.
         if (_archShot != null && _archShot.isMelee()) return;
         final int archCount  = (_archShot != null && _archShot.getProjectileCount() > 0)
                 ? _archShot.getProjectileCount() : 1;
@@ -999,9 +795,8 @@ public class PlayState extends GameState {
                 LOG_NS, weapon.getName(), projGroupId, archCount, gemMulti, totalBullets,
                 weapon.getEnchantments() == null ? 0 : weapon.getEnchantments().size());
 
-        // Homing prediction target: nearest enemy to the cursor within ~6 tiles
-        // (mirrors the server) so the predicted seeker curves like the real one
-        // until the server's authoritative copy takes over.
+        // Homing prediction target: nearest enemy to the cursor within ~6 tiles,
+        // mirroring the server, so the predicted seeker curves right.
         long predictedHomingTarget = 0L;
         boolean groupHasHoming = false;
         for (final Projectile pr : group.getProjectiles()) {
@@ -1027,29 +822,14 @@ public class PlayState extends GameState {
             final short rolledDamage = (short) (proj.getDamage() + atkBonus);
             final short offset = (short) (player.getSize() / 2);
             for (int i = 0; i < totalBullets; i++) {
-                // CLONE spawnPos per-bullet — Bullet's GameObject ctor
-                // does `this.pos = origin;` (no defensive copy), so all
-                // bullets sharing one source Vector2f advance THE SAME
-                // pos every tick. With multishot+1, both bullets shared
-                // one pos and each tick's update() ran twice on it,
-                // making the visible bullet appear to move at 2x speed
-                // (and overlap in screen space, so the player saw one
-                // 'phantom' shot rather than the expected pair).
+                // Bullet's ctor keeps the origin Vector2f by reference (no copy),
+                // so each bullet MUST get its own clone or they share one pos and
+                // advance together.
                 final Vector2f spawnPos = source.clone(-offset, -offset);
                 final float deltaA = (i - (totalBullets - 1) / 2f) * SPREAD;
-                // CRITICAL: predicted Bullet.projectileId MUST be the GROUP
-                // id (projGroupId) — not proj.getProjectileId() — to match
-                // the server's bullet broadcast. RealmManagerServer.addProjectile
-                // sets bullet.projectileId = the GROUP id passed in (its
-                // first projectileId param), not the individual projectile's
-                // id. With the wrong field, findMatchingPredictedBullet's
-                // projectileId equality check failed and dedup silently
-                // missed every shot — so the predicted bullets accumulated
-                // alongside the server-confirmed copies (or got culled
-                // later, leaving only the "phantom" central shot the user
-                // reported). Webclient parity: main.js spawnPredictedBullets
-                // passes projGroupId here too.
-                // Archetype range multiplier — staves outshoot daggers.
+                // Predicted Bullet.projectileId MUST be the GROUP id, not
+                // proj.getProjectileId(): the server broadcasts the group id, and
+                // findMatchingPredictedBullet's equality check dedups on it.
                 final float predictedRange = proj.getRange() * rangeMul;
                 final Bullet b = new Bullet(Realm.RANDOM.nextLong(), projGroupId, spawnPos,
                         shootAngle + deltaA, proj.getSize(), proj.getMagnitude(), predictedRange,
@@ -1057,11 +837,9 @@ public class PlayState extends GameState {
                 b.setSrcEntityId(player.getId());
                 b.setAmplitude(proj.getAmplitude());
                 b.setFrequency(proj.getFrequency());
-                // Carry the projectile's behavior flags so dedup + hit
-                // prediction (PLAYER_PROJECTILE / PARAMETRIC / ORBITAL etc.)
-                // see the same trajectory as the server-side bullet. If the
-                // archetype declares piercing, add PASS_THROUGH_ENEMIES (25)
-                // when the projectile def doesn't already carry it.
+                // Carry the projectile's behavior flags so dedup + hit prediction
+                // see the same trajectory; add PASS_THROUGH_ENEMIES (25) for a
+                // piercing archetype that lacks it.
                 final List<Short> baseFlags = proj.getFlags() != null
                         ? new ArrayList<>(proj.getFlags()) : new ArrayList<>();
                 if (archPierces && !baseFlags.contains((short) 25)) {
@@ -1075,8 +853,6 @@ public class PlayState extends GameState {
                 }
                 if (sheet != null) b.setSpriteSheet(sheet);
                 b.setPredicted(true);
-                // Honor the authored lifetime so the predicted bullet expires when
-                // the server's does (player path used to ignore these).
                 b.setLifetimeTicks(proj.getLifetimeTicks());
                 b.setLength(proj.getLength());
                 if (proj.getFlags() != null && proj.getFlags().contains(ProjectileFlag.HOMING.flagId)) {
@@ -1132,50 +908,24 @@ public class PlayState extends GameState {
                 final Map<Cardinality, Boolean> lastDirectionTempMap = new HashMap<>();
                 player.input(mouse, key);
 
-                // ============================================================
-                // PORTED FROM web client main.js processInput(dt) (~line 2030):
-                // drain ticks -> simulateTick(perTick) -> set interpFrom/To ->
-                // compute renderX = lerp(from, to, frac) -> set HUD positions.
-                //
-                // This BLOCK is the entire player movement & visual position
-                // pipeline. Doing it INLINE here (not split between update()
-                // and input()) is critical: any 1-frame split between
-                // simulating and computing renderX produces visible per-tick
-                // lurch even when both endpoints are correct, because dt has
-                // moved on before the lerp catches up.
-                // ============================================================
-                // 64 Hz client tick — exact server parity. v1.0.48 had this
-                // at 120 Hz to get a steady 2-ticks-per-frame at 60 fps
-                // vsync, but that broke server reconciliation: each client
-                // tick simulated 1/120 s of motion while the server applied
-                // 1/64 s ticks, so replaying buffered inputs after a
-                // PlayerPosAck produced positions that diverged from the
-                // server's. The webclient runs at 64 Hz and absorbs the
-                // ~1.067 ticks-per-frame jitter via input replay; doing the
-                // same here keeps the rollback math exact. Visual smoothness
-                // still comes from the existing extrapolated render formula
-                // (renderX = pos + frac × lastTickStep).
+                // The whole movement + visual-position pipeline runs INLINE here
+                // (not split across update()) or a 1-frame gap between simulating
+                // and computing renderX produces per-tick lurch.
+                // TICK_RATE MUST equal the server's 64 Hz or replayed inputs after
+                // a PlayerPosAck diverge from the server's positions.
                 final float TICK_RATE = 64f;
                 final float TICK_DT = 1f / TICK_RATE;
                 float frameDt = Math.min(Gdx.graphics.getDeltaTime(), 1f / 30f);
                 this.moveAccumulator += frameDt;
                 if (this.moveAccumulator > 0.25f) this.moveAccumulator = 0.25f;
 
-                // Direction unit vector from key state. Continuous angle
-                // (no 22.5° snapping) — matches web client's
-                // screenDirFlagsToWorldVector.
                 float vx = (player.getIsRight() ? 1f : 0f) - (player.getIsLeft() ? 1f : 0f);
                 float vy = (player.getIsDown()  ? 1f : 0f) - (player.getIsUp()   ? 1f : 0f);
                 final float mag = (float) Math.sqrt(vx * vx + vy * vy);
                 if (mag > 0f) { vx /= mag; vy /= mag; }
 
-                // Per-tick pixel step. RotMG: tiles/sec = 4 + 5.6 * (spd/75).
-                // Status modifiers MUST match webclient game.js simulateTick
-                // exactly so client + server (and replay) all agree on the
-                // step magnitude per tick.
-                // basePxPerTick excludes SLOWED so the replay can re-derive the
-                // 0.5 factor from (current OR snapshot) SLOWED without double-
-                // counting; SPEEDY stays baked in (snapshot semantics, matches web).
+                // basePxPerTick EXCLUDES SLOWED so the replay can re-derive the
+                // 0.5 factor without double-counting; SPEEDY stays baked in.
                 float baseTilesPerSec = 4.0f + 5.6f * (player.getComputedStats().getSpd() / 75.0f);
                 if (player.hasEffect(StatusEffectType.SPEEDY)) baseTilesPerSec *= 1.5f;
                 final float basePxPerTick = baseTilesPerSec * 32.0f / TICK_RATE;
@@ -1185,32 +935,18 @@ public class PlayState extends GameState {
                 int ticks = 0;
                 while (this.moveAccumulator >= TICK_DT) {
                     this.moveAccumulator -= TICK_DT;
-                    // Anchor the render lerp at the position ENTERING this tick.
-                    // After the drain it holds the start of the FINAL tick, so
-                    // render() interpolates across only the most-recent tick —
-                    // not across every tick drained this frame (which snapped
-                    // backward on 2-tick frames) and not by extrapolating past
-                    // the sim (which overshot on direction changes, the jagged
-                    // feel vs the webclient).
+                    // Anchor the render lerp at the pos ENTERING the final tick so
+                    // render() interpolates across only that tick (no backward snap
+                    // on 2-tick frames, no overshoot on direction changes).
                     this.interpFromX = player.getPos().x;
                     this.interpFromY = player.getPos().y;
                     this.hasInterpAnchor = true;
-                    // Allocate a fresh input seq for this tick. Mirrors the
-                    // webclient's per-tick seq increment (main.js#handleInput
-                    // game._inputSeq++). Each tick gets a unique seq so the
-                    // server's PlayerPosAck can ack exactly one of them and
-                    // the client knows precisely how many remaining inputs
-                    // to replay.
+                    // Unique per-tick seq so a PlayerPosAck acks exactly one input.
                     player.setLastInputSeq(player.getLastInputSeq() + 1);
                     final int seq = player.getLastInputSeq();
 
-                    // Apply one tick of movement with collision check. We
-                    // set dx/dy on the player and let movePlayer (the
-                    // shared collision-aware integrator) advance pos.x/y
-                    // by exactly one tick worth. PARALYZED short-circuits
-                    // movement entirely — handled here rather than inside
-                    // movePlayer so the reconcile-replay loop can call
-                    // movePlayer for non-paralyzed snapshot inputs even
+                    // PARALYZED is short-circuited here (not in movePlayer) so the
+                    // reconcile replay can still move non-paralyzed snapshot inputs
                     // while the player is currently paralyzed.
                     final boolean paralyzedNow = player.hasEffect(StatusEffectType.PARALYZED);
                     if (paralyzedNow) {
@@ -1222,12 +958,9 @@ public class PlayState extends GameState {
                         this.movePlayer(player);
                     }
 
-                    // Buffer this input for reconciliation replay. Capture
-                    // pxPerTick so the replay uses the EXACT step magnitude
-                    // that was applied originally — spd stat or SPEEDY effect
-                    // can change between now and ack arrival, and we want
-                    // the replay to reproduce what the simulation actually
-                    // did, not what it would do today.
+                    // Buffer this input for reconciliation replay, capturing the
+                    // step magnitude actually applied (spd/SPEEDY may change before
+                    // the ack, and the replay must reproduce what happened).
                     synchronized (this.pendingInputs) {
                         final boolean paralyzedAtSend = player.hasEffect(StatusEffectType.PARALYZED);
                         this.pendingInputs.addLast(new PendingInput(seq, vx, vy, basePxPerTick, slowedNow, paralyzedAtSend));
@@ -1236,13 +969,8 @@ public class PlayState extends GameState {
                         }
                     }
 
-                    // Ship the input at the 64Hz tick rate WHILE ACTIVE, gated so a
-                    // standing-still player doesn't blast 64Hz of (0,0) noise. Every
-                    // tick still buffers a seq above (replay integrity); we just skip
-                    // the redundant idle sends. Matches webclient main.js exactly:
-                    //   - any non-zero vector -> send
-                    //   - stop-edge (last sent was non-zero, now zero) -> one 0,0
-                    //   - idle keepalive every 16 ticks (~4Hz) so reconciliation stays anchored
+                    // Send-gate: any non-zero vector, the stop-edge (one final 0,0),
+                    // or a ~4Hz idle keepalive. Every tick still buffers a seq above.
                     final boolean moving = (vx != 0f || vy != 0f);
                     final boolean wasMoving = (this.lastSentVx != 0f || this.lastSentVy != 0f);
                     boolean shouldSend = false;
@@ -1277,39 +1005,20 @@ public class PlayState extends GameState {
                     lastDirectionTempMap.put(Cardinality.NONE, true);
                 }
 
-                // (PlayerMovePacket is now sent inside the tick-drain loop
-                // above, once per simulated tick — required for proper
-                // server reconciliation. lastDirectionMap is no longer
-                // load-bearing for network purposes; left in place for any
-                // local consumers that still read it.)
                 if (this.lastDirectionMap == null) {
                     this.lastDirectionMap = lastDirectionTempMap;
                 } else if (!this.lastDirectionMap.equals(lastDirectionTempMap)) {
                     this.lastDirectionMap = lastDirectionTempMap;
                 }
 
-                // Render position via INTERPOLATION between the start and end
-                // of the most-recent tick (web parity, main.js _renderX). The
-                // accumulator's leftover fraction walks renderX from the tick's
-                // start toward its end:
-                //
-                //   renderX = interpFrom + (pos - interpFrom) * (acc / TICK_DT)
-                //
-                // interpFrom is the position entering the final tick (or the
-                // snapped pos after a reconcile). Interpolating between two
-                // adjacent tick states is smooth at any frame/tick beat — no
-                // overshoot on direction changes, no backward snap on 2-tick
-                // frames.
+                // Render pos = lerp between the start and end of the most-recent
+                // tick, by the accumulator's leftover fraction.
                 final float interpFrac = Math.max(0f, Math.min(1f, this.moveAccumulator / TICK_DT));
                 float renderX = this.interpFromX + (player.getPos().x - this.interpFromX) * interpFrac;
                 float renderY = this.interpFromY + (player.getPos().y - this.interpFromY) * interpFrac;
 
-                // Decay any reconciliation smoothing offset toward zero each
-                // frame, then apply it to the rendered position. The logical
-                // pos was snapped to the server's authoritative replay result
-                // (accurate collisions next tick), but the visual lag of the
-                // diff is decayed out over a few frames — mirrors the
-                // webclient's _smoothX/_smoothY in handlePosAck.
+                // Decay the reconciliation smoothing offset each frame, then apply
+                // it to the render pos (the logical pos already snapped to replay).
                 if (this.smoothingOffsetX != 0f || this.smoothingOffsetY != 0f) {
                     final float decay = (float) Math.exp(-frameDt / 0.07f); // ~50ms half-life
                     this.smoothingOffsetX *= decay;
@@ -1322,15 +1031,8 @@ public class PlayState extends GameState {
 
                 player.setRenderPos(renderX, renderY);
 
-                // Camera follows the lerped player position with
-                // exponential smoothing (web parity, game.js ~1580):
-                //   cameraX += (target - cameraX) * (1 - exp(-dt/halflife))
-                // Halflife 0.03s -> ~97% of any gap closes within 150ms,
-                // frame-rate independent. The hard lock that was here
-                // before made the camera feel sluggish on direction
-                // changes — the player would visibly drift off-center
-                // for a tick or two before snapping back; with eased
-                // smoothing the camera glides naturally.
+                // Camera eases toward the lerped player pos (frame-rate independent
+                // exponential smoothing, 0.03s half-life).
                 if (Float.isNaN(this.cameraX)) {
                     this.cameraX = renderX;
                     this.cameraY = renderY;
@@ -1349,10 +1051,7 @@ public class PlayState extends GameState {
                 Vector2f.setWorldVar(PlayState.map.x, PlayState.map.y);
             }
             boolean canUsePortal = (System.currentTimeMillis() - this.lastPortalTick) > PORTAL_COOLDOWN_MS;
-            // Space also triggers nearest-portal use, mirroring web client
-            // hotkey behaviour. attack.tick() runs in the key.attack
-            // pipeline above (KeyHandler binds Space -> key.attack), so
-            // attack.clicked is edge-triggered just like f2.clicked.
+            // Space (bound to key.attack) also triggers nearest-portal use.
             key.attack.tick();
             boolean portalKeyClicked = key.f2.clicked || key.attack.clicked;
             if (portalKeyClicked && canUsePortal) {
@@ -1360,23 +1059,14 @@ public class PlayState extends GameState {
                     Portal closestPortal = this.realmManager.getState().getClosestPortal(this.getPlayerPos(), 32);
                     if (closestPortal != null) {
                         PortalModel portalModel = GameDataManager.PORTALS.get((int) closestPortal.getPortalId());
-                        // Web parity (main.js doRealmTransition): if the portal
-                        // entity is the Vault portal (portalId == 2), send the
-                        // toVault variant of UsePortalPacket — that's the only
-                        // way the server reaches its setupChests / exit-portal
-                        // branch (ServerGameLogic.handleUsePortalServer line 148).
-                        // Sending UsePortalPacket.from for a vault-portal entity
-                        // hits the generic portal branch instead, which routes
-                        // by Portal.toRealmId — for a freshly-spawned exit
-                        // portal that link points into the wrong realm so the
-                        // chest spawn never happens and the user lands somewhere
-                        // unexpected.
+                        // A Vault portal (id 2) MUST use the toVault variant: it's
+                        // the only path that reaches the server's setupChests
+                        // branch. UsePortalPacket.from would route by toRealmId and
+                        // spawn no chests / land the user elsewhere.
                         final boolean isVaultPortal = closestPortal.getPortalId() == 2;
                         if (isVaultPortal) {
                             if (this.realmManager.getRealm().getMapId() == 1) {
-                                // Already in vault — ignore, mirror web client
-                                // re-entry guard.
-                                return;
+                                return; // already in vault
                             }
                             UsePortalPacket usePortal = UsePortalPacket.toVault(
                                     this.realmManager.getRealm().getRealmId());
@@ -1400,9 +1090,7 @@ public class PlayState extends GameState {
                 }
 
             }
-            // R = teleport to Nexus (map 29). Mirrors the web client's
-            // hotkey. Suppressed while the chat input is capturing keys
-            // so the user can type 'r' in messages without TPing out.
+            // R = teleport to Nexus (map 29); suppressed while chat is capturing.
             if (!key.captureMode
                     && Gdx.input.isKeyJustPressed(Settings.get().getKeybind("goNexus"))
                     && canUsePortal
@@ -1437,11 +1125,8 @@ public class PlayState extends GameState {
 
             }
 
-            // F = interact with nearby tile (forge / fame store / etc).
-            // Mirrors web client's updateInteractPrompt + triggerNearbyInteract:
-            // scan a 5x5 window around the player, pick the closest tile whose
-            // TileModel has a non-empty interactionType, send InteractTilePacket.
-            // Server replies with OpenForgePacket / OpenFameStorePacket.
+            // F = interact with the closest nearby tile (5x5 scan) that has an
+            // interactionType (forge / fame store / etc), else pick up ground loot.
             if (!key.captureMode && Gdx.input.isKeyJustPressed(Settings.get().getKeybind("lootPickup"))) {
                 try {
                     final TileMap baseLayer = this.realmManager.getRealm().getTileManager().getBaseLayer();
@@ -1482,6 +1167,21 @@ public class PlayState extends GameState {
                         pkt.setTileX(bestTx);
                         pkt.setTileY(bestTy);
                         this.realmManager.getClient().sendRemote(pkt);
+                    } else if (this.pui != null) {
+                        // No interact tile in reach: F picks up the first ground-loot
+                        // item (server re-checks proximity and routes potions).
+                        final Slots[] gl = this.pui.getGroundLoot();
+                        if (gl != null) {
+                            for (int i = 0; i < gl.length; i++) {
+                                final Slots s = gl[i];
+                                final GameItem it = (s != null) ? s.getItem() : null;
+                                if (it != null && it.getItemId() > 0) {
+                                    this.realmManager.moveItem(Player.EQUIPMENT_SLOT_COUNT,
+                                            MoveItemPacket.groundLootBase() + i, false, false);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 } catch (Exception e) {
                     PlayState.log.error("{} failed to send InteractTilePacket: {}", LOG_NS, e.getMessage());
@@ -1491,11 +1191,8 @@ public class PlayState extends GameState {
                 this.pui.input(mouse, key);
             }
             boolean canQuickUse = (System.currentTimeMillis() - this.lastQuickUseTick) > QUICK_USE_COOLDOWN_MS;
-            // Shift + 1..8 hot-swaps the first eight backpack slots (5..12, the
-            // visible main row) into their target equipment slot, or consumes a
-            // consumable. Matches webclient main.js shift+Digit1-8. Hot-swap
-            // REQUIRES shift because plain 1..4 are ability casts (handled below);
-            // without the gate, pressing 1 to cast would also equip slot 5.
+            // Shift + 1..8 hot-swaps/consumes backpack slots 5..12. REQUIRES shift
+            // because plain 1..4 are ability casts (handled below).
             final boolean shiftHotswap = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
                     || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
             if (canQuickUse && shiftHotswap) {
@@ -1512,43 +1209,28 @@ public class PlayState extends GameState {
                 if (used) this.lastQuickUseTick = System.currentTimeMillis();
             }
 
-            // Suppressed while chat input is capturing keys so typing m/./n in a
-            // message doesn't toggle these menus (web-client parity).
+            // Suppressed while chat is capturing so typing doesn't toggle menus.
             if (this.pui != null && !key.captureMode) {
-                // Rebindable (Options > Controls): skillsMenu (default M), metricsMenu (default .).
                 if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("skillsMenu")))
                     this.pui.getSkillsWindow().toggle();
                 if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("metricsMenu")))
                     this.pui.getMetricsWindow().toggleFor(SocketClient.CHARACTER_UUID);
-                // Minimap moved off M to N.
                 if (Gdx.input.isKeyJustPressed(Input.Keys.N)) this.pui.getMinimap().toggle();
-                // Zoom is driven by the minimap's own mouse-wheel handler now
-                // (see Minimap input pass) — the +/- keyboard fallback was
-                // removed alongside the textured-quad rewrite. Keep this
-                // input branch in case future layouts re-add keyboard zoom.
             }
         }
 
-        // Toggle the in-game options window with O — mirrors the web client's
-        // gear-icon shortcut. Doesn't conflict with PauseState (ESC).
-        // Suppressed while chat input is capturing keys so the user can type
-        // 'o' in messages without flickering the options window.
+        // O toggles the options window; suppressed while chat is capturing.
         if (this.pui != null && !key.captureMode
                 && Gdx.input.isKeyJustPressed(Input.Keys.O)) {
             this.pui.getOptionsWindow().toggle();
         }
 
-        // Use isKeyJustPressed (rising-edge only) instead of key.escape.clicked.
-        // Key.toggle increments the press counter every frame the key is HELD,
-        // and Key.tick consumes one press per call — so holding ESC for 2+
-        // frames in a row makes clicked fire on consecutive frames. With the
-        // pop/add toggle below, that meant ESC closed the menu then immediately
-        // re-opened it ("pressing ESC just takes you back to the escape menu").
+        // isKeyJustPressed (rising edge), NOT key.escape.clicked: holding ESC
+        // makes clicked fire on consecutive frames, which reopens the menu it
+        // just closed.
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            // Web-parity modals consume ESC first. They close themselves in
-            // their own update(), but we also need to suppress the pause
-            // toggle so a single keypress doesn't simultaneously close a
-            // modal AND open the pause menu.
+            // Modals consume ESC first (they self-close in update()); suppress
+            // the pause toggle so one press doesn't close a modal AND open pause.
             boolean anyModal = (this.pui != null) && (
                     this.pui.getForgeWindow().isVisible()
                  || this.pui.getFameStoreWindow().isVisible()
@@ -1570,7 +1252,6 @@ public class PlayState extends GameState {
 	                PauseState pause = new PauseState(this.gsm, this.getAccount());
 	                this.gsm.add(GameStateManager.PAUSE, pause);
 				} catch (Exception e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 
@@ -1578,9 +1259,8 @@ public class PlayState extends GameState {
         }
 
         double dex = (int) ((6.5 * (this.getPlayer().getComputedStats().getDex() + 17.3)) / 75);
-		// Weapon-archetype attack-speed multiplier (hammers swing slow,
-		// daggers fast). Mirrors ServerGameLogic.handlePlayerShoot. Applied
-		// BEFORE BERSERK so the +50% buff stacks consistently with archetype.
+		// Archetype attack-speed multiplier applied BEFORE the BERSERK +50% so
+		// the two stack the same way the server does.
 		{
 			final GameItem _w = player.getInventory()[0];
 			final WeaponArchetypeModel _archFR =
@@ -1591,37 +1271,26 @@ public class PlayState extends GameState {
 				dex = dex * _archFR.getAttackSpeedMul();
 			}
 		}
-		// Client-side fire-rate prediction. BERSERK boosts attack speed by 50%
-		// (was SPEEDY pre-split). SPEEDY is movement-only now.
 		if (player.hasEffect(StatusEffectType.BERSERK)) {
 			dex = dex * 1.5;
 		}
         boolean canShoot = (System.currentTimeMillis() - this.lastShotTick) > (1000 / dex + 10);
         boolean canUseAbility = (System.currentTimeMillis() - this.lastAbilityTick) > 1000;
-        // Hotbar-cell hits steal the click — mirror the webclient where
-        // clicking an ability cell fires the bound ability at the cursor
-        // (cells 1..4) or is a no-op on the passive cell (cell 0). Without
-        // this suppression the basic-attack shot below would also fire on
-        // the same click, double-tapping the projectile pipeline.
+        // Suppress the basic-attack shot when the cursor sits over a hotbar cell,
+        // else the same click both casts and fires.
         final boolean hoveringHotbar = (this.pui != null)
                 && this.pui.isHoveringHotbarCell(mouse.getX(), mouse.getY());
         boolean clickingWorld = mouse.isPressed(1)
                 && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))
                 && !hoveringHotbar;
-        // WHY: do NOT call player.setAttacking(clickingWorld) here. That clobbers
-        // the timer-driven attack flag and cuts the attack animation the instant
-        // the mouse button releases — the webclient instead refreshes a 0.3s
-        // shootingAnim timer on every shot fire (main.js ~2205). We do the
-        // equivalent below at the actual firing site via triggerAttackAnimation.
-        // Screen → world conversion. WORLD_SCALE=2 ⇒ 1 screen px = 1/2 world px.
+        // Do NOT setAttacking(clickingWorld) here; it would cut the attack anim on
+        // button release. triggerAttackAnimation() at the firing site handles it.
+        // Screen to world: WORLD_SCALE=2 => 1 screen px = 1/2 world px.
         final float invScale = 1f / OpenRealmGame.WORLD_SCALE;
         final float pivotWx = player.getPos().x + player.getSize() * 0.5f;
         final float pivotWy = player.getPos().y + player.getSize() * 0.5f;
-        // Pivot the aim about the player's ACTUAL on-screen position, derived
-        // from the live render origin (PlayState.map). The world view is shifted
-        // left to clear the right-side HUD panel, so the player renders at
-        // ~0.4*width, not screen center — pivoting about width/2 skewed the aim
-        // angle by up to ~30 degrees near vertical.
+        // Pivot aim about the player's ACTUAL on-screen pos: the world view is
+        // shifted left for the HUD panel, so pivoting about width/2 skews the aim.
         final float screenCx = (pivotWx - PlayState.map.x) * OpenRealmGame.WORLD_SCALE;
         final float screenCy = (pivotWy - PlayState.map.y) * OpenRealmGame.WORLD_SCALE;
         final float sdx = mouse.getX() - screenCx;
@@ -1635,19 +1304,10 @@ public class PlayState extends GameState {
             this.lastShotTick = System.currentTimeMillis();
             Vector2f dest = new Vector2f(aimWx, aimWy);
             this.shotDestQueue.add(dest);
-            // Webclient parity: each shot refreshes the attack animation hold
-            // so the local player keeps cycling attack frames between rapid
-            // shots and for ~350ms after the last one.
             player.triggerAttackAnimation();
         }
-        // Mouse-click-on-hotbar-cell fires the bound ability at the cursor.
-        // Mirrors webclient ui-widgets.updateAbilityBar's click handler ->
-        // __webclientFireAbilityFromUI(s) -> castWithPrediction at the
-        // current cursor world coords. Edge-triggered (justPressed) so
-        // holding the click doesn't spam fires; cooldown still gates via
-        // canUseAbility. clickingWorld was already cleared above when the
-        // cursor sits over the hotbar, so the basic-attack path below
-        // won't double-fire on this same click.
+        // Left-click a hotbar cell fires the bound ability at the cursor.
+        // Edge-triggered so a held click doesn't spam.
         if (Gdx.input.isButtonJustPressed(Input.Buttons.LEFT)
                 && this.pui != null
                 && canUseAbility) {
@@ -1667,19 +1327,16 @@ public class PlayState extends GameState {
                 }
             }
         }
-        // Right-click a hotbar ability cell → invest a skill point into the bound
-        // ability. Webclient parity (ui-widgets contextmenu → __webclientInvest-
-        // SkillPoint). Edge-triggered so a held right-click can't drain the pool;
-        // the global right-click ability-fire below is suppressed over the hotbar
-        // (hoveringHotbar) so the two don't both act on the same click.
+        // Right-click a hotbar ability cell to invest a skill point into it.
+        // Edge-triggered so a held right-click can't drain the pool; the global
+        // right-click ability-fire below is suppressed over the hotbar.
         if (Gdx.input.isButtonJustPressed(Input.Buttons.RIGHT) && this.pui != null) {
             final int investBinding = this.pui.getHotbarBindingAtScreen(mouse.getX(), mouse.getY());
             if (investBinding >= 0) {
                 try {
                     final InvestSkillPointPacket pkt = new InvestSkillPointPacket((byte) investBinding);
                     this.realmManager.getClient().sendRemote(pkt);
-                    // Optimistic local mirror so the SP pip column updates immediately —
-                    // server-authoritative state lands on the next sync.
+                    // Optimistic local mirror; server state lands on the next sync.
                     final Ability ab = this.getPlayer().getActiveAbility(investBinding);
                     if (ab != null) this.getPlayer().investSkillPoint(ab.getId());
                 } catch (Exception e) {
@@ -1689,42 +1346,40 @@ public class PlayState extends GameState {
             }
         }
 
-        // Phase 2C/2D — number-key hotbar mapping. Plain keys 1..4 fire the four
-        // hotbar slots at the cursor. Shift + number is reserved for inventory
-        // hot-swap (handled above), so we skip the cast when shift is held.
-        // Skill-point investment moved to right-clicking the hotbar ability cell
-        // (webclient parity) — see the hotbar right-click branch above.
+        // Plain keys 1..4 fire the four hotbar slots at the cursor; shift+number
+        // is inventory hot-swap (above), so skip the cast when shift is held.
         {
             final boolean shiftHeldDigit = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
                     || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
             final int[] digitKeys = { Input.Keys.NUM_1, Input.Keys.NUM_2, Input.Keys.NUM_3, Input.Keys.NUM_4 };
+            final long[] cds = player.getAbilityCooldowns();
             for (int slot = 0; slot < 4; slot++) {
                 if (!Gdx.input.isKeyJustPressed(digitKeys[slot])) continue;
                 if (this.pui != null && this.pui.isHoveringInventory(mouse.getX())) continue;
                 if (shiftHeldDigit) continue;
-                if (canUseAbility) {
-                    try {
-                        Vector2f pos = clampCastPos(player, slot, aimWx, aimWy);
-                        UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
-                        this.realmManager.getClient().sendRemote(useAbility);
-                        this.lastAbilityTick = System.currentTimeMillis();
-                        player.triggerAttackAnimation();
-                    } catch (Exception e) {
-                        PlayState.log.error("{} failed to send UseAbility packet for slot {}", LOG_NS, slot, e);
-                    }
+                if (!canUseAbility) continue;
+                final long now = System.currentTimeMillis();
+                // Skip the send AND the cast pose while this slot's CD drains, or
+                // the pose plays on every press the server silently rejects.
+                if (cds != null && slot < cds.length && cds[slot] > now) continue;
+                try {
+                    Vector2f pos = clampCastPos(player, slot, aimWx, aimWy);
+                    UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
+                    this.realmManager.getClient().sendRemote(useAbility);
+                    this.lastAbilityTick = now;
+                    final long cd = this.effectiveAbilityCooldownMs(player, slot);
+                    if (cds != null && slot < cds.length && cd > 0) cds[slot] = now + cd;
+                    player.triggerAttackAnimation();
+                } catch (Exception e) {
+                    PlayState.log.error("{} failed to send UseAbility packet for slot {}", LOG_NS, slot, e);
                 }
             }
         }
 
         if ((mouse.isPressed(3)) && canUseAbility && !hoveringHotbar
                 && (this.pui == null || !this.pui.isHoveringInventory(mouse.getX()))) {
-            // Client-side mana gate. Server enforces this too, but without
-            // a local check the player can spam-click and watch predicted
-            // projectiles spawn before the server reply unloads them, then
-            // the mana bar snaps back when UpdatePacket arrives. Mirrors
-            // the webclient tryUseAbility cost gate. Optimistic decrement
-            // keeps the gate honest within a round-trip.
-            // Phase 1B: ability is now class-bound (no longer slot 1).
+            // Client-side mana gate (server still authoritative): the optimistic
+            // decrement keeps the mana bar from snapping back within a round-trip.
             int abilityCost = 0;
             try {
                 final GameItem ability = player.getAbility();
@@ -1732,14 +1387,21 @@ public class PlayState extends GameState {
                     abilityCost = ability.getEffect().getMpCost();
                 }
             } catch (Exception ignored) { /* zero-cost fallback */ }
-            if (abilityCost > 0 && player.getMana() < abilityCost) {
-                // Out of mana — skip both the send and the cooldown bump.
+            final long[] rcCds = player.getAbilityCooldowns();
+            final long rcNow = System.currentTimeMillis();
+            final boolean rcOnCooldown = rcCds != null && rcCds.length > 0 && rcCds[0] > rcNow;
+            if (rcOnCooldown) {
+                // Slot-0 ability still cooling down.
+            } else if (abilityCost > 0 && player.getMana() < abilityCost) {
+                // Out of mana.
             } else {
                 try {
                     Vector2f pos = new Vector2f(aimWx, aimWy);
                     UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos);
                     this.realmManager.getClient().sendRemote(useAbility);
-                    this.lastAbilityTick = System.currentTimeMillis();
+                    this.lastAbilityTick = rcNow;
+                    final long cd = this.effectiveAbilityCooldownMs(player, 0);
+                    if (rcCds != null && rcCds.length > 0 && cd > 0) rcCds[0] = rcNow + cd;
                     player.triggerAttackAnimation();
                     if (abilityCost > 0) {
                         player.setMana(Math.max(0, player.getMana() - abilityCost));
@@ -1749,6 +1411,18 @@ public class PlayState extends GameState {
                 }
             }
         }
+    }
+
+    /** SP-reduced cooldown for a hotbar slot, matching the server + tooltip:
+     *  max(500, base - invested * cdReductionPerPointMs). 0 when the slot has
+     *  no ability or no base cooldown. */
+    private long effectiveAbilityCooldownMs(Player p, int slot) {
+        final Ability ab = p.getActiveAbility(slot);
+        if (ab == null) return 0L;
+        final long base = ab.getBaseCooldownMs();
+        if (base <= 0L) return 0L;
+        final long red = (long) p.getSkillLevel(ab.getId()) * ab.getCdReductionPerPointMs();
+        return Math.max(500L, base - red);
     }
 
     private Vector2f clampCastPos(Player p, int bindingIdx, float rawX, float rawY) {
@@ -1818,12 +1492,8 @@ public class PlayState extends GameState {
         return bestLoot;
     }
 
-    /**
-     * Scan the player's neighborhood for the closest tile that exposes a
-     * non-empty interactionType (forge / fame_store / etc) and return its
-     * type, or null if none is in range. Mirrors the F-key tile scan above
-     * but as a read-only lookup so the HUD can render an interaction hint.
-     */
+    /** Read-only version of the F-key scan: the closest nearby tile's
+     *  interactionType (forge / fame_store / etc), or null, for the HUD hint. */
     public String getNearbyInteractionType() {
         try {
             if (this.realmManager == null) return null;
@@ -1880,21 +1550,13 @@ public class PlayState extends GameState {
         return bestPortal;
     }
 
-    /**
-     * Reset the sub-tick interpolation anchor to the given position.
-     * Called from {@code ClientGameLogic.handlePlayerPosAckClient} when
-     * the server's authoritative position snaps the local player — the
-     * old interpFromX/Y would otherwise still point at the pre-snap
-     * position and the next render frame would lerp the camera from old
-     * -> new, showing a visible hop every server tick.
-     */
+    /** Reset the interpolation anchor on an authoritative pos snap, else the
+     *  next render frame lerps from the stale pre-snap pos (a per-tick hop). */
     public void resetInterpAnchor(float x, float y) {
         this.interpFromX = x;
         this.interpFromY = y;
         this.hasInterpAnchor = true;
-        // Force the camera to snap to the new anchor too — otherwise the
-        // exponential smoother would slide the camera across the world
-        // following a portal teleport.
+        // Snap the camera too, or the smoother slides it across the world.
         this.cameraX = x;
         this.cameraY = y;
     }
@@ -1904,11 +1566,8 @@ public class PlayState extends GameState {
         Player player = this.realmManager.getRealm().getPlayer(this.playerId);
         if (player == null)
             return;
-        // Switch from the default UI camera (set by OpenRealmGame.render)
-        // to the zoomed world camera for tile + entity rendering. The HUD
-        // pass below will switch back. Without this, world tiles/entities
-        // would be drawn 1:1 and look way out of scale relative to the
-        // web client's 2x desktop zoom.
+        // Switch to the zoomed world camera for tiles + entities; the HUD pass
+        // below switches back to the UI camera.
         OpenRealmGame game = (OpenRealmGame) Gdx.app.getApplicationListener();
         if (game.getWorldCamera() != null) {
             final OrthographicCamera worldCam = game.getWorldCamera();
@@ -1942,8 +1601,6 @@ public class PlayState extends GameState {
         GameObject[] gameObject = this.realmManager.getRealm()
                 .getGameObjectsInBounds(this.realmManager.getRealm().getTileManager().getRenderViewPort(player));
 
-        // Reuse the per-frame buffers (declared as fields above). Clearing
-        // keeps the backing arrays so we don't pay an allocation per frame.
         final List<Entity> visibleEntities = this.visibleEntities;
         final List<Bullet> visibleBullets = this.visibleBullets;
         final List<Enemy> visibleEnemies = this.visibleEnemies;
@@ -1951,10 +1608,7 @@ public class PlayState extends GameState {
         visibleBullets.clear();
         visibleEnemies.clear();
 
-        // Diagnostic: dump entity counts every ~5 seconds (60fps × 5 = 300
-        // frames). Helps debug "why aren't enemies/bullets rendering" — if
-        // realmTotal > 0 but visibleTotal == 0 the bounds query is culling
-        // them; if realmTotal == 0 they aren't being added to the realm.
+        // Diagnostic entity/player census every ~300 frames.
         this.frameCounter++;
         if (this.frameCounter % 300 == 0) {
             int realmEnemies = this.realmManager.getRealm().getEnemies() != null
@@ -1963,13 +1617,6 @@ public class PlayState extends GameState {
                     ? this.realmManager.getRealm().getBullets().size() : 0;
             int realmPortals = this.realmManager.getRealm().getPortals() != null
                     ? this.realmManager.getRealm().getPortals().size() : 0;
-            // Player census: every 5 seconds, dump the realm's player table
-            // with id/name/pos/sprite-loaded for each. Lets us see whether
-            // remote players have actually been added by handleLoadClient
-            // and whether they have valid sprite sheets — when remote
-            // players aren't visible, this tells us if the bug is in the
-            // network path (no entries) or the render path (entries exist
-            // but spriteSheet is null / pos is off-map / etc.).
             try {
                 final long localId = this.realmManager.getCurrentPlayerId();
                 final Collection<Player> ps =
@@ -1980,10 +1627,6 @@ public class PlayState extends GameState {
                     String spriteState = "noSprite";
                     if (rp.getSpriteSheet() != null) {
                         try {
-                            // Distinguish "sheet exists but no frames" (setAnimSet
-                            // failed to find idle_side) from a fully usable sheet.
-                            // Without this, both states reported "ok" and the
-                            // invisible-player bug looked like a render-path issue.
                             int frameCount = rp.getSpriteSheet().getFrameCount();
                             spriteState = (rp.getSpriteSheet().getCurrentFrame() != null
                                     && frameCount > 0)
@@ -2009,19 +1652,14 @@ public class PlayState extends GameState {
                     LOG_NS, realmEnemies, realmBullets, realmPortals, gameObject.length);
         }
 
-        // BLIND status — clamp visible radius around the local player. Same
-        // semantics as the webclient: enemies, bullets, and other players
-        // outside ~3 tiles vanish from the local view. Server stays
-        // authoritative on positions; this is pure render-side cull so the
-        // player can't see what's about to hit them.
+        // BLIND: render-only cull of entities more than ~3 tiles from the local
+        // player. Reach uses each body's half-size so a large enemy the player
+        // stands on isn't culled by corner math.
         final Player localBlindPlayer = this.realmManager.getRealm().getPlayer(
                 this.realmManager.getCurrentPlayerId());
         final boolean isBlind = localBlindPlayer != null
                 && localBlindPlayer.hasEffect(StatusEffectType.BLIND);
         final float BLIND_RADIUS = 32f * 3f;
-        // Player CENTER + body-based reach (mirrors the webclient): an entity is
-        // culled only when its whole body sits outside the tunnel. Corner math
-        // left large enemies invisible even when the player stood on them.
         final float blindHalf = isBlind ? localBlindPlayer.getSize() / 2f : 0f;
         final float blindPx = isBlind ? localBlindPlayer.getPos().x + blindHalf : 0f;
         final float blindPy = isBlind ? localBlindPlayer.getPos().y + blindHalf : 0f;
@@ -2044,9 +1682,8 @@ public class PlayState extends GameState {
             visibleEntities.add(p);
             p.updateAnimation();
             p.setWading(this.realmManager.getRealm().getTileManager().collidesSlowTile(p));
-            // Keep the local player's privilege role sticky: capture it from
-            // whatever source supplied it (login or any packet) and restore it
-            // if a re-created local entry lost it, so the name color holds.
+            // Keep the local player's role sticky, restoring it onto a re-created
+            // local entry so the name color holds.
             if (p.getId() == this.realmManager.getCurrentPlayerId()) {
                 final String role = p.getChatRole();
                 if (role != null && !role.isEmpty()) {
@@ -2070,16 +1707,11 @@ public class PlayState extends GameState {
                 visibleEnemies.add(e);
             } else if (gameObject[i] instanceof Bullet) {
                 final Bullet b = (Bullet) gameObject[i];
-                // Skip locally-consumed bullets — set by the player-bullet
-                // hit prediction in update(). Sprite vanishes but the
-                // entry stays in the realm so the server's eventual
-                // UnloadPacket cleanly removes it.
                 if (b.isConsumedClient()) continue;
                 // Hide OTHER players' projectiles (own + enemy shots still show).
                 if (hideOtherBullets && b.getSrcEntityId() != localPlayerId
                         && this.realmManager.getRealm().getPlayers().containsKey(b.getSrcEntityId())) continue;
-                // BLIND cull — bullets outside the tunnel radius vanish.
-                // Local player's OWN bullets are exempt so they can still aim.
+                // Local player's OWN bullets are BLIND-exempt so they can still aim.
                 if (isBlind && b.getSrcEntityId() != localBlindId) {
                     final float half = b.getSize() / 2f;
                     final float dx = (b.getPos().x + half) - blindPx, dy = (b.getPos().y + half) - blindPy;
@@ -2088,30 +1720,20 @@ public class PlayState extends GameState {
                 }
                 visibleBullets.add(b);
             }
-            // Players already added above, skip to avoid double-render
         }
 
-        // Update visual effect state for all entities before rendering
         for (int i = 0; i < visibleEntities.size(); i++) {
             visibleEntities.get(i).updateEffectState();
         }
 
-        // Pass 1.5: Ground shadows. Drawn BEFORE entity bodies so the
-        // sprite stands on top of its own shadow, mirroring webclient
-        // renderer.js. Three categories share the pass:
-        //   - players + enemies (visibleEntities) at alpha 0.30
-        //   - decoration collision objects (trees, rocks, statues, river
-        //     stones) at alpha 0.25 — matches webclient decoration shadow
-        //   - portals + loot containers at alpha 0.35 — matches webclient
-        //     billboarded-object shadow
-        // ShapeRenderer state swap is paid once and amortized across all
-        // three loops, so adding the extra categories is essentially free
-        // vs the entities-only baseline.
+        // Ground shadows, BEFORE entity bodies so each sprite stands on its own
+        // shadow. Entities, portals, and loot only (collision-object shadows are
+        // drawn by TileManager under each sprite; redrawing here double-stacked).
+        // One shapes pass batches all the ellipses (a tight per-frame loop).
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // Entities (players + enemies)
         shapes.setColor(0f, 0f, 0f, 0.30f);
         for (int i = 0; i < visibleEntities.size(); i++) {
             final Entity ent = visibleEntities.get(i);
@@ -2120,15 +1742,6 @@ public class PlayState extends GameState {
             final float wy = ent.getPos().getWorldVar().y + s * 0.92f;
             shapes.ellipse(wx - s * 0.4f, wy - s * 0.06f, s * 0.8f, s * 0.24f);
         }
-        // Collision-object shadows (trees, rocks, cacti, statues) are drawn by
-        // TileManager Pass 3, UNDER each object sprite. Don't redraw them here —
-        // doing so stacked a second oval on top of every object (the cactus/palm
-        // double-shadow). Entities, portals, and loot still shadow here because
-        // their sprites are drawn after this pass.
-        // Portals + loot containers — drawn LATER in the frame after this
-        // pass, but the ground shadow needs to render before everything
-        // else for the "sprite stands on shadow" stack. Pull the same
-        // collection the portal-render loop uses below.
         shapes.setColor(0f, 0f, 0f, 0.35f);
         for (Portal portal : this.realmManager.getRealm().getPortals().values()) {
             if (portal.getPos() == null) continue;
@@ -2148,9 +1761,7 @@ public class PlayState extends GameState {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Pass 2a: entity sprite strokes (dark silhouette behind every body),
-        // drawn with the default shader so the dark tint applies. Gated by the
-        // global sprite-stroke toggle. Matches the webclient's per-entity outline.
+        // Entity sprite strokes (dark silhouette behind each body).
         if (gfx.isSpriteStroke()) {
             ShaderManager.clearEffect(batch);
             for (int i = 0; i < visibleEntities.size(); i++) {
@@ -2158,7 +1769,7 @@ public class PlayState extends GameState {
             }
         }
 
-        // Pass 2: All entity bodies grouped by effect (minimize shader switches)
+        // Entity bodies grouped by effect to minimize shader switches.
         Sprite.EffectEnum currentEffect = null;
         for (int i = 0; i < visibleEntities.size(); i++) {
             Entity e = visibleEntities.get(i);
@@ -2177,15 +1788,12 @@ public class PlayState extends GameState {
         // still draw on top.
         this.realmManager.getRealm().getTileManager().renderTallWallOcclusion(batch);
 
-        // Pass 3: Bullet outlines first (all behind), then bodies on top.
-        // Outlines are skipped when the global sprite-stroke toggle is off.
+        // Bullet outlines (behind), then FX particles, then bullet bodies.
         if (gfx.isSpriteStroke()) {
             for (int i = 0; i < visibleBullets.size(); i++) {
                 visibleBullets.get(i).renderOutline(batch);
             }
         }
-        // Projectile FX particles (data-driven trails + muzzle/impact bursts),
-        // drawn behind the bullet bodies. World-space, same batch as bullets.
         this.projectileFx.emitAndUpdate(visibleBullets,
                 this.realmManager.getRealm().getBullets(), Gdx.graphics.getDeltaTime());
         this.projectileFx.render(batch);
@@ -2200,7 +1808,8 @@ public class PlayState extends GameState {
             b.render(batch);
         }
 
-        // Pass 4: Enemy health bars + Player HP/MP bars (overhead).
+        // Overhead bars (enemy HP, then player HP/MP, then cast overlays). One
+        // shapes pass batches all the rects (a tight per-frame loop).
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -2211,32 +1820,19 @@ public class PlayState extends GameState {
             float wy = enemy.getPos().getWorldVar().y;
             int barWidth = enemy.getSize();
             int barHeight = 4;
-            // Below the sprite (webclient parity): +Y is screen-down, so wy + size
-            // is the sprite's bottom edge. The enemy name sits ABOVE the head, so
-            // nothing competes for the space directly under the sprite.
+            // +Y is screen-down, so wy + size is the sprite's bottom edge.
             float barY = wy + enemy.getSize() + 2;
             shapes.setColor(0.2f, 0.2f, 0.2f, 0.8f);
             shapes.rect(wx, barY, barWidth, barHeight);
             shapes.setColor(1f, 0f, 0f, 0.9f);
-            shapes.rect(wx, barY, barWidth * enemy.getHealthpercent(), barHeight);
+            final float hpFrac = Math.max(0f, Math.min(1f, enemy.getHealthpercent()));
+            shapes.rect(wx, barY, barWidth * hpFrac, barHeight);
         }
-        // Player HP + MP nameplate bars. Mirrors webclient renderer.js
-        // _drawPlayerHpMp (~line 1280): two stacked 4px bars below the
-        // sprite — green HP, blue MP — with a darker background. Drawn
-        // before the name text so the bars sit cleanly underneath.
-        //
-        // Anchor on getEffectiveRenderX/Y (same source the sprite +
-        // nameplate use) NOT the raw pos.getWorldVar(). The sprite
-        // extrapolates between ticks (renderX = pos + frac × lastTickStep)
-        // while the simulated pos snaps in tick-sized increments, so a
-        // bar tracking pos visibly oscillates against the smoothly-
-        // moving sprite. The same fix was applied to the nameplate
-        // text below; HP/MP bars and status icons were missed.
-        // Cast overlay — opaque grey rectangle filling the casting player's
-        // sprite bottom→top as the cast advances. Visible on every player
-        // in the realm (including party members) so the caster has a clear
-        // commitment cue and observers can read who's mid-cast. Auto-clears
-        // when the cast duration elapses (no explicit cast-finish packet).
+        // Cast overlay: translucent fill rising up the casting player's sprite.
+        // Auto-clears when the duration elapses (no cast-finish packet).
+        // Everything overhead anchors on getEffectiveRenderX/Y (the smoothly
+        // interpolated pos the sprite uses), NOT raw pos, or the bar oscillates
+        // against the moving sprite.
         if (this.activeCasts != null && !this.activeCasts.isEmpty()) {
             final long now = System.currentTimeMillis();
             for (Player rp : this.realmManager.getRealm().getPlayers().values()) {
@@ -2252,10 +1848,6 @@ public class PlayState extends GameState {
                 final int s = rp.getSize() > 0 ? rp.getSize() : 32;
                 final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
                 final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
-                // Sprite sits in roughly [wx, wx+s] × [wy, wy+s]. Fill from
-                // the bottom (wy+s, larger Y in libGDX Y-down screen coords)
-                // upward as pct increases — same direction as a tank UI
-                // cast bar. Translucent so the sprite is still readable.
                 final float fillH = s * pct;
                 shapes.setColor(0f, 0f, 0f, 0.55f);
                 shapes.rect(wx, wy + s - fillH, s, fillH);
@@ -2268,9 +1860,7 @@ public class PlayState extends GameState {
             final int barW = s;
             final int barH = 3;
             final int barGap = 1;
-            // Below the sprite, top->bottom: NAME, then HP bar, then MP bar. Y is
-            // screen-down, so wy + s is the sprite's bottom edge; leave room above
-            // the bars for the name (drawn in the nameplate pass at wy + s + 2).
+            // Below the sprite; +16 leaves room for the name (drawn at wy + s + 2).
             final float hpY = wy + s + 16;
             final float mpY = hpY + barH + barGap;
             float hpPct = 0f;
@@ -2291,68 +1881,32 @@ public class PlayState extends GameState {
             shapes.rect(wx, mpY, barW * mpPct, barH);
         }
 
-        // Status-effect chips stacked above each player's nameplate.
-        // Port of webclient _drawStatusIcons (renderer.js ~5512): 40x14
-        // pill-shaped chips, bottommost just above the head, additional
-        // effects stack upward. Chip BACKGROUND is drawn here (shapes
-        // pass); the abbreviation TEXT is drawn in a follow-up batch pass
-        // below so font.draw can lay glyphs over the colored body. Cache
-        // per-chip layout coords during this loop so the text pass
-        // doesn't have to recompute them.
+        // Status-effect chips above each head. The chip BACKGROUNDS draw here in
+        // the shapes pass; the labels draw in a later batch pass, so per-chip
+        // layout coords are cached in these lists. Chips are sized 1/WORLD_SCALE
+        // so their on-screen size matches the webclient's 40x14 screen pixels.
         final List<float[]> _statusChipLayout = new ArrayList<>();
         final List<String>  _statusChipLabels = new ArrayList<>();
+        final float chipWS = OpenRealmGame.WORLD_SCALE;
+        final float chipW = 40f / chipWS;
+        final float chipH = 14f / chipWS;
         for (Player rp : gfx.isShowStatusBubbles()
                 ? this.realmManager.getRealm().getPlayers().values()
                 : Collections.<Player>emptyList()) {
             final Short[] effs = rp.getEffectIds();
             if (effs == null) continue;
             final int sSize = rp.getSize() > 0 ? rp.getSize() : 32;
-            // Same render-anchor as the HP/MP bars and nameplate above
-            // so status icons don't oscillate against the moving sprite.
             final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
             final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
-            // Webclient chips are 40x14 SCREEN pixels. Native renders here
-            // through the world camera which has WORLD_SCALE=2× zoom — so
-            // 40 world units = 80 actual pixels. Divide by WORLD_SCALE to
-            // match the webclient's on-screen size. Same for the vertical
-            // gap and the bottom-anchor offset.
-            final float WS = OpenRealmGame.WORLD_SCALE;
-            final float iconW = 40f / WS;
-            final float iconH = 14f / WS;
-            final float iconGap = 2f / WS;
-            final float iconX = wx + (sSize * 0.5f) - (iconW * 0.5f);
-            // Stack the chips ABOVE the nameplate (not just above the HP bar).
-            // Nameplate is rendered later with the world batch at y =
-            // wy - 12 - layoutHeight, where layoutHeight ≈ 8 world units at
-            // the 0.5× font scale. Without this extra ~11 unit lift the
-            // bottommost chip sat directly behind the name glyphs and the
-            // later batch.draw painted the text on top of the icon — the
-            // exact "icons hidden behind name" symptom the user reported.
-            final float bottomY = wy - 22f / WS - 11f;
-            int activeIdx = 0;
-            for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
-                if (!hasEffectId(effs, def.effectId)) continue;
-                // bottommost chip is idx 0, additional effects stack upward
-                // (Y-up in libGDX: -Y in our flipped world cam → "upward").
-                final float chipY = bottomY - (activeIdx + 1) * (iconH + iconGap);
-                // Black border + drop shadow for legibility
-                shapes.setColor(0f, 0f, 0f, 0.85f);
-                shapes.rect(iconX - 1, chipY - 1, iconW + 2, iconH + 2);
-                // Coloured body (effect identity)
-                shapes.setColor(def.r, def.g, def.b, 0.92f);
-                shapes.rect(iconX, chipY, iconW, iconH);
-                // Highlight strip along the top edge for polish
-                shapes.setColor(1f, 1f, 1f, 0.18f);
-                shapes.rect(iconX + 1, chipY + iconH - 4f, iconW - 2, 3f);
-                _statusChipLayout.add(new float[] { iconX, chipY, iconW, iconH });
-                _statusChipLabels.add(def.label);
-                activeIdx++;
-            }
+            final float iconX = wx + (sSize * 0.5f) - (chipW * 0.5f);
+            // Extra lift clears the nameplate, or the bottom chip sits behind the
+            // name glyphs and the later batch.draw paints text over the icon.
+            final float bottomY = wy - 22f / chipWS - 11f;
+            this.emitStatusChips(shapes, effs, iconX, bottomY, chipW, chipH,
+                    _statusChipLayout, _statusChipLabels);
         }
 
-        // Enemy status-effect chips — same pooled shapes/labels pass as players,
-        // anchored above the enemy head (lifted one row when a name label shows so
-        // the chips clear it). Mirrors webclient renderEnemy status-icon block.
+        // Enemy chips (lifted one row when a name label shows so they clear it).
         for (Enemy en : gfx.isShowStatusBubbles() ? visibleEnemies
                 : Collections.<Enemy>emptyList()) {
             final Short[] effs = en.getEffectIds();
@@ -2360,34 +1914,15 @@ public class PlayState extends GameState {
             final int sSize = en.getSize() > 0 ? en.getSize() : 32;
             final float wx = en.getPos().getWorldVar().x;
             final float wy = en.getPos().getWorldVar().y;
-            final float WS = OpenRealmGame.WORLD_SCALE;
-            final float iconW = 40f / WS;
-            final float iconH = 14f / WS;
-            final float iconGap = 2f / WS;
-            final float iconX = wx + (sSize * 0.5f) - (iconW * 0.5f);
+            final float iconX = wx + (sSize * 0.5f) - (chipW * 0.5f);
             final boolean named = this.shouldLabelEnemy(en);
-            final float bottomY = wy - 4f - (named ? 16f / WS : 0f);
-            int activeIdx = 0;
-            for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
-                if (!hasEffectId(effs, def.effectId)) continue;
-                final float chipY = bottomY - (activeIdx + 1) * (iconH + iconGap);
-                shapes.setColor(0f, 0f, 0f, 0.85f);
-                shapes.rect(iconX - 1, chipY - 1, iconW + 2, iconH + 2);
-                shapes.setColor(def.r, def.g, def.b, 0.92f);
-                shapes.rect(iconX, chipY, iconW, iconH);
-                shapes.setColor(1f, 1f, 1f, 0.18f);
-                shapes.rect(iconX + 1, chipY + iconH - 4f, iconW - 2, 3f);
-                _statusChipLayout.add(new float[] { iconX, chipY, iconW, iconH });
-                _statusChipLabels.add(def.label);
-                activeIdx++;
-            }
+            final float bottomY = wy - 4f - (named ? 16f / chipWS : 0f);
+            this.emitStatusChips(shapes, effs, iconX, bottomY, chipW, chipH,
+                    _statusChipLayout, _statusChipLabels);
         }
 
-        // Chat bubble BACKGROUNDS — white rounded boxes drawn behind the bubble
-        // text (the text itself is drawn in the nameplate batch pass below).
-        // Uses the same shapes-then-batch split as the status chips so the
-        // ShapeRenderer is never interleaved with the SpriteBatch. Geometry
-        // mirrors the bubble text formula in the nameplate loop exactly.
+        // Chat bubble BACKGROUNDS behind the bubble text (drawn in the nameplate
+        // pass). Geometry mirrors that bubble-text formula exactly.
         if (gfx.isShowChatBubbles()) {
             final long now = System.currentTimeMillis();
             final float ws = OpenRealmGame.WORLD_SCALE;
@@ -2421,23 +1956,16 @@ public class PlayState extends GameState {
         }
         shapes.end();
 
-        // Status-chip label pass — draw abbreviations centered inside
-        // each chip we just painted. Smaller-than-default scale so the
-        // 4-char labels fit inside a 40-wide chip.
+        // Status-chip labels, centered inside each chip painted above.
         if (!_statusChipLayout.isEmpty()) {
             batch.begin();
             final float prevScale = font.getData().scaleX;
-            // Font scale also halved (chips are now 1/WORLD_SCALE size so
-            // text-to-chip ratio stays the same as the previous tuning).
             font.getData().setScale(0.45f / OpenRealmGame.WORLD_SCALE);
             for (int idx = 0; idx < _statusChipLayout.size(); idx++) {
                 final float[] r = _statusChipLayout.get(idx);
                 final String label = _statusChipLabels.get(idx);
                 this.nameLayoutScratch.setText(font, label);
                 font.setColor(Color.WHITE);
-                // Flipped world ortho: font.draw y is the TOP of the text and
-                // glyphs extend downward (+y). Center vertically by insetting
-                // the top edge half the leftover height inside the chip.
                 final float tx = r[0] + (r[2] - this.nameLayoutScratch.width) * 0.5f;
                 final float ty = r[1] + (r[3] - this.nameLayoutScratch.height) * 0.5f;
                 font.draw(batch, this.nameLayoutScratch, tx, ty);
@@ -2471,14 +1999,8 @@ public class PlayState extends GameState {
             this.renderMeleeSwings(batch);
         }
 
-        // Player nameplates — rendered with the world-camera batch so the
-        // text anchors to the entity. Font is dropped to 0.5x so the
-        // nameplate matches the webclient's small overhead label
-        // (~10-12px) instead of the default 16-20px which covered the
-        // whole sprite. Color follows chatRole exactly like webclient
-        // renderer.js getNameColorHex (sysadmin/red, admin/blue,
-        // mod/green, editor/purple, demo/gray, default/off-white).
-        // Use GlyphLayout to center the name horizontally on the sprite.
+        // Player nameplates (world-camera batch, 0.5x font). Color follows
+        // chatRole. Anchored on the lerped render pos so the name doesn't jitter.
         final float origScale = font.getData().scaleX;
         font.getData().setScale(0.5f);
         final long bubbleNowMs = System.currentTimeMillis();
@@ -2487,20 +2009,10 @@ public class PlayState extends GameState {
             final String nm = rp.getName();
             if (nm == null || nm.isEmpty()) continue;
             final int s = rp.getSize() > 0 ? rp.getSize() : 32;
-            // Use the LERPED render position (same source as the sprite
-            // and HP bar use) instead of raw pos. Was reading
-            // rp.getPos().getWorldVar() which is the post-tick sim
-            // position — that snaps in tick-sized increments while the
-            // sprite (which uses getEffectiveRenderX) walks smoothly,
-            // so the nameplate visibly jittered above the moving
-            // sprite. With this change the nameplate locks frame-for-
-            // frame to the same coords the sprite renders at.
             final float wx = rp.getEffectiveRenderX() - Vector2f.worldX;
             final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
             this.nameLayoutScratch.setText(font, nm);
             font.setColor(roleColorFor(rp.getChatRole()));
-            // Name sits just BELOW the sprite and ABOVE the HP/MP bars (top-anchored
-            // in flipped ortho, so it extends downward into the reserved gap).
             if (gfx.isShowPlayerNames()) {
                 font.draw(batch, this.nameLayoutScratch,
                         wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
@@ -2510,16 +2022,14 @@ public class PlayState extends GameState {
             final ChatBubble bubble = gfx.isShowChatBubbles() ? this.chatBubbles.get(nm) : null;
             if (bubble != null && !bubble.isExpired(bubbleNowMs)) {
                 this.chatBubbleLayoutScratch.setText(font, bubble.getMessage());
-                // Dark text for contrast on the white bubble background (drawn
-                // in the earlier shapes pass).
+                // Dark text for contrast on the white bubble background.
                 font.setColor(0.10f, 0.10f, 0.10f, bubble.alpha(bubbleNowMs));
                 font.draw(batch, this.chatBubbleLayoutScratch,
                         wx + (s * 0.5f) - (this.chatBubbleLayoutScratch.width * 0.5f),
                         wy - 12 - this.nameLayoutScratch.height - 4 - this.chatBubbleLayoutScratch.height);
             }
         }
-        // Enemy names intentionally not drawn — enemies are identified by their
-        // overhead health bar only (Pass 4). Status chips still render below.
+        // Enemy names intentionally not drawn (overhead health bar identifies them).
         font.getData().setScale(origScale);
         font.setColor(Color.WHITE);
 
@@ -2530,8 +2040,8 @@ public class PlayState extends GameState {
             portal.render(batch);
             final String portalLabel = portal.getTargetLabel();
             if (portalLabel == null || portalLabel.isEmpty()) continue;
-            // Under-portal info: minimal (name + tier/difficulty badge) by default; the portal the
-            // player stands on expands into a full card with purification + modifiers.
+            // Minimal name + badge by default; the portal the player stands on
+            // ("focused") expands into a full card with purification + modifiers.
             font.getData().setScale(0.5f);
             final float diff = portal.getTargetDifficulty();
             final int tier = portal.getTargetTier();
@@ -2583,20 +2093,13 @@ public class PlayState extends GameState {
         font.getData().setScale(prevPortalScale);
         font.setColor(Color.WHITE);
 
-        // Loot bags must render with the WORLD camera projection active —
-        // LootContainer.render uses pos.getWorldVar() to manually transform
-        // to camera-relative coordinates, then relies on the world projection
-        // for the screen mapping. Previously the lc.render() loop lived in
-        // renderCloseLoot which the caller invokes AFTER switching the batch
-        // to the UI camera (1:1 screen pixels), so bags drew at half-scale,
-        // un-scaled screen coordinates that read as "random spots" relative
-        // to the actual map tiles.
+        // Loot bags MUST render here while the world projection is active
+        // (LootContainer.render maps via pos.getWorldVar()), not after the UI
+        // camera switch, or they draw at the wrong scale/position.
         for (LootContainer lc : this.realmManager.getRealm().getLoot().values()) {
             lc.render(batch);
         }
 
-        // Read-only loot bag preview — small item grid under each bag. Never
-        // interacts with pickup; strictly a display aid, off by default.
         if (gfx.isLootBagPreview()) {
             this.renderLootBagPreviews(batch, shapes);
         }
@@ -2604,13 +2107,8 @@ public class PlayState extends GameState {
         if (this.pui == null)
             return;
 
-        // Damage text uses WORLD coords (sourcePos - Vector2f.worldX/Y),
-        // so render it BEFORE flipping to the UI camera. Otherwise the
-        // numbers paint at world-pixel positions through the UI projection
-        // — which puts a hit that occurred at world (300, 200) at screen
-        // (300, 200) instead of at the actual sprite location. Flush the
-        // batch first so any prior world-space draws complete before the
-        // next pass starts.
+        // Damage text uses WORLD coords, so it MUST render before the UI-camera
+        // switch or the numbers land at the wrong screen position.
         if (gfx.isShowDamageNumbers()) {
             for (EffectText text : this.getDamageText()) {
                 text.render(batch, font);
@@ -2624,15 +2122,13 @@ public class PlayState extends GameState {
             batch.setTransformMatrix(this.worldTransformIdt);
             shapes.setTransformMatrix(this.worldTransformIdt);
         }
-        // Blind vignette darkens the periphery down to the choked render range.
-        // Drawn before the HUD so the panel/minimap stay fully lit.
+        // Vignette before the HUD so the panel/minimap stay fully lit.
         if (isBlind) this.renderBlindVignette(batch, shapes);
         this.pui.render(batch, shapes, font);
 
         this.renderCloseLoot(batch);
 
-        // Client-side /dev overlay: FPS / ping / jitter / resolution bar pinned
-        // above the minimap (toggled by the /dev chat command). batch is active here.
+        // /dev overlay pinned above the minimap.
         if (PerfMetrics.get().isDevVisible()) {
             final Minimap devMinimap = this.pui.getMinimap();
             PerfMetrics.get().renderDevBar(batch, font,
@@ -2642,10 +2138,6 @@ public class PlayState extends GameState {
         if (this.debugMode) {
             this.renderDebugTileOverlay(batch, shapes, font, player);
         }
-
-        // FPS overlay removed — was overlapping with the new sprite-HUD's
-        // top-left preview panel (player name + bars). Re-enable behind a
-        // debug flag if needed.
     }
 
     private void renderDebugTileOverlay(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font, Player player) {
@@ -2667,11 +2159,9 @@ public class PlayState extends GameState {
             return;
         }
 
-        // Get tiles at hovered position
         Tile baseTile = baseLayer.getBlocks()[tileRow][tileCol];
         Tile collTile = collisionLayer.getBlocks()[tileRow][tileCol];
 
-        // Draw green outline around hovered tile in world space
         float drawX = (tileCol * tileSize) - PlayState.map.x;
         float drawY = (tileRow * tileSize) - PlayState.map.y;
 
@@ -2679,19 +2169,16 @@ public class PlayState extends GameState {
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 
-        // Filled green tint
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0f, 1f, 0f, 0.15f);
         shapes.rect(drawX, drawY, tileSize, tileSize);
         shapes.end();
 
-        // Green border
         shapes.begin(ShapeRenderer.ShapeType.Line);
         shapes.setColor(0f, 1f, 0f, 1f);
         shapes.rect(drawX, drawY, tileSize, tileSize);
         shapes.end();
 
-        // Build tooltip text
         int tooltipX = mx + 16;
         int tooltipY = my + 16;
         int lineHeight = 16;
@@ -2720,7 +2207,6 @@ public class PlayState extends GameState {
             lines.add("Collision: " + collName);
         }
 
-        // Show tile data flags
         TileData data = null;
         if (collTile != null && collTile.getData() != null && collTile.getData().hasCollision()) {
             data = collTile.getData();
@@ -2744,7 +2230,6 @@ public class PlayState extends GameState {
         }
         int tooltipHeight = padding * 2 + lines.size() * lineHeight;
 
-        // Clamp tooltip to screen
         if (tooltipX + tooltipWidth > OpenRealmGame.width) {
             tooltipX = mx - tooltipWidth - 8;
         }
@@ -2752,7 +2237,6 @@ public class PlayState extends GameState {
             tooltipY = my - tooltipHeight - 8;
         }
 
-        // Draw tooltip background
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.1f, 0.1f, 0.12f, 0.92f);
         shapes.rect(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
@@ -2765,7 +2249,6 @@ public class PlayState extends GameState {
         Gdx.gl.glDisable(GL20.GL_BLEND);
         batch.begin();
 
-        // Draw tooltip text
         font.setColor(Color.GREEN);
         for (int i = 0; i < lines.size(); i++) {
             font.draw(batch, lines.get(i), tooltipX + padding, tooltipY + padding + lineHeight + (i * lineHeight));
@@ -2778,21 +2261,14 @@ public class PlayState extends GameState {
         if (player == null)
             return;
 
-        // Note: bag sprite rendering moved to the world-camera section of
-        // render() (next to portals). This method now only handles the HUD
-        // ground-loot panel sync — the closest bag's contents pump into the
-        // bottom-right inventory bag overlay.
-
-        // Skip normal loot container logic while trading - trade UI manages ground loot area
+        // Only the HUD ground-loot panel sync; bag sprites render in render().
+        // The trade UI manages the ground-loot area while trading.
         if (this.getPui().isTrading()) {
             return;
         }
 
-        // Match the server's ground-loot pickup radius (player.getSize() +
-        // 24) so the loot panel only surfaces a bag whose items the
-        // server will accept clicks for. Used to be size/2 (~14px), so
-        // a bag could appear in the UI but be just outside server
-        // pickup range — clicks looked like no-ops.
+        // Match the server's ground-loot pickup radius so a surfaced bag is one
+        // the server will accept clicks for.
         final int lootSearchRadius = player.getSize() + 24;
         final LootContainer closeLoot = this.getClosestLootContainer(player.getPos(), lootSearchRadius);
 
@@ -2803,29 +2279,18 @@ public class PlayState extends GameState {
         }
 
         if (closeLoot != null && !this.getPui().isGroundLootEmpty()) {
-            // Diff by itemId + stackCount, NOT just count — partial
-            // pickups of a stack don't change the slot count but do
-            // change stackCount, and the previous count-only check
-            // missed those (so the bag visually still showed the full
-            // stack even after the player took 5 of 10).
+            // Diff by itemId + stackCount, not just slot count, or a partial
+            // stack pickup leaves the bag showing the pre-pickup stack.
             if (this.lootDiffersFromUI(closeLoot)) {
                 this.getPui().setGroundLoot(closeLoot.getItems());
             }
         }
     }
 
-    /** True if the loot container's current items differ in count, item
-     *  id, or stack count from the cached groundLoot UI snapshot.
-     *  IMPORTANT: setGroundLoot skips items where item==null OR itemId==-1
-     *  (the empty-slot sentinel), so the UI snapshot has null Slots in
-     *  those positions. The diff MUST treat both representations as
-     *  equivalent — otherwise it returns true every frame, setGroundLoot
-     *  is called every render, and the freshly-built Buttons reset to
-     *  legacy positions BEFORE the next input tick reads their bounds.
-     *  Result: the user clicks the visible (sprite-HUD-positioned) bag
-     *  but the bounds are still at the off-screen legacy coords from
-     *  the rebuild — every click misses, no handler ever fires.
-     *  This was the actual cause of 'loot pickup never works'. */
+    /** True if the container's items differ from the cached groundLoot UI
+     *  snapshot. MUST treat null Slot and itemId==-1 as equivalent (setGroundLoot
+     *  skips both), or it returns true every frame and rebuilds the loot Buttons
+     *  each render, leaving their click bounds stale so every pickup click misses. */
     private boolean lootDiffersFromUI(LootContainer closeLoot) {
         final Slots[] uiSlots = this.getPui().getGroundLoot();
         final GameItem[] lcItems = closeLoot.getItems();
@@ -2904,6 +2369,28 @@ public class PlayState extends GameState {
         return false;
     }
 
+    /** Emit one active-effect chip per set effect, stacking upward from bottomY,
+     *  and record each chip's rect + label for the later label pass. Runs inside
+     *  the caller's open Filled shapes pass. */
+    private void emitStatusChips(ShapeRenderer shapes, Short[] effs, float iconX, float bottomY,
+            float iconW, float iconH, List<float[]> outLayout, List<String> outLabels) {
+        final float iconGap = 2f / OpenRealmGame.WORLD_SCALE;
+        int activeIdx = 0;
+        for (StatusEffectIconDef def : STATUS_ICON_DEFS) {
+            if (!hasEffectId(effs, def.effectId)) continue;
+            final float chipY = bottomY - (activeIdx + 1) * (iconH + iconGap);
+            shapes.setColor(0f, 0f, 0f, 0.85f);
+            shapes.rect(iconX - 1, chipY - 1, iconW + 2, iconH + 2);
+            shapes.setColor(def.r, def.g, def.b, 0.92f);
+            shapes.rect(iconX, chipY, iconW, iconH);
+            shapes.setColor(1f, 1f, 1f, 0.18f);
+            shapes.rect(iconX + 1, chipY + iconH - 4f, iconW - 2, 3f);
+            outLayout.add(new float[] { iconX, chipY, iconW, iconH });
+            outLabels.add(def.label);
+            activeIdx++;
+        }
+    }
+
     private TextureRegion getShurikenRegion(int tier) {
         if (_shurikenRegions == null) _shurikenRegions = new TextureRegion[6];
         final int t = Math.max(0, Math.min(5, tier));
@@ -2922,12 +2409,8 @@ public class PlayState extends GameState {
         }
     }
 
-    /**
-     * Read-only loot-bag preview: a small item grid under each ground loot
-     * container (world-camera space). Dark backgrounds first (ShapeRenderer),
-     * then item icons (SpriteBatch). Purely visual — no pickup interaction.
-     * Mirrors the webclient renderer.js renderLootPreviews.
-     */
+    /** Read-only item grid under each ground-loot bag (world-camera space):
+     *  dark backgrounds first, then icons. No pickup interaction. */
     private void renderLootBagPreviews(SpriteBatch batch, ShapeRenderer shapes) {
         final float WS = OpenRealmGame.WORLD_SCALE;
         final float CELL = 13f / WS, ICON = 10f / WS, PAD = 2f / WS;
@@ -2988,16 +2471,12 @@ public class PlayState extends GameState {
         return n;
     }
 
-    /**
-     * Screen-space blind vignette: a clear circular tunnel of radius
-     * BLIND_RADIUS × WORLD_SCALE around the (centered) player, fading to dark
-     * toward the edges. Reflects the choked bullet/enemy render range. Drawn
-     * with the UI camera active so it maps 1:1 to screen pixels.
-     */
+    /** Blind vignette: a clear tunnel around the centered player fading to dark.
+     *  UI-camera space (1:1 screen pixels). */
     private void renderBlindVignette(SpriteBatch batch, ShapeRenderer shapes) {
         final float w = OpenRealmGame.width, h = OpenRealmGame.height;
-        final float cx = w / 2f, cy = h / 2f; // player is centered in the world viewport
-        final float innerR = 32f * 3f * OpenRealmGame.WORLD_SCALE; // choked render range
+        final float cx = w / 2f, cy = h / 2f;
+        final float innerR = 32f * 3f * OpenRealmGame.WORLD_SCALE;
         final float fadeR = innerR + 180f;
         final float cornerR = (float) Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)) + 4f;
         final Color clear = new Color(0f, 0f, 0f, 0f);
@@ -3031,21 +2510,15 @@ public class PlayState extends GameState {
         batch.begin();
     }
 
-    /**
-     * Ninja kit shuriken visuals — both effects use the same real shuriken
-     * sprite (tier 0..5 picks col 10..15 on row 16 of openrealm-items.png).
-     * Drawn inside an open SpriteBatch so we can use TextureRegion. Phase
-     * driven by wall-clock so consecutive refresh packets stay smooth.
-     */
+    /** Shuriken visuals for BLADE_ORBIT / BLADE_BLENDER (shared shuriken sprite,
+     *  phase driven by wall-clock). Drawn inside an open SpriteBatch. */
     private void renderShurikenEffects(SpriteBatch batch) {
         if (this.activeEffects == null || this.activeEffects.isEmpty()) return;
         final long now = System.currentTimeMillis();
         final float wx = Vector2f.worldX;
         final float wy = Vector2f.worldY;
-        // Persistent-refresh dedupe (matches webclient): only the newest
-        // packet per effect type actually renders. Newer = lower elapsed.
-        // Without this, multiple overlapping refresh packets paint blade
-        // groups at different rotation phases simultaneously and jitter.
+        // Only the newest packet per effect type renders (lowest elapsed), or
+        // overlapping refresh packets draw at different phases and jitter.
         ActiveVisualEffect newestOrbit = null, newestBlender = null;
         for (ActiveVisualEffect vfx : this.activeEffects) {
             final short type = vfx.getEffectType();
@@ -3068,8 +2541,7 @@ public class PlayState extends GameState {
         }
     }
 
-    /** Per-archetype swing frames from animations "effect:62". Null until a sheet
-     *  is authored + loaded — then the procedural drawMeleeSwing() draws instead. */
+    /** Per-archetype swing frames; null until a sheet is authored + loaded. */
     private TextureRegion[] swingFramesFor(short tier) {
         final String setName = swingSetName(tier);
         final TextureRegion[] cached = this.swingFrameCache.get(setName);
@@ -3097,14 +2569,12 @@ public class PlayState extends GameState {
         return regions;
     }
 
-    /** True when a sprite swing sheet is authored for this archetype — the
-     *  procedural path then skips so renderMeleeSwings() draws the frames. */
     private boolean hasSwingSprite(short tier) {
         return swingFramesFor(tier) != null;
     }
 
-    /** Sprite-override swing (only when a sheet is authored). Directional slash
-     *  emanating from the player toward the aim, frame picked by effect progress. */
+    /** Sprite-override melee swing, drawn only when a sheet is authored (else the
+     *  procedural drawMeleeSwing path handles it). */
     private void renderMeleeSwings(SpriteBatch batch) {
         if (this.activeEffects == null || this.activeEffects.isEmpty()) return;
         final float wx = Vector2f.worldX;
@@ -3187,9 +2657,8 @@ public class PlayState extends GameState {
         }
     }
 
-    /** Rotating bracket reticle over every entity targeted by a live HOMING
-     *  projectile. Red = the local player is the target, amber = a lock on an
-     *  enemy. Mirrors the webclient lock-on hint. */
+    /** Rotating bracket reticle over each HOMING-projectile target. Red = the
+     *  local player is targeted, amber = a lock on an enemy. */
     private void renderLockOnReticles(ShapeRenderer shapes) {
         if (this.visibleBullets.isEmpty()) return;
         final Realm realm = this.realmManager.getRealm();
@@ -3247,9 +2716,8 @@ public class PlayState extends GameState {
         }
     }
 
-    /** Melee aim indicator: a grey raindrop-ripple pattern (expanding, fading
-     *  rings) at the cursor, clamped to the weapon's max melee range. Mirrors the
-     *  webclient meleeReticle. */
+    /** Melee aim indicator: expanding/fading rings at the cursor, clamped to the
+     *  weapon's max melee range. */
     private void renderMeleeAimReticle(ShapeRenderer shapes) {
         final Player player = this.getPlayer();
         if (player == null || player.getInventory() == null) return;
@@ -3295,10 +2763,8 @@ public class PlayState extends GameState {
     private void renderVisualEffects(ShapeRenderer shapes) {
         if (this.activeEffects.isEmpty()) return;
 
-        // The preceding nameplate/status-chip pass ends its SpriteBatch, and
-        // SpriteBatch.end() disables GL_BLEND. Without re-enabling it here the
-        // effects' alpha is ignored and every AoE disc renders fully opaque,
-        // washing out the whole screen (the caller disables blend again after).
+        // MUST re-enable GL_BLEND: the preceding SpriteBatch.end() disabled it,
+        // and without it every AoE disc renders fully opaque.
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
 

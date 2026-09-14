@@ -7,14 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * One rect on the UI atlas sheet. Optionally describes a grid of cells
- * (cols/rows/cellW/cellH/spacing) for components that hold repeated slots
- * such as {@code panel.hud.main.grid} (4×4 inventory). Coordinates are in
- * sheet pixels — the renderer multiplies by {@link UiAtlas#getDisplayScale()}
- * when drawing.
- *
- * Source of truth: {@code openrealm-data/src/main/resources/ui/ui-components.json},
- * authored via the editor's UI Atlas tab.
+ * One rect on the UI atlas sheet. Coordinates are in sheet pixels — the
+ * renderer multiplies by {@link UiAtlas#getDisplayScale()} when drawing.
  */
 @Data
 @NoArgsConstructor
@@ -26,12 +20,9 @@ public class UiComponent {
 	private int y;
 	private int w;
 	private int h;
-	/** Optional per-component atlas override. Null → the document's root
-	 *  {@code sheet} (see {@link UiAtlasModel#getSheet()}). Lets a subset of
-	 *  components (e.g. the {@code panel.hud.main}/{@code .inv} namespaces)
-	 *  live on a different sheet from the rest. */
+	/** Null falls back to the document root {@link UiAtlasModel#getSheet()}. */
 	private String sheet;
-	/** Optional — defaults to {@link UiAtlas#getContentInset()} when null. */
+	/** Null defaults to {@link UiAtlas#getContentInset()}. */
 	private Integer contentInset;
 	/** Grid metadata. Null on non-grid components. */
 	private Integer cols;

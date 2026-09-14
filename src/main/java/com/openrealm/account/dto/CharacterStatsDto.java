@@ -1,5 +1,7 @@
 package com.openrealm.account.dto;
 
+import java.util.Map;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
@@ -35,17 +37,12 @@ public class CharacterStatsDto extends TemporalDto {
     private Integer wis;
     private Integer hpPotions;
     private Integer mpPotions;
-    // Opaque cosmetic dye id — resolved client-side via dye-assets.json. The
-    // client decides whether it's a solid color, a gradient, or a patterned
-    // cloth, so adding new cosmetics is a data-only change. 0/null = no dye.
+    // Cosmetic dye id resolved client-side via dye-assets.json; 0/null = no dye.
     private Integer dyeId;
 
-    // Phase 2D — skill points. Earned 1 per 2 levels from L2-L20 (10 total).
-    // {@code availableSkillPoints} is the unspent pool. {@code abilitySkillPoints}
-    // maps abilityId → invested level (cap 5 for non-ults, cap 3 for ults).
-    // Locked once spent. Persisted alongside the rest of the stat dto.
     private Integer availableSkillPoints;
-    private java.util.Map<Integer, Integer> abilitySkillPoints;
+    // abilityId -> invested level (cap 5 non-ults, 3 ults).
+    private Map<Integer, Integer> abilitySkillPoints;
 
     public static CharacterStatsDto characterDefaults(final Integer characterClass) {
         final CharacterClassModel model = GameDataManager.CHARACTER_CLASSES.get(characterClass);

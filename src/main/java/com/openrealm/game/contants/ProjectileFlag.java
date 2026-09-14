@@ -4,9 +4,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Flags that control projectile movement behavior. Stored in the projectile's
- * {@code flags} list. These are NOT on-hit effects — see {@link StatusEffectType}
- * for status effects applied when a projectile hits a target.
+ * Projectile movement-behavior flags. NOT on-hit effects - shares its numeric
+ * ID space with {@link StatusEffectType}; never mix the two enums.
  */
 public enum ProjectileFlag {
     PLAYER_PROJECTILE((short) 10),
@@ -16,20 +15,9 @@ public enum ProjectileFlag {
     ARMOR_PIERCING((short) 23),
     /** Projectile passes through walls and collision tiles without being destroyed. */
     PASS_THROUGH_TERRAIN((short) 24),
-    /**
-     * Projectile pierces enemies — applies damage to each enemy it overlaps and
-     * keeps flying. Per-enemy de-dup is still enforced via Realm.hasHitEnemy()
-     * so a single bullet can't damage the same enemy twice. Used for bows,
-     * archer quivers, and knight stun shields.
-     */
+    /** Damages each enemy overlapped and keeps flying; per-enemy de-dup via Realm.hasHitEnemy(). */
     PASS_THROUGH_ENEMIES((short) 25),
-    /**
-     * Line/wall projectile: extends {@code length} px perpendicular to its
-     * facing angle, centered on its position, with {@code size} as thickness.
-     * Rendered as a sprite tiled along the line. Travels along the angle at
-     * magnitude (face-first); static when magnitude is 0. Collision/damage is
-     * server-authoritative.
-     */
+    /** Line/wall: extends length px perpendicular to facing, size = thickness; static when magnitude is 0. */
     LINE_SEGMENT((short) 30),
     /** Re-positions to its source entity each tick (a wall that tracks a boss). */
     ANCHORED((short) 31),
@@ -39,12 +27,9 @@ public enum ProjectileFlag {
     SPEED_RAMP((short) 33),
     /** Homing: steers toward targetEntityId each tick, capped by frequency deg/tick. */
     HOMING((short) 34),
-    /** Melee swing: invisible instant cleaving AoE at the cursor. The client skips
-     *  its sprite but still plays the wielder's swing animation off the bullet. */
+    /** Invisible instant cleaving AoE at the cursor; client plays the swing animation, not a sprite. */
     MELEE_SWING((short) 40),
-    /** Critical: the server doubles the projectile's final damage on hit.
-     *  Client-side it is inert (damage is server-authoritative) — defined for
-     *  parity and any future crit visuals. */
+    /** Server doubles final damage on hit; inert client-side. */
     CRITICAL((short) 50);
 
     public static final Map<Short, ProjectileFlag> map = new HashMap<>();

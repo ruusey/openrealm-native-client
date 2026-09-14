@@ -46,12 +46,9 @@ public class NetEnemy extends SerializableFieldType<NetEnemy> {
 	private int health;
 	@SerializableField(order = 9, type = SerializableInt.class)
 	private int maxHealth;
-	// Compact short ID for bandwidth-efficient movement packets.
-	// Assigned by ShortIdAllocator when entity enters a realm.
 	@SerializableField(order = 10, type = SerializableShort.class)
 	private short shortId;
 
-	/** Hand-rolled construction from Enemy — bypasses ModelMapper reflection. */
 	public static NetEnemy fromEnemy(Enemy e) {
 		final NetEnemy n = new NetEnemy();
 		n.id = e.getId();
@@ -67,7 +64,6 @@ public class NetEnemy extends SerializableFieldType<NetEnemy> {
 		n.maxHealth = (int) (enemyModel != null
 				? enemyModel.getHealth() * e.getDifficulty()
 				: e.getHealth());
-		// shortId is set by the LoadPacket.from(...allocator) overload.
 		return n;
 	}
 
@@ -82,19 +78,16 @@ public class NetEnemy extends SerializableFieldType<NetEnemy> {
 		e.setDy(this.getDY());
 		e.setDifficulty(this.getDifficulty());
 		e.setHealth(this.getHealth());
+		e.setMaxHealth(this.maxHealth);
 		if (this.maxHealth > 0) {
 			e.setHealthpercent((float) this.health / (float) this.maxHealth);
 		}
-		// Wire the sprite sheet here so Enemy.render() doesn't bail at its
-		// null-check. Without this, every enemy is invisible because the
-		// renderer's first line is `if (getSpriteSheet() == null) return;`.
-		// Web-client equivalent: gameState.enemyData[enemyId] -> spriteKey lookup.
+		// Wire the sprite sheet here or Enemy.render() bails on its null-check.
 		final EnemyModel model = GameDataManager.ENEMIES != null
 				? GameDataManager.ENEMIES.get(this.getEnemyId())
 				: null;
 		if (model != null) {
-			// Prefer an animated sheet (idle/walk/attack sets) when the enemy has an
-			// animations.json entry; otherwise fall back to the static single-frame sheet.
+			// Prefer an animated sheet; fall back to the static single-frame sheet.
 			SpriteSheet sheet = GameSpriteManager.loadEnemySprites(this.getEnemyId());
 			if (sheet == null) {
 				sheet = GameSpriteManager.getSpriteSheet(model);

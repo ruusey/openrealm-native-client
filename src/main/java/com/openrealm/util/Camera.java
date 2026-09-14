@@ -171,6 +171,5 @@ public class Camera {
     }
 
     public void render() {
-        // Debug rendering removed - camera position handled by OrthographicCamera
     }
 }

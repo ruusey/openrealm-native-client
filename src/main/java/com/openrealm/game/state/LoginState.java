@@ -25,22 +25,14 @@ import com.openrealm.util.MouseHandler;
 
 import lombok.extern.slf4j.Slf4j;
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.openrealm.game.ui.UiRender;
 
 /**
- * Account login / registration / guest screen — replaces the legacy
- * JOptionPane sequence in {@link GameLauncher}. Visually mirrors the web
- * client's {@code login-screen} (email + password, register link, guest
- * button, server selector, Discord link).
- *
- * Network calls are dispatched to a worker thread so the UI stays
- * responsive — the LibGDX render loop must not block on HTTP. Results are
- * surfaced through atomic refs and applied on the next frame.
- *
- * On success, swaps itself out for {@link CharacterSelectState}. The
- * caller (GameStateManager.add) handles state slot management.
+ * Account login / registration / guest screen. Network calls run on a worker
+ * thread and land in atomic refs applied on the next frame. On success, swaps
+ * itself out for {@link CharacterSelectState}.
  */
 @Slf4j
 public class LoginState extends GameState {
@@ -48,6 +40,13 @@ public class LoginState extends GameState {
     private enum Mode { LOGIN, REGISTER }
 
     private static final String[] SERVERS = { "useast", "local", "localhost" };
+
+    private static final String[] GUEST_NAMES = {
+        "Utanu","Gharr","Yimi","Idrae","Odaru","Scheev","Zhiar","Itani",
+        "Serl","Oeti","Tiar","Issz","Oshyu","Deyst","Oalei","Vorv",
+        "Iatho","Uoro","Urake","Eashy","Queq","Rayr","Tal","Drac",
+        "Yangu","Eango","Rilr","Ehoni","Risrr","Sek","Eati","Laen"
+    };
 
     private Mode mode = Mode.LOGIN;
     private final TextField emailField;
@@ -57,38 +56,19 @@ public class LoginState extends GameState {
     private String error = "";
     private boolean busy = false;
     private boolean autoLoginAttempted = false;
-    /** Result of an in-flight network call; consumed on the next render frame. */
     private final AtomicReference<PlayerAccountDto> loginResult = new AtomicReference<>();
     private final AtomicReference<String> loginError = new AtomicReference<>();
-    /** Once non-null, swap this LoginState out for the new CharacterSelectState. */
     private PlayerAccountDto pendingHandoff = null;
 
     private boolean prevMouseDown = false;
 
-    /**
-     * Lazy-loaded brand logo shown at the top of the login card. Pulled from
-     * the same {@code icon_min.png} the OS window uses, so brand identity is
-     * consistent everywhere.
-     *
-     * Stored as a flipped TextureRegion: the project's camera is in y-down
-     * ortho mode (setToOrtho(true, ...)), and a raw {@code Texture} drawn
-     * into that camera renders upside-down. Flipping V once at load time
-     * is cheaper than rebinding flipped UVs on every draw.
-     */
+    // Flipped once at load: the y-down ortho camera would draw a raw texture
+    // upside-down.
     private TextureRegion logoRegion;
-    private TextureRegion getLogo() {
-        if (this.logoRegion == null) {
-            try {
-                Texture tex = new Texture(
-                        Gdx.files.classpath("icon_min.png"));
-                this.logoRegion = new TextureRegion(tex);
-                this.logoRegion.flip(false, true);
-            } catch (Exception e) {
-                log.debug("[LOGIN] no logo texture: {}", e.getMessage());
-            }
-        }
-        return this.logoRegion;
-    }
+
+    // Set when auto-login finds no usable session (distinct from loginError so
+    // update() can drop the spinner without surfacing a red message).
+    private final AtomicBoolean autoLoginCleared = new AtomicBoolean(false);
 
     public LoginState(GameStateManager gsm) {
         super(gsm);
@@ -117,20 +97,19 @@ public class LoginState extends GameState {
         else if (this.mode == Mode.REGISTER && this.nameField.isFocused()) this.nameField.appendChar(c);
     }
 
-    /**
-     * Set when the auto-login worker thread detects an invalid/expired
-     * persisted token. The GL update() loop watches for this and clears
-     * the busy spinner so the user can re-enter their password instead of
-     * staring at a hung form.
-     *
-     * Separate flag from {@link #loginError} so we can distinguish a
-     * silent "no valid session, just show the form" from an actual error
-     * that needs surfacing in red.
-     */
-    private final AtomicBoolean autoLoginCleared =
-            new AtomicBoolean(false);
+    private TextureRegion getLogo() {
+        if (this.logoRegion == null) {
+            try {
+                Texture tex = new Texture(Gdx.files.classpath("icon_min.png"));
+                this.logoRegion = new TextureRegion(tex);
+                this.logoRegion.flip(false, true);
+            } catch (Exception e) {
+                log.debug("[LOGIN] no logo texture: {}", e.getMessage());
+            }
+        }
+        return this.logoRegion;
+    }
 
-    /** Try the persisted token before showing the login form. */
     private void tryAutoLogin() {
         this.autoLoginAttempted = true;
         SessionStore store = SessionStore.get();
@@ -145,13 +124,9 @@ public class LoginState extends GameState {
                 PlayerAccountDto acct = svc.getAccount(authed.getAccountGuid());
                 this.loginResult.set(acct);
             } catch (Exception e) {
-                // ONLY wipe the saved token if the data service told us the
-                // token is actually invalid (HTTP 401 / 403). Any other
-                // exception — network timeout, DNS failure, server 500,
-                // server unreachable — should KEEP the token so the next
-                // launch can try again. The previous "catch all -> clear"
-                // behaviour meant a single connectivity blip permanently
-                // forced the user to retype credentials.
+                // Clear the saved token ONLY on an actual auth rejection; keep
+                // it on transient failures so a connectivity blip doesn't force
+                // a retype.
                 final String msg = e.getMessage() == null ? "" : e.getMessage();
                 final boolean tokenRejected = msg.contains("401")
                         || msg.contains("403")
@@ -164,9 +139,6 @@ public class LoginState extends GameState {
                     this.loginError.set("Session expired - please sign in again.");
                 } else {
                     log.warn("[LOGIN] auto-login transient failure ({}) - keeping saved token, falling back to manual login", msg);
-                    // KEEP the token. setSessionToken stays non-null so a
-                    // retry from the form can use it. Just let the user
-                    // sign in manually for now.
                     this.loginError.set("Couldn't reach the server - sign in manually or retry.");
                 }
                 this.autoLoginCleared.set(true);
@@ -179,7 +151,6 @@ public class LoginState extends GameState {
         if (!this.autoLoginAttempted) {
             this.tryAutoLogin();
         }
-        // Drain any pending background result.
         PlayerAccountDto pending = this.loginResult.getAndSet(null);
         if (pending != null) {
             this.busy = false;
@@ -190,22 +161,15 @@ public class LoginState extends GameState {
             this.busy = false;
             this.error = err;
         }
-        // Auto-login worker may have decided "no usable session, drop the
-        // spinner" without producing a user-visible error string. Honour
-        // that signal independently so the form unblocks even when err
-        // happened to be null.
         if (this.autoLoginCleared.compareAndSet(true, false)) {
             this.busy = false;
         }
         if (this.pendingHandoff != null) {
-            // Hand off to character select on the GL thread.
             PlayerAccountDto acct = this.pendingHandoff;
             this.pendingHandoff = null;
             KeyHandler.textSink = null;
             applyServerSelection(SERVERS[this.serverIdx]);
             this.gsm.pop(GameStateManager.LOGIN);
-            // Terms-of-Use acceptance gate. It passes straight through to character
-            // select if this account has already accepted the current Terms version.
             this.gsm.add(GameStateManager.TERMS, new TermsAcceptState(this.gsm, acct));
             return;
         }
@@ -233,12 +197,6 @@ public class LoginState extends GameState {
         }
     }
 
-    /**
-     * Cycle keyboard focus between visible fields. Order:
-     *   REGISTER: name -> email -> password -> name
-     *   LOGIN:    email -> password -> email
-     * Shift+Tab walks the same ring backward.
-     */
     private void advanceFocus(boolean reverse) {
         TextField[] ring = this.mode == Mode.REGISTER
                 ? new TextField[] { this.nameField, this.emailField, this.passwordField }
@@ -247,7 +205,7 @@ public class LoginState extends GameState {
         for (int i = 0; i < ring.length; i++) {
             if (ring[i].isFocused()) { idx = i; break; }
         }
-        // WHY: nothing focused yet -> tab lands on first, shift+tab on last.
+        // Nothing focused yet -> tab lands on first, shift+tab on last.
         int next = idx < 0
                 ? (reverse ? ring.length - 1 : 0)
                 : (reverse ? (idx - 1 + ring.length) % ring.length : (idx + 1) % ring.length);
@@ -258,21 +216,14 @@ public class LoginState extends GameState {
     public void input(MouseHandler mouse, KeyHandler key) {
         if (this.busy) return;
 
-        // Layout matches render() — keep the two in sync. Web-client-style
-        // single-form layout: title block at the top of the card, then the
-        // form fields, then primary/secondary buttons, then a "Register"
-        // text link, then the server cycler, then the Discord footer.
+        // Layout must match render().
         int cardW = 575;
-        // Card grew by ~110 px to fit the logo + spacing above the title.
         int cardH = this.mode == Mode.REGISTER ? 720 : 660;
         int cardX = (OpenRealmGame.width - cardW) / 2;
         int cardY = (OpenRealmGame.height - cardH) / 2;
         int padX = cardX + 48;
         int fieldW = cardW - 96;
 
-        // Title block (logo + title + subtitle) is fixed-height; layout
-        // pointer starts BELOW it. Must match render()'s curY math so
-        // click-targets line up with the visible field positions.
         int curY = cardY + 96 + 110;
 
         int rowH = 40;
@@ -493,22 +444,13 @@ public class LoginState extends GameState {
         return Long.toHexString((long)(Math.random() * 0xffffffffL));
     }
 
-    private static final String[] GUEST_NAMES = {
-        "Utanu","Gharr","Yimi","Idrae","Odaru","Scheev","Zhiar","Itani",
-        "Serl","Oeti","Tiar","Issz","Oshyu","Deyst","Oalei","Vorv",
-        "Iatho","Uoro","Urake","Eashy","Queq","Rayr","Tal","Drac",
-        "Yangu","Eango","Rilr","Ehoni","Risrr","Sek","Eati","Laen"
-    };
     private static String pickGuestName() {
         return GUEST_NAMES[(int)(Math.random() * GUEST_NAMES.length)];
     }
 
     /**
-     * Apply the user's server-cycler choice to SocketClient.SERVER_ADDR.
-     * The native client uses raw TCP on port 2222 (not WebSockets) and the
-     * launcher's CLI arg is the authoritative host, so "useast" is a label
-     * meaning "use whatever the launcher was started with"; only the literal
-     * local options actually rewrite the address.
+     * "useast" is a label meaning "keep the launcher's authoritative CLI host";
+     * only the literal local options rewrite SERVER_ADDR.
      */
     static void applyServerSelection(String selection) {
         if ("local".equals(selection)) {
@@ -516,52 +458,33 @@ public class LoginState extends GameState {
         } else if ("localhost".equals(selection)) {
             SocketClient.SERVER_ADDR = "localhost";
         }
-        // For "useast" (default) leave SERVER_ADDR alone — keeps the launcher
-        // arg authoritative for prod/staging deployments.
     }
 
     private String summarize(Exception e) {
         String msg = e.getMessage();
         if (msg == null) return e.getClass().getSimpleName();
-        // Trim verbose JSON error envelopes to the first 200 chars.
         if (msg.length() > 200) return msg.substring(0, 200) + "...";
         return msg;
     }
 
     @Override
     public void render(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font) {
-        // Dark backdrop
-        batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.10f, 0.07f, 0.10f, 1f);
-        shapes.rect(0, 0, OpenRealmGame.width, OpenRealmGame.height);
-        shapes.end();
-        batch.begin();
+        UiRender.fillRect(batch, shapes, 0, 0, OpenRealmGame.width, OpenRealmGame.height,
+                new Color(0.10f, 0.07f, 0.10f, 1f));
 
-        // Card geometry — must match input() exactly.
+        // Must match input() exactly.
         int cardW = 575;
-        // Card grew by ~110 px to fit the logo + spacing above the title.
         int cardH = this.mode == Mode.REGISTER ? 720 : 660;
         int cardX = (OpenRealmGame.width - cardW) / 2;
         int cardY = (OpenRealmGame.height - cardH) / 2;
         int padX = cardX + 48;
         int fieldW = cardW - 96;
 
-        // Card background + border
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.16f, 0.13f, 0.16f, 1f);
-        shapes.rect(cardX, cardY, cardW, cardH);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.30f, 0.25f, 0.30f, 1f);
-        shapes.rect(cardX, cardY, cardW, cardH);
-        shapes.end();
-        batch.begin();
+        UiRender.panel(batch, shapes, cardX, cardY, cardW, cardH,
+                new Color(0.16f, 0.13f, 0.16f, 1f), new Color(0.30f, 0.25f, 0.30f, 1f));
 
-        // Logo + title block inside the card.
         TextureRegion logo = this.getLogo();
         int logoSize = 96;
         if (logo != null) {
@@ -570,10 +493,10 @@ public class LoginState extends GameState {
             batch.draw(logo, logoX, logoY, logoSize, logoSize);
         }
         font.setColor(0.78f, 0.66f, 0.43f, 1f);
-        drawCenteredText(batch, font, "OpenRealm", cardX + cardW / 2f,
+        UiRender.drawCentered(batch, font, "OpenRealm", cardX + cardW / 2f,
                 cardY + (logo != null ? logoSize + 28 : 36));
         font.setColor(0.55f, 0.50f, 0.45f, 1f);
-        drawCenteredText(batch, font, "Native Client", cardX + cardW / 2f,
+        UiRender.drawCentered(batch, font, "Native Client", cardX + cardW / 2f,
                 cardY + (logo != null ? logoSize + 64 : 80));
 
         int curY = cardY + (logo != null ? logoSize + 110 : 130);
@@ -599,28 +522,23 @@ public class LoginState extends GameState {
         this.drawButton(batch, shapes, font, padX, curY, fieldW, submitH, submitLabel, true, this.busy);
         curY += submitH + 12;
 
-        // Guest button (login mode only — registering inherently creates the
-        // account so guest doesn't apply)
         if (this.mode == Mode.LOGIN) {
             int guestH = 44;
             this.drawButton(batch, shapes, font, padX, curY, fieldW, guestH, "Play as Guest", false, this.busy);
             curY += guestH + 16;
         }
 
-        // "No account? Register" / "Already registered? Sign in" text link
         int linkH = 24;
         String linkText = this.mode == Mode.LOGIN
                 ? "No account? Register"
                 : "Already registered? Sign in";
         font.setColor(0.55f, 0.50f, 0.45f, 1f);
-        drawCenteredText(batch, font, linkText, cardX + cardW / 2f, curY + 4);
+        UiRender.drawCentered(batch, font, linkText, cardX + cardW / 2f, curY + 4);
         curY += linkH + 16;
 
-        // Server selector (smaller, secondary). Kept since the native client
-        // can target multiple deployments unlike the web client.
         int serverH = 28;
         font.setColor(0.55f, 0.50f, 0.45f, 1f);
-        drawCenteredText(batch, font, "Server: " + SERVERS[this.serverIdx] + "  (click to change)",
+        UiRender.drawCentered(batch, font, "Server: " + SERVERS[this.serverIdx] + "  (click to change)",
                 cardX + cardW / 2f, curY + 4);
         curY += serverH + 8;
 
@@ -629,28 +547,23 @@ public class LoginState extends GameState {
             font.draw(batch, this.error, padX, curY + 16);
         }
 
-        // Discord link footer
         font.setColor(0.40f, 0.45f, 0.85f, 1f);
-        drawCenteredText(batch, font, "Join our Discord Community!",
+        UiRender.drawCentered(batch, font, "Join our Discord Community!",
                 cardX + cardW / 2f, cardY + cardH - 36);
 
-        // Legal notice (ASCII-only for the bitmap font). Full Terms/Privacy live on the web client.
         final float legalCx = OpenRealmGame.width / 2f;
         font.setColor(0.45f, 0.42f, 0.40f, 1f);
-        drawCenteredText(batch, font, "(c) 2024-2026 Robert Usey - All Rights Reserved. Proprietary client.",
+        UiRender.drawCentered(batch, font, "(c) 2024-2026 Robert Usey - All Rights Reserved. Proprietary client.",
                 legalCx, OpenRealmGame.height - 52);
-        drawCenteredText(batch, font, "No reverse engineering, network interception/tampering, asset ripping, or modified clients/bots.",
+        UiRender.drawCentered(batch, font, "No reverse engineering, network interception/tampering, asset ripping, or modified clients/bots.",
                 legalCx, OpenRealmGame.height - 36);
-        drawCenteredText(batch, font, "Full Terms of Use & Privacy Policy are available on the OpenRealm web client.",
+        UiRender.drawCentered(batch, font, "Full Terms of Use & Privacy Policy are available on the OpenRealm web client.",
                 legalCx, OpenRealmGame.height - 20);
 
         font.setColor(Color.WHITE);
     }
 
-    /**
-     * Lay out a "Label\n[input field]" pair starting at curY (top of label).
-     * Returns the new curY, advanced past the field plus the inter-row gap.
-     */
+    /** Draws "Label" + input field, returning curY advanced past the field. */
     private int drawLabeledField(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
                                  String label, TextField field,
                                  int padX, int curY, int fieldW, int rowH,
@@ -663,43 +576,14 @@ public class LoginState extends GameState {
         return fieldY + rowH + fieldGap;
     }
 
-    /** Centers a string horizontally around `cx`, drawing its top at `topY`. */
-    private void drawCenteredText(SpriteBatch batch, BitmapFont font, String s, float cx, float topY) {
-        GlyphLayout layout = new GlyphLayout(font, s);
-        font.draw(batch, s, cx - layout.width / 2f, topY);
-    }
-
     private void drawButton(SpriteBatch batch, ShapeRenderer shapes, BitmapFont font,
                             int x, int y, int w, int h, String label, boolean primary, boolean disabled) {
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        if (disabled) shapes.setColor(0.20f, 0.18f, 0.20f, 1f);
-        else if (primary) shapes.setColor(0.55f, 0.40f, 0.18f, 1f);
-        else shapes.setColor(0.20f, 0.18f, 0.22f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(0.78f, 0.66f, 0.43f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.end();
-        batch.begin();
+        Color fill = disabled ? new Color(0.20f, 0.18f, 0.20f, 1f)
+                : primary ? new Color(0.55f, 0.40f, 0.18f, 1f)
+                : new Color(0.20f, 0.18f, 0.22f, 1f);
+        UiRender.panel(batch, shapes, x, y, w, h, fill, new Color(0.78f, 0.66f, 0.43f, 1f));
         font.setColor(disabled ? Color.LIGHT_GRAY : Color.WHITE);
-        drawTextCenteredInBox(batch, font, label, x, y, w, h);
+        UiRender.drawCenteredIn(batch, font, label, x, y, w, h);
         font.setColor(Color.WHITE);
-    }
-
-    /**
-     * Center a string both horizontally AND vertically inside a box. Uses
-     * GlyphLayout for an actual width measurement and font.getCapHeight() for
-     * vertical anchoring — the previous "y + h * 0.65" heuristic had the text
-     * baseline below the box bottom for a 1.8x-scaled font, which is what
-     * made every button look like it was struck through.
-     */
-    private void drawTextCenteredInBox(SpriteBatch batch, BitmapFont font,
-                                        String text, int x, int y, int w, int h) {
-        GlyphLayout layout = new GlyphLayout(font, text);
-        float textX = x + (w - layout.width) / 2f;
-        float textY = y + (h - layout.height) / 2f;
-        font.draw(batch, text, textX, textY);
     }
 }

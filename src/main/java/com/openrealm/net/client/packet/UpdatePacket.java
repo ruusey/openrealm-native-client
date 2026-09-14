@@ -25,10 +25,7 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * Heavy update packet for inventory, stats, XP, and player name changes.
- * HP/MP and status effects are now sent via the lighter PlayerStatePacket.
- */
+// Heavy update: inventory/stats/XP/name. HP/MP + status effects go via PlayerStatePacket.
 @Slf4j
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -55,12 +52,9 @@ public class UpdatePacket extends Packet {
 	private byte hpPotions;
 	@SerializableField(order = 8, type = SerializableByte.class)
 	private byte mpPotions;
-	// Cosmetic dye id (0 = none). Carried on UpdatePacket so a dye consumption
-	// reflects on the dyer's renderer instantly. Other players pick up the
-	// change via NetPlayer in LoadPacket on next re-load.
+	// Cosmetic dye id (0 = none).
 	@SerializableField(order = 9, type = SerializableInt.class)
 	private int dyeId;
-	// Phase 2D mirror of server: SP pool + per-slot invested counts.
 	@SerializableField(order = 10, type = SerializableInt.class)
 	private int availableSkillPoints;
 	@SerializableField(order = 11, type = SerializableByte.class)
@@ -74,9 +68,6 @@ public class UpdatePacket extends Packet {
 
 	public static final NetGameItem[] EMPTY_INVENTORY = new NetGameItem[0];
 
-	/**
-	 * Returns true if inventory differs between this and other packet.
-	 */
 	public boolean inventoryChanged(UpdatePacket other) {
 		if (other == null) return true;
 		if (this.inventory.length != other.getInventory().length) return true;
@@ -90,10 +81,7 @@ public class UpdatePacket extends Packet {
 		return false;
 	}
 
-	/**
-	 * Returns a lightweight copy with empty inventory.
-	 * Used for other-player updates where clients don't need inventory.
-	 */
+	// Lightweight copy with empty inventory (other-player updates don't need it).
 	public UpdatePacket withoutInventory() {
 		final UpdatePacket light = new UpdatePacket();
 		light.setPlayerId(this.playerId);
@@ -109,14 +97,7 @@ public class UpdatePacket extends Packet {
 		return light;
 	}
 
-	/**
-	 * Build a stripped UpdatePacket directly from a Player WITHOUT mapping
-	 * the inventory. Used for the broadcast of nearby-other-player updates,
-	 * which strips inventory before sending anyway. The old path went
-	 * UpdatePacket.from(player) -> withoutInventory(), which paid for a full
-	 * 20-slot inventory ModelMapper reflection round just to throw the
-	 * result away. Skipping the inventory map saves ~50x per call.
-	 */
+	// Stripped UpdatePacket built without mapping inventory (nearby-other-player broadcasts).
 	public static UpdatePacket fromPlayerWithoutInventory(Player player) {
 		if (player == null) return null;
 		final UpdatePacket light = new UpdatePacket();
@@ -157,11 +138,7 @@ public class UpdatePacket extends Packet {
 		updatePacket.setHealth(player.getHealth());
 		updatePacket.setMana(player.getMana());
 		updatePacket.setPlayerName(player.getName());
-		// Use hand-rolled fromStats() instead of IOService.mapModel — same
-		// reflection-avoidance reason as in LoadPacket.from().
 		updatePacket.setStats(NetStats.fromStats(player.getStats()));
-		// Build inventory explicitly to guarantee enchantments + stack counts +
-		// forge metadata are preserved (ModelMapper can drop nested generics).
 		updatePacket.setInventory(toNetInventory(player.getInventory()));
 		updatePacket.setExperience(player.getExperience());
 		updatePacket.setHpPotions((byte) player.getHpPotions());
@@ -201,14 +178,9 @@ public class UpdatePacket extends Packet {
 		return net;
 	}
 
-	/**
-	 * Compare UpdatePacket fields (inventory, stats, XP, name).
-	 * HP/MP are included for backward compat but the primary delta
-	 * is inventory + stats + experience.
-	 */
+	// Delta compare: inventory + stats + XP + name. HP/MP handled by PlayerStatePacket.
 	public boolean equals(UpdatePacket other, boolean thinMatch) {
 		if(other==null) return false;
-		// HP/MP are handled by PlayerStatePacket — don't compare them here
 		boolean basic = (this.playerId == other.getPlayerId()) && this.playerName.equals(other.getPlayerName());
 
 		boolean stats = this.stats.equals(other.getStats());
@@ -235,8 +207,6 @@ public class UpdatePacket extends Packet {
 		boolean expEqual = this.experience == other.getExperience();
 		boolean potionsEqual = this.hpPotions == other.getHpPotions()
 				&& this.mpPotions == other.getMpPotions();
-		// Include dyeId so a dye consumption is detected as a change and the
-		// updated cosmetic is broadcast to nearby viewers.
 		boolean dyeEqual = this.dyeId == other.getDyeId();
 		boolean result = basic && stats && inv && expEqual && potionsEqual && dyeEqual;
 

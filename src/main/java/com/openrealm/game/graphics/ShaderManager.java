@@ -11,6 +11,12 @@ import com.badlogic.gdx.math.Matrix4;
 @Slf4j
 public class ShaderManager {
     private static ShaderProgram effectShader;
+    private static ShaderProgram outlineShader;
+    private static ShaderProgram vibranceShader;
+    private static Sprite.EffectEnum lastAppliedEffect = null;
+    private static boolean vibranceActive = false;
+    private static float vibSaturation = 1.0f;
+    private static float vibContrast = 1.0f;
 
     // Color matrices matching Sprite.EffectEnum values
     private static final float[] IDENTITY = {
@@ -143,11 +149,7 @@ public class ShaderManager {
         0.2f, 0.2f, 0.2f, 0
     };
 
-    // Single-pass outline shader: samples 4 neighboring texels and draws
-    // a solid color if any neighbor has alpha > 0 but the center doesn't.
-    // Renders the outline in one draw call instead of four.
-    private static ShaderProgram outlineShader;
-
+    // Single-pass outline: draws u_outlineColor where a neighbor texel is opaque but the center isn't.
     private static final String OUTLINE_FRAG =
         "#ifdef GL_ES\n" +
         "precision mediump float;\n" +
@@ -189,7 +191,6 @@ public class ShaderManager {
         "  }\n" +
         "}\n";
 
-    // Pre-cached Matrix4 objects to avoid per-call allocations
     private static Matrix4 MAT_IDENTITY;
     private static Matrix4 MAT_SEPIA;
     private static Matrix4 MAT_REDISH;
@@ -240,9 +241,7 @@ public class ShaderManager {
         "  }\n" +
         "}\n";
 
-    // Vibrance shader: subtle saturation boost + contrast for crisp pixel art
-    private static ShaderProgram vibranceShader;
-
+    // Vibrance: subtle saturation boost + contrast for crisp pixel art.
     private static final String VIBRANCE_FRAG =
         "#ifdef GL_ES\n" +
         "precision mediump float;\n" +
@@ -283,7 +282,6 @@ public class ShaderManager {
             log.error("Outline shader failed to compile: {}", outlineShader.getLog());
         }
 
-        // Pre-cache Matrix4 objects
         MAT_IDENTITY = new Matrix4(IDENTITY);
         MAT_SEPIA = new Matrix4(SEPIA);
         MAT_REDISH = new Matrix4(REDISH);
@@ -303,8 +301,6 @@ public class ShaderManager {
         MAT_DAZED = new Matrix4(DAZED);
     }
 
-    private static Sprite.EffectEnum lastAppliedEffect = null;
-
     public static void applyEffect(SpriteBatch batch, Sprite.EffectEnum effect) {
         if (effect == null || effect == Sprite.EffectEnum.NORMAL) {
             if (lastAppliedEffect != null && lastAppliedEffect != Sprite.EffectEnum.NORMAL) {
@@ -320,7 +316,6 @@ public class ShaderManager {
             return;
         }
 
-        // Skip redundant shader switches
         if (effect == lastAppliedEffect) return;
 
         batch.setShader(effectShader);
@@ -347,10 +342,6 @@ public class ShaderManager {
         effectShader.setUniformMatrix("u_colorMatrix", matrix);
         lastAppliedEffect = effect;
     }
-
-    private static boolean vibranceActive = false;
-    private static float vibSaturation = 1.0f;
-    private static float vibContrast = 1.0f;
 
     public static void clearEffect(SpriteBatch batch) {
         if (lastAppliedEffect != null && lastAppliedEffect != Sprite.EffectEnum.NORMAL) {
@@ -405,8 +396,7 @@ public class ShaderManager {
         outlineShader.setUniformf("u_texelSize", 1.0f / atlasW, 1.0f / atlasH);
         outlineShader.setUniformf("u_outlineSize", thickness);
         outlineShader.setUniformf("u_outlineColor", r, g, b, a);
-        // Region UV bounds in (u, v, u2, v2) order. Shader treats out-of-bounds
-        // sample coords as alpha=0 to prevent bleeding into adjacent atlas pages.
+        // Region UV bounds (u,v,u2,v2); shader clamps out-of-bounds to alpha=0 so outlines don't bleed across atlas pages.
         final float u  = Math.min(region.getU(),  region.getU2());
         final float v  = Math.min(region.getV(),  region.getV2());
         final float u2 = Math.max(region.getU(),  region.getU2());

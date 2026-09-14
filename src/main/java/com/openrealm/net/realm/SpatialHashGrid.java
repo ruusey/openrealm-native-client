@@ -9,11 +9,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import com.openrealm.game.entity.GameObject;
 
-/**
- * Spatial hash grid for O(1) neighbor lookups instead of O(n) brute-force scans.
- * Entities are bucketed into grid cells based on their world position.
- * Queries only check the cells that overlap the search area.
- */
 public class SpatialHashGrid {
     private final float cellSize;
     private final float inverseCellSize;
@@ -27,6 +22,7 @@ public class SpatialHashGrid {
         this.entityCells = new ConcurrentHashMap<>();
     }
 
+    // Packs two int cell coords into one long key: high 32 bits = cx, low 32 = cy.
     private long cellKey(int cx, int cy) {
         return ((long) cx << 32) | (cy & 0xFFFFFFFFL);
     }
@@ -62,7 +58,7 @@ public class SpatialHashGrid {
         long newKey = cellKey(cellX(x), cellY(y));
         Long oldKey = entityCells.get(entityId);
         if (oldKey != null && oldKey == newKey) {
-            return; // same cell, no-op
+            return;
         }
         if (oldKey != null) {
             Set<Long> oldCell = cells.get(oldKey);
@@ -77,10 +73,8 @@ public class SpatialHashGrid {
         entityCells.put(entityId, newKey);
     }
 
-    /**
-     * Returns entity IDs within the given circular radius of (cx, cy).
-     * Only checks cells that overlap the bounding box of the circle.
-     */
+    // Returns candidate entity IDs from cells overlapping the circle's bounding box
+    // (not distance-filtered - callers must still test exact radius).
     public List<Long> queryRadius(float cx, float cy, float radius) {
         int minCX = cellX(cx - radius);
         int maxCX = cellX(cx + radius);
@@ -99,10 +93,6 @@ public class SpatialHashGrid {
         return result;
     }
 
-    /**
-     * Returns the cell key for a given world position.
-     * Players in the same cell see approximately the same entities.
-     */
     public long getCellKey(float x, float y) {
         return cellKey(cellX(x), cellY(y));
     }

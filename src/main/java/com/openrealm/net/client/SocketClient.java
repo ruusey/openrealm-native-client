@@ -27,7 +27,6 @@ import java.net.SocketTimeoutException;
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class SocketClient implements Runnable {
-	// 80 KB buffer for the client
     private static final int BUFFER_CAPACITY = 65536 * 10;
 
     public static String PLAYER_EMAIL = null;
@@ -50,8 +49,7 @@ public class SocketClient implements Runnable {
         try {
             this.clientSocket = new Socket(targetHost, port);
             this.clientSocket.setTcpNoDelay(true);
-            // 100ms read timeout so the read loop can check the shutdown flag
-            // and the profiler doesn't report it as 100% CPU
+            // Read timeout lets the read loop periodically check the shutdown flag.
             this.clientSocket.setSoTimeout(100);
         } catch (Exception e) {
             SocketClient.log.error("Failed to create ClientSocket, Reason: {}", e.getMessage());
@@ -62,7 +60,7 @@ public class SocketClient implements Runnable {
     public void run() {
         this.startBandwidthMonitor();
 
-        // Read thread: blocks naturally on stream.read(), no polling needed
+        // Any exception here kills the read loop - an EOF/misparse means empty realm.
         final Runnable readLoop = () -> {
             while (!this.shutdown) {
                 try {
@@ -73,7 +71,6 @@ public class SocketClient implements Runnable {
             }
         };
 
-        // Send thread: drains outbound queue, sleeps briefly when empty
         final Runnable sendLoop = () -> {
             while (!this.shutdown) {
                 try {
@@ -100,7 +97,7 @@ public class SocketClient implements Runnable {
                 bytesRead = stream.read(this.remoteBuffer, this.remoteBufferIndex,
                         this.remoteBuffer.length - this.remoteBufferIndex);
             } catch (SocketTimeoutException e) {
-                return; // No data within timeout — normal, just retry
+                return; // No data within timeout - normal, just retry
             }
             this.lastDataTime = Instant.now().toEpochMilli();
             if (bytesRead == -1)
@@ -108,6 +105,7 @@ public class SocketClient implements Runnable {
             if (bytesRead > 0) {
                 this.remoteBufferIndex += bytesRead;
 
+                // Header: byte 0 = packetId, bytes 1-4 = big-endian total packet length.
                 while (this.remoteBufferIndex >= 5) {
                     int packetLength = ((this.remoteBuffer[1] & 0xFF) << 24)
                                      | ((this.remoteBuffer[2] & 0xFF) << 16)
@@ -126,7 +124,7 @@ public class SocketClient implements Runnable {
                     }
                     this.currentBytesRecieved += packetLength;
                     this.remoteBufferIndex -= packetLength;
-                    // Decompress if compression flag is set
+                    // Compression flag rides in the packet id; strip it before lookup.
                     if (PacketCompression.isCompressed(packetId)) {
                         packetId = PacketCompression.getRealPacketId(packetId);
                         packetBytes = PacketCompression.decompressPayload(packetBytes);
@@ -163,13 +161,6 @@ public class SocketClient implements Runnable {
         }
     }
 
-    /**
-     * Enqueues a Packet instance to be sent to the remote during the next
-     * processing cycle
-     * 
-     * @param packet Packet to send to remote server
-     * @throws Exception
-     */
     public void sendRemote(Packet packet) throws Exception {
         if (this.clientSocket == null)
             throw new Exception("Client socket is null/not yet established");

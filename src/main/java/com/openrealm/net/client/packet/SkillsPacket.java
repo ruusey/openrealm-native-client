@@ -10,10 +10,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Server-to-client sync of a player's 9 account-wide skill XP totals. The client
- * derives level 0-99 from the same quadratic curve the server uses.
- */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable

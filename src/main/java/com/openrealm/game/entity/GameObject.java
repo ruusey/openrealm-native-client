@@ -39,15 +39,9 @@ public abstract class GameObject {
     }
 
     /**
-     * Refresh {@link #bounds} after a pos / size change without allocating a
-     * fresh Rectangle. The bounds rectangle holds a reference to the same
-     * mutable {@link Vector2f} as {@link #pos}, so any in-place pos mutation
-     * (the common case in extrapolate / applyServerCorrection) is already
-     * reflected — this only touches w/h on size changes. The {@link Rectangle}
-     * is allocated lazily on first call, then reused. Replaces the
-     * {@code this.bounds = new Rectangle(this.pos, size, size)} pattern that
-     * was burning hundreds of allocs/sec on the extrapolate hot path
-     * (per enemy per frame).
+     * Refresh {@link #bounds} after a pos/size change without allocating. bounds
+     * shares the same mutable {@link Vector2f} as {@link #pos}, so in-place pos
+     * mutation is already reflected; this only touches w/h on size changes.
      */
     protected void refreshBounds() {
         if (this.bounds == null) {
@@ -71,24 +65,18 @@ public abstract class GameObject {
     }
 
     public synchronized void setPos(Vector2f pos) {
-        // Diagnostic: ANY setPos that lands at (0,0) for a Player is almost
-        // certainly a bug — the local player spawns away from origin and
-        // remote players' wire pos is never (0,0) under normal play. Log
-        // once per id+(0,0) combo so the next reproduction surfaces the
-        // call site.
+        // A Player setPos at (0,0) is almost always a bug (invisible remote
+        // player); log once per id with a stack trace to surface the call site.
         if (pos != null && pos.x == 0f && pos.y == 0f
                 && this instanceof Player) {
-            // Stack trace via a throwable so we see the caller chain in logs.
             log.warn("[POS-DEBUG] setPos(0,0) on Player id={} - likely the cause of invisible-remote-player bug",
                     this.id, new Throwable("setPos(0,0)"));
         }
         this.pos = pos;
         this.bounds = new Rectangle(pos, this.size, this.size);
         this.teleported = true;
-        // setPos is the entry point for teleports / realm transitions /
-        // initial spawn. Re-prime the dead-reckoning state so the next
-        // extrapolate() doesn't yank pos back to a stale target/serverPos
-        // that referred to a previous map.
+        // Entry point for teleports / realm transitions / spawn: re-prime the
+        // dead-reckoning state so extrapolate() doesn't yank pos to a stale target.
         this.targetX = pos.x;
         this.targetY = pos.y;
         this.serverPosX = pos.x;
@@ -123,8 +111,7 @@ public abstract class GameObject {
         this.pos = new Vector2f(lerpX, lerpY);
     }
 
-    // Snap threshold: if server position is more than 3 tiles away, snap instead of lerp.
-    // This handles teleports (planewalker cloak, portals) where lerp would cause a slow slide.
+    // Beyond 3 tiles, snap instead of lerp (teleports/portals would slow-slide).
     private static final float SNAP_DISTANCE_SQ = (3 * 32) * (3 * 32);
 
     public synchronized void applyMovementLerp(NetObjectMovement packet, float pct) {
@@ -171,82 +158,37 @@ public abstract class GameObject {
         this.lastVelUpdateMs = System.currentTimeMillis();
     }
 
-    // --- Server reconciliation, ported from web client game.js ---
-    // Web client maintains TWO positions per entity:
-    //   pos     — the visually-rendered position (what the player sees)
-    //   target  — the server's authoritative position, projected forward
-    //             along the last-known velocity each tick
-    // Each frame, both pos and target advance by dx*tickStep (extrapolation),
-    // and pos is then nudged toward target at a constant linear speed
-    // (closes any gap in ~50 ms). When a server packet arrives,
-    // target snaps to packet.posX/posY but pos is unchanged — so the
-    // visible motion is always smooth, never jumping on packet boundaries.
-    //
-    // The previous "correctionOffset blended at 15% per frame on top of
-    // dx*tickStep extrapolation" had two problems:
-    //   1. Errors REPLACED across rapid packets caused pos to oscillate
-    //      forward/backward (visible rubberband).
-    //   2. The blend ran ON TOP of extrapolation, inflating effective
-    //      speed by ~15% whenever the client was a tick behind the server.
+    // Server reconciliation (web client game.js parity). pos = rendered
+    // position; target = server's authoritative pos projected along velocity.
+    // Both advance by velocity each frame; pos is nudged toward target at a
+    // bounded constant speed so motion never jumps on packet boundaries.
     protected volatile float targetX = Float.NaN;
     protected volatile float targetY = Float.NaN;
 
-    // Last server-known authoritative position. When extrapolation goes
-    // stale (no updates >1.2 s) or the entity leaves the viewport, pos is
-    // snapped back to this so it doesn't drift through walls / off-map.
-    // Mirrors web client's e._serverPosX/_serverPosY.
+    // Last server-known authoritative position; pos snaps back to this on
+    // staleness (>1.2s) or viewport exit so it doesn't drift off-map.
     protected volatile float serverPosX = Float.NaN;
     protected volatile float serverPosY = Float.NaN;
-    /** Wall-clock millis when applyServerCorrection last ran. Used by the
-     *  staleness cap in extrapolate(). 0 = never updated. */
+    /** Wall-clock millis of last applyServerCorrection; 0 = never. */
     protected volatile long lastVelUpdateMs = 0L;
 
-    // Correction blend rate kept for legacy paths but new reconciliation
-    // uses constant-speed close (CORRECTION_CLOSE_TIME_SEC).
+    // Kept for legacy paths; new reconciliation uses constant-speed close.
     protected float correctionOffsetX = 0f;
     protected float correctionOffsetY = 0f;
     private static final float CORRECTION_BLEND_RATE = 0.15f;
-    /** Time (sec) over which pos is lerped to target after a server packet
-     *  diverges from extrapolation. Mirrors web's `dist / 0.05` formula —
-     *  the FLOOR for close time. Adaptive close time scales up for larger
-     *  gaps (see MAX_CATCHUP_SPEED_PX_PER_SEC) so a 100 px correction
-     *  doesn't get ironed out at 2000 px/s on high-latency clients. */
+    /** Floor close time; adaptive time scales up for larger gaps. */
     private static final float CORRECTION_CLOSE_TIME_SEC = 0.05f;
-    /** Adaptive close-speed cap. The reconciler uses
-     *      closeTime = max(CORRECTION_CLOSE_TIME_SEC,
-     *                      dist / MAX_CATCHUP_SPEED_PX_PER_SEC)
-     *  so small gaps still close in 50 ms (low-latency feel) but large
-     *  gaps glide in at a bounded speed instead of teleporting. 256 px/s
-     *  is 8 tiles/s — slightly faster than a sprinting player so the
-     *  correction is always converging, but slow enough that a 100 px
-     *  jitter spike reads as smooth motion (~390 ms) instead of a snap. */
+    /** Close-speed cap (8 tiles/s): small gaps close in 50ms, large gaps glide instead of teleport. */
     private static final float MAX_CATCHUP_SPEED_PX_PER_SEC = 256f;
-    /** If target diverges by more than this from pos, hard-snap pos.
-     *  Bumped from 3 → 5 tiles so high-latency clients glide on routine
-     *  jitter instead of teleporting; legitimate teleports/realm transitions
-     *  still trip the snap. */
+    /** Beyond this pos/target gap, hard-snap. 5 tiles: routine jitter glides, real teleports snap. */
     private static final float CORRECTION_SNAP_THRESHOLD_SQ = (5 * 32) * (5 * 32);
-    /** Web parity: if no server velocity update arrives for this long, the
-     *  client is extrapolating into thin air. Snap pos back to the last
-     *  known server position and zero velocity. */
+    /** No velocity update for this long => extrapolating into thin air; snap back + zero velocity. */
     private static final long EXTRAP_STALENESS_CAP_MS = 1200L;
 
     /**
-     * Apply a dead reckoning server correction. Instead of snapping the entity,
-     * we compute the error between our local position and the server's corrected
-     * position, and store it as an offset to be blended out over subsequent frames.
-     * Velocity is always updated immediately since it affects future extrapolation.
-     */
-    /**
-     * Web-parity refresh from a LoadPacket for an entity that ALREADY
-     * exists on the client. The server now resends the full enemy/player
-     * set every LoadPacket so a dropped ObjectMovePacket self-heals next
-     * tick — but we must not overwrite pos (rubber-bands the entity to a
-     * stale snapshot). Only refresh velocity, server-pos / lastVelUpdate,
-     * and (when divergent) targetX/Y.
-     *
-     * Equivalent to the existing-enemy branch in game.js's LoadPacket
-     * handler.
+     * Web-parity refresh from a LoadPacket for an entity that ALREADY exists.
+     * Must NOT overwrite pos (would rubber-band to a stale snapshot); only
+     * refresh velocity, server-pos, lastVelUpdate, and divergent target.
      */
     public synchronized void refreshFromLoadPacket(float posX, float posY,
                                                    float velX, float velY) {
@@ -255,8 +197,7 @@ public abstract class GameObject {
         this.serverPosX = posX;
         this.serverPosY = posY;
         this.lastVelUpdateMs = System.currentTimeMillis();
-        // Refresh target only on meaningful divergence (>0.5 px) so the
-        // close-step doesn't re-aim every tick at sub-pixel noise.
+        // Refresh target only on >0.5px divergence so the close-step doesn't re-aim on noise.
         if (Float.isNaN(this.targetX)) {
             this.targetX = posX;
             this.targetY = posY;
@@ -271,15 +212,8 @@ public abstract class GameObject {
     }
 
     public synchronized void applyServerCorrection(NetObjectMovement packet) {
-        // Defensive: ignore packets whose pos is exactly (0, 0). That's
-        // almost never a real entity position — it's the server's
-        // uninitialized-Vector2f sentinel, and accepting it snaps the
-        // entity into the corner of the map and out of view. Observed
-        // in the wild for remote players whose ObjectMovePacket arrived
-        // before the server finished setting up their realm-spawn pos.
-        // If the server legitimately spawns something at (0, 0) it will
-        // re-broadcast on the next tick and a non-zero corrective
-        // packet will land within ~16 ms.
+        // Ignore exactly (0,0): the server's uninitialized-Vector2f sentinel,
+        // not a real position. A real spawn re-broadcasts a non-zero pos next tick.
         if (packet.getPosX() == 0f && packet.getPosY() == 0f) {
             return;
         }
@@ -287,14 +221,11 @@ public abstract class GameObject {
         this.dx = packet.getVelX();
         this.dy = packet.getVelY();
 
-        // Track the server-reported authoritative position + freshness so
-        // extrapolate() can snap back to it on staleness / viewport exit.
         this.serverPosX = packet.getPosX();
         this.serverPosY = packet.getPosY();
         this.lastVelUpdateMs = System.currentTimeMillis();
 
-        // First-ever correction: prime both target AND pos so we don't
-        // start from zero.
+        // First-ever correction: prime both target and pos.
         if (Float.isNaN(this.targetX)) {
             this.pos.x = packet.getPosX();
             this.pos.y = packet.getPosY();
@@ -304,57 +235,31 @@ public abstract class GameObject {
             return;
         }
 
-        // Move target to the server's reported position. pos is left alone
-        // — extrapolate() will smoothly nudge it toward target each frame.
-        // Mirrors the web client's handleObjectMove for remote entities,
-        // which sets targetX/Y + dx/dy and NEVER touches pos. The previous
-        // hard-snap-on-large-gap branch here was the real cause of the
-        // "remote player drawing at (0,0)" bug: any time a packet's pos
-        // diverged from the local pos by more than ~3 tiles (which can
-        // happen on first-after-realm-transition frames when the local
-        // entry hadn't yet been refreshed) the snap teleported pos to the
-        // packet pos. Web client doesn't do this — it just lets the close
-        // step in extrapolate() catch up at constant speed.
+        // Move target only; pos is left for extrapolate() to nudge. A former
+        // hard-snap-on-large-gap here caused the "remote player at (0,0)" bug
+        // on first-after-realm-transition frames.
         this.targetX = packet.getPosX();
         this.targetY = packet.getPosY();
         this.refreshBounds();
     }
 
-    /**
-     * Advance position by velocity (dead reckoning extrapolation) and blend
-     * any pending correction offset. Call this once per client tick for entities
-     * that use dead reckoning (enemies). For players, use blendCorrectionOffset()
-     * instead since movePlayer() handles velocity advancement with collision checks.
-     */
+    /** Dead-reckoning extrapolation for enemies; players use blendCorrectionOffset(). */
     public void extrapolate() {
         this.extrapolate(0f, 0f, true);
     }
 
     /**
-     * Extrapolate position using server-supplied velocity, with the same
-     * viewport gating the web client uses in game.js updateInterpolation().
+     * Extrapolate using server velocity (px/tick at 64Hz; per-second = ×64).
+     * Viewport gate: the server only sends moves within ~10 tiles of a player,
+     * so freeze velocity outside that radius to avoid drift-then-snap jitter.
      *
-     * dx/dy from the server are in pixels-per-TICK at the server's 64 Hz
-     * simulation rate. Per-frame motion = dx * dt * 64 -> per-second motion
-     * = dx * 64, matching the server regardless of render FPS.
-     *
-     * Viewport gate: server only sends ObjectMovePackets for entities
-     * within ~10 tiles of any player. The instant the entity crosses
-     * outside that radius, server updates dry up — extrapolating further
-     * is pure client fiction and produces a "drift then snap-back" jitter
-     * the moment an update lands. Pass the local player position so this
-     * method can freeze velocity outside the viewport.
-     *
-     * @param refX center X to gate against (e.g. local player center)
+     * @param refX center X to gate against (local player center)
      * @param refY center Y to gate against
-     * @param applyViewportGate true to freeze when outside ~10 tile radius
+     * @param applyViewportGate freeze when outside ~10 tile radius
      */
     public synchronized void extrapolate(float refX, float refY, boolean applyViewportGate) {
-        // Snapshot velocity + target locally so a concurrent
-        // applyServerCorrection() on the network thread can't tear the
-        // computation between the pos-advance and the gap-close steps.
-        // Even with `synchronized` on both methods this keeps the inner
-        // math working off a single consistent set of values.
+        // Snapshot velocity + target so a concurrent applyServerCorrection()
+        // can't tear the computation between pos-advance and gap-close.
         float vx = this.dx;
         float vy = this.dy;
         float tx = this.targetX;
@@ -370,10 +275,7 @@ public abstract class GameObject {
             // 10 tiles + 1/2 tile margin = matches web client.
             final float VIEWPORT_FREEZE_PX = 10 * 32 + 16;
             if (ddx * ddx + ddy * ddy > VIEWPORT_FREEZE_PX * VIEWPORT_FREEZE_PX) {
-                // Outside viewport: server has stopped sending updates for
-                // this entity, so further extrapolation is pure fiction.
-                // Park it at the last server-known position so it doesn't
-                // drift off-map and snap back when it re-enters the view.
+                // Outside viewport: park at the last server-known position.
                 this.dx = 0f;
                 this.dy = 0f;
                 if (!Float.isNaN(this.serverPosX)) {
@@ -387,13 +289,9 @@ public abstract class GameObject {
             }
         }
 
-        // Staleness cap: if the server hasn't acked velocity for a while,
-        // freeze extrapolation in place. Critical: ObjectMovePacket sends
-        // only the diff — a constant-velocity enemy isn't re-broadcast,
-        // so lastVelUpdateMs lags the actual server state. Snapping pos
-        // back to serverPosX (which is also stale) produces a visible
-        // backward rubberband. Freezing velocity lets the next real
-        // packet close any gap smoothly via the target mechanism.
+        // Staleness cap: freeze velocity (don't snap to the also-stale
+        // serverPosX, which rubberbands) — ObjectMovePacket sends only diffs,
+        // so a constant-velocity enemy's lastVelUpdateMs lags the server.
         if (this.lastVelUpdateMs != 0L) {
             if (System.currentTimeMillis() - this.lastVelUpdateMs > EXTRAP_STALENESS_CAP_MS) {
                 this.dx = 0f;
@@ -409,11 +307,8 @@ public abstract class GameObject {
                 : 1f / 60f;
         final float scale = dt * TICK_RATE;
 
-        // Web parity: skip the extrapolation step entirely when velocity
-        // is zero. Avoids touching pos/target with a 0-magnitude vector
-        // every frame for the thousands of idle enemies in a realm — both
-        // a tiny perf win and a guarantee that idle enemies render at the
-        // server-reported position byte-for-byte.
+        // Skip extrapolation when velocity is zero so idle enemies render at
+        // the server-reported position exactly (and to avoid needless work).
         if (vx != 0f || vy != 0f) {
             this.pos.x += vx * scale;
             this.pos.y += vy * scale;
@@ -426,20 +321,13 @@ public abstract class GameObject {
         }
 
         if (hasTarget) {
-            // Adaptive constant-speed close from pos toward target. The
-            // floor (CORRECTION_CLOSE_TIME_SEC = 50 ms) preserves the
-            // tight feel of the web client's `speed = dist / 0.05`
-            // formula on low-latency connections — small gaps still
-            // collapse in one frame. For LARGE gaps (high-latency or
-            // jitter spikes) the close speed is capped at
-            // MAX_CATCHUP_SPEED_PX_PER_SEC so a 100 px correction takes
-            // ~390 ms of smooth motion instead of a 50 ms teleport.
+            // Adaptive constant-speed close: small gaps collapse in ~50ms,
+            // large gaps glide at MAX_CATCHUP_SPEED_PX_PER_SEC instead of teleporting.
             final float gapX = tx - this.pos.x;
             final float gapY = ty - this.pos.y;
             final float distSq = gapX * gapX + gapY * gapY;
             if (distSq > CORRECTION_SNAP_THRESHOLD_SQ) {
-                // Hard snap on huge gaps (teleport / realm transition that
-                // didn't go through applyServerCorrection's normal path).
+                // Hard snap on huge gaps (teleport / realm transition).
                 this.pos.x = tx;
                 this.pos.y = ty;
             } else if (distSq > 0.09f /* 0.3px */) {
@@ -461,11 +349,8 @@ public abstract class GameObject {
         this.refreshBounds();
     }
 
-    /**
-     * Blend pending correction offset toward zero without advancing by velocity.
-     * Use this for entities where velocity advancement is handled elsewhere
-     * (e.g., players with collision-checked movement in PlayState.movePlayer).
-     */
+    /** Blend correction offset toward zero without advancing by velocity
+     *  (players advance velocity via collision-checked PlayState.movePlayer). */
     public synchronized void blendCorrectionOffset() {
         if (this.correctionOffsetX != 0f || this.correctionOffsetY != 0f) {
             float blendX = this.correctionOffsetX * CORRECTION_BLEND_RATE;

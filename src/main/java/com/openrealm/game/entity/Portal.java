@@ -31,14 +31,14 @@ public class Portal {
     private Vector2f pos;
     private Sprite sprite;
     private String targetNodeId;
-    // Target-realm summary shown under the portal; populated from NetPortal on the wire.
+    // Target-realm summary shown under the portal (from NetPortal on the wire).
     private String targetLabel;
     private float targetDifficulty;
     private int targetPlayerCount;
     private long targetPurificationProgress;
     private long targetPurificationGoal;
-    // Escalating-realm tier and comma-joined modifier names for the under-portal card.
     private int targetTier;
+    // Comma-joined modifier names for the under-portal card.
     private String targetModifiers;
 
 
@@ -109,9 +109,7 @@ public class Portal {
             final TextureRegion region = this.sprite.getRegion();
             final float bx = this.pos.getWorldVar().x;
             final float by = this.pos.getWorldVar().y;
-            // Dark silhouette outline (matches the in-world sprite stroke): 8
-            // offset tinted copies (4 cardinal + 4 diagonal) behind the portal,
-            // then the portal on top. Diagonals fill the missed corner pixels.
+            // Dark silhouette outline: 8 offset copies (4 cardinal + 4 diagonal) behind the portal.
             final float prevColor = batch.getPackedColor();
             batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
             batch.draw(region, bx + OUTLINE_OFFSET, by,                 32, 32);

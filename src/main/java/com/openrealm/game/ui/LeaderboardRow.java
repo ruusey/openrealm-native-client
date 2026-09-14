@@ -7,10 +7,7 @@ public class LeaderboardRow {
     public int classIdx;
     public int level;
     public long fame;
-    /** Item id per slot index, in canonical left-to-right order:
-     *  0=PRIMARY_WEAPON, 1=ARMOR, 2=GAUNTLETS, 3=BOOTS, 4=RING.
-     *  -1 = empty. Layout matches the webclient leaderboard tooltip
-     *  (loadLeaderboard / showEquipmentTooltip in main.js). */
+    /** Item id per slot: 0=weapon, 1=armor, 2=gauntlets, 3=boots, 4=ring; -1 = empty. */
     public int[] equipment = new int[]{-1, -1, -1, -1, -1};
 
     public LeaderboardRow(int rank, String accountName, String className, int classIdx,

@@ -6,14 +6,8 @@ import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonCreator;
 
 /**
- * Status effects applied to entities (players, enemies) on-hit or from abilities.
- *
- * Applied via {@code entity.addEffect(type, duration)}. Stored in
- * {@code Projectile.effects} as {@link com.openrealm.game.model.ProjectileEffect}.
- *
- * Projectile behavior flags (stored in {@code Projectile.flags} /
- * {@code Bullet.flags}) live in {@link ProjectileFlag} and use the same
- * numeric ID space — never mix the two enums.
+ * On-hit / ability status effects. Shares its numeric ID space with
+ * {@link ProjectileFlag} (movement flags) - never mix the two enums.
  */
 public enum StatusEffectType {
     HIDDEN((short) 0),
@@ -40,44 +34,35 @@ public enum StatusEffectType {
     PHALANX_DOME((short) 26),
     /** Weakens outgoing damage by 35% for the duration. */
     WEAKEN((short) 27),
-    /** Tunnel-vision debuff — client-side renderer clamps visible radius to
-     *  ~3 tiles around the local player while active. */
+    /** Tunnel-vision debuff - client clamps visible radius to ~3 tiles while active. */
     BLIND((short) 28),
     /** Anti-debuff bubble — new debuff applications are silently dropped. */
     WARDED((short) 29),
-    /** Mana regen amplifier — MP regen runs at 2× speed while active. */
+    /** MP regen runs at 2x speed while active. */
     MANA_FOUNT((short) 30),
-    /** Debuff amplifier — incoming debuff durations doubled. */
+    /** Incoming debuff durations doubled. */
     VULNERABLE((short) 31),
-    /** Movement lock — implicit SLOWED + dash/teleport ability veto. */
+    /** Movement lock - implicit SLOWED + dash/teleport veto. */
     GROUNDED((short) 32),
-    /** Trickster passive marker — boosts loot-upgrade chance on kill. */
+    /** Trickster passive marker - boosts loot-upgrade chance on kill. */
     MARKED_FOR_LOOT((short) 33),
-    /** Heavy Buffer "Guiding Light" aura — STR half. Server-authoritative
-     *  magnitude (caster WIS/5). Paired with EMPOWERED_DEX. */
+    /** Guiding Light aura, STR half; paired with EMPOWERED_DEX. */
     EMPOWERED_STR((short) 34),
-    /** Heavy Buffer "Guiding Light" aura — DEX half. Always applied with
-     *  EMPOWERED_STR so the player sees two distinct icons above their head. */
+    /** Guiding Light aura, DEX half; paired with EMPOWERED_STR. */
     EMPOWERED_DEX((short) 35),
-    /** Bleed DoT — server ticks fixed damage per second on the holder. */
+    /** Bleed DoT. */
     BLEEDING((short) 36),
-    /** Attack-speed buff — distinct from BERSERK so short bursts don't
-     *  collide with the broader buff. */
+    /** Attack-speed buff, distinct from BERSERK. */
     FURY((short) 37),
-    /** Source-scoped vulnerability — +X% damage from caster's party only. */
+    /** Source-scoped vulnerability - extra damage from the caster's party only. */
     WITHER((short) 38),
-    /** Marker on the attacker: while active, basic-attack projectiles
-     *  apply POISONED + register a poison DoT on the enemy hit. Carrier
-     *  takes no damage from the marker itself. */
+    /** Attacker marker: basic attacks apply POISONED + a poison DoT; carrier takes no self damage. */
     IMBUED_POISON((short) 39),
-    /** Active evasion buff — high chance to negate incoming hits. Applied by the
-     *  Ninja's Smokebomb ultimate. */
+    /** Evasion buff (Ninja Smokebomb). */
     DODGE((short) 40),
-    /** Admin buff: holder's projectiles instantly kill non-invincible enemies. */
+    /** Holder's projectiles instantly kill non-invincible enemies. */
     INSTAKILL((short) 41),
-    /** Necromancer Soul Drain self-buff — bi-directional HP<->MP transfer at the
-     *  HEALING rate, draining the higher pool (percentage-wise) into the lower.
-     *  Server-authoritative; caster-only. */
+    /** Soul Drain self-buff - bi-directional HP<->MP transfer, caster-only. */
     SACRIFICE((short) 42);
 
     public static Map<Short, StatusEffectType> map = new HashMap<>();

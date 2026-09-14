@@ -6,12 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * A dungeon definition loaded from dungeons.json. Dungeons are first-class: a
- * dungeon realm is built server-side from this model, and the LoadMapPacket
- * carries {@code dungeonId} so the client can resolve the realm's grid
- * dimensions/tile size from here rather than from a MapModel.
- */
+/** Dungeon definition from dungeons.json; resolved via LoadMapPacket's dungeonId. */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

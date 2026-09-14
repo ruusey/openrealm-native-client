@@ -39,8 +39,7 @@ public class LootContainer {
 
     private boolean contentsChanged;
 
-    // Soulbound loot: -1 means public (anyone can see/pickup),
-    // otherwise only the player with this ID can see/interact with this bag
+    // -1 = public; otherwise only this player id can see/interact with the bag.
     @Builder.Default
     private long soulboundPlayerId = -1;
 
@@ -87,9 +86,7 @@ public class LootContainer {
         this.sprite = LootTier.getLootSprite(tier.tierId);
         this.pos = pos;
         this.uid = UUID.randomUUID().toString();
-        // Pack items contiguously from slot 0 with no gaps.
-        // Arrays.copyOf(loot, 8) would leave nulls between items if the
-        // source had gaps; instead, filter nulls and pack to the front.
+        // Pack items contiguously from slot 0 (filter nulls to the front).
         this.items = new GameItem[SIZE];
         int slot = 0;
         for (GameItem item : loot) {
@@ -124,35 +121,20 @@ public class LootContainer {
     }
 
     /**
-     * Determine the appropriate loot tier based on the items inside.
-     * WHITE(4): any untiered item (tier -1)
-     * BLUE(3): only potions (consumable items)
-     * CYAN(2): any item tier 8+
-     * PURPLE(1): tiered items 0-7, plus all forge materials (crystals + essences)
-     * BROWN(0): fallback / empty
-     * CHEST, GRAVE, and BOOSTED are never reclassified — callers set those
-     * explicitly and the auto-classifier would clobber them based on contents.
-     *
-     * Forge materials (crystals, essences) are forced into PURPLE regardless
-     * of their authored tier — crystals are tier 8 (would land in CYAN) and
-     * essences are tier -1 (would land in WHITE), but neither feels right
-     * for what is essentially "common forge currency". Treating them as
-     * PURPLE keeps players from confusing forge mats with rare drops.
-     *
-     * All consumables (potions) go to BLUE. Previously they fell through to
-     * BROWN, which made stat-potion drops indistinguishable from empty bags.
+     * Loot tier from contents. WHITE: any untiered (tier -1). CYAN: any tier 8+.
+     * PURPLE: tiered 0-7 or any forge material. BLUE: only potions. BROWN: empty.
+     * CHEST/GRAVE/BOOSTED/BROWN are set explicitly and never reclassified.
+     * Forge materials (crystal/essence/shard) force PURPLE regardless of their
+     * authored tier so they don't read as rare (crystal) or common (essence) drops.
      */
     public LootTier determineTier() {
-        // BROWN is an explicit public-drop request (player-dropped items, HP/MP
-        // potion drops): keep it brown rather than re-deriving a higher colour
-        // from contents, so everything a player drops lands in a public brown bag.
         if (this.tier.equals(LootTier.CHEST) || this.tier.equals(LootTier.GRAVE)
                 || this.tier.equals(LootTier.BOOSTED) || this.tier.equals(LootTier.BROWN))
             return this.tier;
 
         boolean hasUntiered = false;
         boolean hasHighTier = false; // tier 8+
-        boolean hasLowTier = false;  // tier 0-7, non-consumable, OR a forge material
+        boolean hasLowTier = false;  // tier 0-7 non-consumable, or a forge material
         boolean hasPotion = false;
         boolean hasAnyItem = false;
 
@@ -161,19 +143,12 @@ public class LootContainer {
             hasAnyItem = true;
             byte t = item.getTier();
             final String cat = item.getCategory();
-            // "shard" is the partial-crystal forge material (8 stat shards
-            // combine into a full crystal). Treat it the same as full
-            // crystals + essences so it lands in a PURPLE bag instead of a
-            // WHITE one — matches player expectation that all forge mats
-            // drop in purple.
             final boolean isForgeMaterial = "crystal".equals(cat)
                     || "essence".equals(cat)
                     || "shard".equals(cat);
             if (item.isConsumable()) {
                 hasPotion = true;
             } else if (isForgeMaterial) {
-                // Crystals + essences + shards classify as PURPLE regardless
-                // of authored tier.
                 hasLowTier = true;
             } else if (t == (byte) -1) {
                 hasUntiered = true;
@@ -197,10 +172,7 @@ public class LootContainer {
         this.contentsChanged = true;
     }
 
-    /**
-     * Re-pack items to fill gaps (nulls) left by removed items.
-     * After this call, all non-null items are contiguous from slot 0.
-     */
+    /** Re-pack so non-null items are contiguous from slot 0. */
     public void repackItems() {
         GameItem[] packed = new GameItem[SIZE];
         int slot = 0;
@@ -231,22 +203,13 @@ public class LootContainer {
 
     public void render(SpriteBatch batch) {
         if (this.sprite != null && this.sprite.getRegion() != null) {
-            // Regular loot bags render at half-tile (16px) so they read as
-            // pickups rather than environment props. Chests override this in
-            // Chest.render to keep their full 32px footprint, since chests
-            // are an interactive set-piece (vault) and need to be visually
-            // distinct from drop bags.
             final int draw = this.getDrawSize();
-            // Center the smaller sprite inside the tile so the visual
-            // anchor matches the underlying tile pos.
+            // Center the smaller sprite inside the tile.
             final float offset = (32 - draw) / 2f;
             final float bx = this.pos.getWorldVar().x + offset;
             final float by = this.pos.getWorldVar().y + offset;
             final TextureRegion region = this.sprite.getRegion();
-            // Dark silhouette outline (matches the in-world sprite stroke): 8
-            // offset tinted copies (4 cardinal + 4 diagonal) behind the bag, then
-            // the bag on top. The diagonals fill the corner pixels a cardinal-only
-            // stroke misses. Skipped when the global sprite-stroke toggle is off.
+            // Dark silhouette outline: 8 offset copies behind the bag.
             if (Settings.get().isSpriteStroke()) {
                 final float prevColor = batch.getPackedColor();
                 batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
@@ -260,9 +223,7 @@ public class LootContainer {
                 batch.draw(region, bx - OUTLINE_OFFSET, by - OUTLINE_OFFSET, draw, draw);
                 batch.setPackedColor(prevColor);
             }
-            // Soulbound bags get a red tint so the player visually distinguishes
-            // their own loot from other players' soulbound drops (which they
-            // also see but cannot pick up). Public bags render at neutral tint.
+            // Soulbound bags get a red tint to distinguish them from public bags.
             if (!this.isPublicLoot()) {
                 batch.setColor(1.0f, 0.55f, 0.55f, 1.0f);
             }
@@ -273,15 +234,8 @@ public class LootContainer {
         }
     }
 
-    /** Render footprint in world pixels. Tier rules:
-     *    BROWN / PURPLE / CYAN / BLUE / WHITE / BOOSTED -> 16 px
-     *        (all regular drop bags read as same-size pickups; rarity is
-     *        conveyed by bag color, not size)
-     *    GRAVE / CHEST                                  -> 32 px
-     *        (set-piece world objects, visually distinct from drop bags)
-     *  Chest also overrides this for clarity, but the tier check below
-     *  handles it identically — keeping the override means a Chest
-     *  built without a CHEST tier (defensive bug) still renders large. */
+    /** Render footprint (world px): drop bags 16px (rarity is color, not size);
+     *  GRAVE/CHEST 32px (set-piece world objects). */
     protected int getDrawSize() {
         if (this.tier == null) return 16;
         switch (this.tier) {

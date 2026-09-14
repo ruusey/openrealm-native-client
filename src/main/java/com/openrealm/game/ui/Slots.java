@@ -23,14 +23,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Slots {
-    /** Slot background dimension — must match {@link com.openrealm.game.ui.PlayerUI}'s
-     *  SLOT_SIZE so item sprites land inside the rectangles drawn by PlayerUI. */
+    /** Must match {@link PlayerUI}'s SLOT_SIZE so item sprites land inside its rectangles. */
     public static final int SLOT_PX = 56;
-    /** Inner padding so the item icon visually breathes inside the slot frame
-     *  (mirrors the webclient's #item-slot CSS, which has ~6px padding). */
     public static final int ICON_PADDING = 6;
-    /** Effective icon dimension drawn inside each slot. */
     public static final int ICON_PX = SLOT_PX - 2 * ICON_PADDING;
+    private static final float ITEM_OUTLINE_OFFSET = 1f;
+    private static final float ITEM_OUTLINE_ALPHA = 0.85f;
 
     private GameItem item;
     private Button button;
@@ -60,9 +58,7 @@ public class Slots {
         }
     }
 
-    /**
-     * Render slot background (shapes pass). Call while ShapeRenderer is active.
-     */
+    /** Slot background. Call while ShapeRenderer is active. */
     public void renderBackground(ShapeRenderer shapes, Vector2f pos) {
         if (this.getItem() == null) return;
         if (this.isSelected()) {
@@ -73,19 +69,13 @@ public class Slots {
         shapes.rect(pos.x, pos.y, SLOT_PX, SLOT_PX);
     }
 
-    /**
-     * Render slot item sprite (batch pass). Call while SpriteBatch is active.
-     */
+    /** Slot item sprite. Call while SpriteBatch is active. */
     public void renderItem(SpriteBatch batch, Vector2f pos) {
         if (this.getItem() == null) return;
         if (this.getItem().getSpriteKey() == null) {
             GameDataManager.loadSpriteModel(this.getItem());
         }
-        // Forge enchantments paint colored "crystal" pixels onto the
-        // weapon icon (web parity: getItemSpriteUrl in main.js ~2762).
-        // Try the composited region first; fall back to the un-painted
-        // base sprite if the item has no enchantments or we couldn't
-        // build the overlay.
+        // Composited enchantment region first; fall back to the un-painted base sprite.
         TextureRegion itemRegion = SpriteRecolorCache.getEnchantedItemRegion(this.item);
         if (itemRegion == null) {
             itemRegion = GameSpriteManager.ITEM_SPRITES.get(this.item.getItemId());
@@ -94,12 +84,8 @@ public class Slots {
         if (this.button != null) {
             this.button.render(batch);
         }
-        // Inset the icon by ICON_PADDING on every side so it visually sits
-        // inside the slot rectangle drawn by PlayerUI (was 64x64 -> overflowed
-        // a 56x56 slot by 14% on each side; matches webclient #item-slot).
         final float ix = pos.x + ICON_PADDING, iy = pos.y + ICON_PADDING;
-        // Dark silhouette outline (matches the in-world sprite stroke): four
-        // offset tinted copies behind the icon, then the real icon on top.
+        // Dark silhouette outline: four offset tinted copies behind the icon.
         final float prev = batch.getPackedColor();
         batch.setColor(0f, 0f, 0f, ITEM_OUTLINE_ALPHA);
         batch.draw(itemRegion, ix + ITEM_OUTLINE_OFFSET, iy, ICON_PX, ICON_PX);
@@ -110,28 +96,13 @@ public class Slots {
         batch.draw(itemRegion, ix, iy, ICON_PX, ICON_PX);
     }
 
-    private static final float ITEM_OUTLINE_OFFSET = 1f;
-    private static final float ITEM_OUTLINE_ALPHA = 0.85f;
-
-    /**
-     * Draw the "xN" overlay on stackable items with count > 1. Mirrors the
-     * web client's {@code .item-stack} badge in main.js' updateInventoryUI
-     * (~line 3311). Call AFTER renderItem so the text sits on top of the
-     * sprite. Anchored to the bottom-right of the SLOT_PX rectangle.
-     * Skipped silently when the item is not stackable or only has a single
-     * unit.
-     */
+    /** Draw the "xN" overlay (black outline + gold text) on stackable items with
+     *  count > 1. Anchored bottom-right of the slot; call AFTER renderItem. */
     public void renderStackCount(SpriteBatch batch, BitmapFont font, Vector2f pos) {
         if (this.getItem() == null) return;
         if (!this.getItem().isStackable()) return;
         final int count = this.getItem().getStackCount();
         if (count <= 1) return;
-        // Match the webclient's .item-stack badge — gold "×N" with a black
-        // outline so the count is readable against any sprite. The legacy
-        // "x" was plain white with no outline and disappeared into light
-        // sprites (essences, potions). Fake an outline by drawing the
-        // string four times offset 1px in each diagonal, then the gold
-        // text on top.
         final String text = "x" + count;
         final float x = pos.x + SLOT_PX - 18;
         final float y = pos.y + SLOT_PX - 4;
@@ -140,7 +111,7 @@ public class Slots {
         font.draw(batch, text, x + 1, y - 1);
         font.draw(batch, text, x - 1, y + 1);
         font.draw(batch, text, x + 1, y + 1);
-        font.setColor(1f, 0.847f, 0.42f, 1f); // #ffd86b matches the webclient
+        font.setColor(1f, 0.847f, 0.42f, 1f);
         font.draw(batch, text, x, y);
         font.setColor(Color.WHITE);
     }
@@ -153,17 +124,8 @@ public class Slots {
             GameDataManager.loadSpriteModel(this.getItem());
         }
 
-        // Draw slot background via ShapeRenderer
-        batch.end();
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        if (this.isSelected()) {
-            shapes.setColor(Color.YELLOW);
-        } else {
-            shapes.setColor(Color.GRAY);
-        }
-        shapes.rect(pos.x, pos.y, SLOT_PX, SLOT_PX);
-        shapes.end();
-        batch.begin();
+        UiRender.fillRect(batch, shapes, pos.x, pos.y, SLOT_PX, SLOT_PX,
+                this.isSelected() ? Color.YELLOW : Color.GRAY);
 
         TextureRegion itemRegion = GameSpriteManager.ITEM_SPRITES.get(this.item.getItemId());
         if (itemRegion == null)

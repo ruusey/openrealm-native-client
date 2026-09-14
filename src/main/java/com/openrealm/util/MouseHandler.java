@@ -10,15 +10,13 @@ public class MouseHandler {
     private static volatile int[] mouseButtonStates = new int[] { -1, -1, -1 };
 
     public MouseHandler() {
-        // No listener registration needed - we poll Gdx.input
     }
 
     public void update() {
         MouseHandler.mouseX = Gdx.input.getX();
         MouseHandler.mouseY = Gdx.input.getY();
 
-        // LibGDX button indices: LEFT=0, RIGHT=1, MIDDLE=2
-        // Map to match old AWT convention: BUTTON1=left(index 0), BUTTON2=middle(index 1), BUTTON3=right(index 2)
+        // Stored in AWT button order: index 0=left, 1=middle, 2=right.
         MouseHandler.mouseButtonStates[0] = Gdx.input.isButtonPressed(Input.Buttons.LEFT) ? 1 : -1;
         MouseHandler.mouseButtonStates[1] = Gdx.input.isButtonPressed(Input.Buttons.MIDDLE) ? 1 : -1;
         MouseHandler.mouseButtonStates[2] = Gdx.input.isButtonPressed(Input.Buttons.RIGHT) ? 1 : -1;

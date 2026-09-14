@@ -15,17 +15,13 @@ import com.openrealm.game.model.ProjectileFx;
 import com.openrealm.game.model.ProjectileGroup;
 
 /**
- * Data-driven projectile FX particles (trail / muzzle / impact), the native
- * counterpart of the webclient FX system. Pooled Structure-of-Arrays state
- * (zero per-particle allocation) rendered with one shared soft-dot texture
- * tinted per particle, so thousands of particles cost ~one texture + a tight
- * loop. Positions are world coords; render converts to screen with the same
- * {@link Vector2f#worldX}/{@code worldY} offset the bullets use.
+ * Data-driven projectile FX particles (trail / muzzle / impact). Pooled
+ * structure-of-arrays state rendered with one shared soft-dot texture. Positions
+ * are world coords; render() applies the same Vector2f.worldX/worldY offset as bullets.
  */
 public class ProjectileFxManager {
 
     private static final int CAP = 4096;
-    private int n = 0;                              // active particle count (packed to front)
     private final float[] px = new float[CAP];
     private final float[] py = new float[CAP];
     private final float[] vx = new float[CAP];      // world units / sec
@@ -37,14 +33,12 @@ public class ProjectileFxManager {
     private final float[] cr = new float[CAP];      // tint r/g/b 0..1
     private final float[] cg = new float[CAP];
     private final float[] cb = new float[CAP];
-
+    private int n = 0;                              // active count (packed to front)
     private Texture softTex;
     // Muzzle/impact spawn-despawn tracking. value = [x, y, projectileGroupId].
     private Map<Long, float[]> seen = new HashMap<>();
     private Map<Long, float[]> seenNext = new HashMap<>();
 
-    /** Emit trails for visible bullets, fire muzzle/impact bursts by diffing
-     *  live bullets vs last frame, then advance every particle. */
     public void emitAndUpdate(final List<Bullet> visible, final Map<Long, Bullet> all, final float dtSec) {
         if (GameDataManager.PROJECTILE_GROUPS == null) return;
         for (int i = 0; i < visible.size(); i++) {
@@ -72,8 +66,6 @@ public class ProjectileFxManager {
         }
         batch.setColor(1f, 1f, 1f, 1f);
     }
-
-    // ── internals ──────────────────────────────────────────────────────────
 
     private void spawn(float x, float y, float ivx, float ivy, float lifeSec,
             float startSize, float endSize, float r, float g, float b) {

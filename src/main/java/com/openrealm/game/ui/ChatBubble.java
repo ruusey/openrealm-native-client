@@ -1,11 +1,5 @@
 package com.openrealm.game.ui;
 
-/**
- * A short-lived chat line floated above a player's head. Rendered in the
- * world-camera pass by PlayState (alongside nameplates); the same message also
- * lands in the chat bar via PlayerChat. Keyed by sender name so a new line
- * replaces the previous bubble for that player.
- */
 public class ChatBubble {
 
     private static final long FADE_MS = 500L;
@@ -26,8 +20,6 @@ public class ChatBubble {
         return nowMs >= this.expiresAtMs;
     }
 
-    /** Full opacity for most of the lifetime, ramping to 0 over the final
-     *  {@link #FADE_MS} milliseconds. */
     public float alpha(long nowMs) {
         final long remaining = this.expiresAtMs - nowMs;
         if (remaining <= 0L) return 0f;

@@ -27,7 +27,6 @@ public class UseAbilityPacket extends Packet {
 	private float posX;
 	@SerializableField(order = 1, type = SerializableFloat.class)
 	private float posY;
-	/** Phase 2A: which hotbar slot (0..3) was pressed. Keys 1..4 → slots 0..3. */
 	@SerializableField(order = 2, type = SerializableByte.class)
 	private byte abilityIndex;
 

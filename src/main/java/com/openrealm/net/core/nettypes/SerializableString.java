@@ -32,9 +32,7 @@ public class SerializableString extends SerializableFieldType<String> {
 	public int write(String value, DataOutputStream stream) throws Exception {
 		if(stream==null)throw new Exception("SerializableString Error: target stream cannot be null");
 		final String toUse = value == null ? "" : value;
-		// Prefix the UTF-8 BYTE length, not String.length(): readers consume `length` bytes and
-		// UTF-8-decode them, so a char-count prefix desyncs on any multibyte char (e.g. em-dash),
-		// silently truncating the tail and shifting the stream.
+		// Prefix the UTF-8 BYTE length, not String.length(): a char-count prefix desyncs the stream on any multibyte char.
 		final byte[] encoded = toUse.getBytes(StandardCharsets.UTF_8);
 		stream.writeInt(encoded.length);
 		stream.write(encoded);

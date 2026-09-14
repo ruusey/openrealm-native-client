@@ -13,10 +13,6 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
-/**
- * Realm purification progress (progress/goal) for the realm the player is in,
- * rendered as the centered overworld purification bar.
- */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Streamable

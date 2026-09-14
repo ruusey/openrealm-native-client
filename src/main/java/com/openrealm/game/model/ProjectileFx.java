@@ -6,17 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * One entry in a {@link ProjectileGroup}'s {@code fx} list — a data-driven,
- * purely-visual projectile effect. All fields are optional; only those relevant
- * to {@link #type} are read:
- * <ul>
- *   <li>{@code spin}   — {@code mode} ("continuous"=override flight angle,
- *       "additive"=on top of it), {@code rate} (rad/s), {@code dir} (CW|CCW)</li>
- *   <li>{@code trail}  — {@code particle}, {@code color}, {@code rate} (per s),
- *       {@code lifeMs}, {@code size}, {@code spread}</li>
- *   <li>{@code muzzle}/{@code impact} — {@code particle}, {@code color},
- *       {@code count}, {@code speed}, {@code lifeMs}, {@code size}</li>
- * </ul>
+ * Fields read depend on type: spin (mode "continuous"=override flight angle /
+ * "additive"; rate rad/s; dir CW|CCW); trail (rate per s); muzzle/impact (count, speed).
  */
 @Data
 @AllArgsConstructor

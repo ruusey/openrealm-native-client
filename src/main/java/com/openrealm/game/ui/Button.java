@@ -124,14 +124,8 @@ public class Button {
             }
             this.canHover = false;
             if ((mouse.isPressed(1)) && !this.clicked) {
-                // EDGE: button just went DOWN inside our bounds. Fire
-                // BOTH mouseDownEvents (single-fire-per-click APIs like
-                // the trade-slot toggle and context-menu open) and
-                // mouseUpEvents (legacy fire-twice APIs like loot
-                // pickup, confirm/cancel — they rely on the press to
-                // queue the action immediately rather than waiting for
-                // release, and have their own cooldown / idempotence to
-                // tolerate the release-fire below).
+                // A down-event fires BOTH the down and up listeners (legacy up-listeners
+                // rely on the press to queue immediately; they tolerate the release-fire).
                 this.clicked = true;
                 this.pressed = true;
                 this.pressedtime = System.nanoTime() / 1000000;

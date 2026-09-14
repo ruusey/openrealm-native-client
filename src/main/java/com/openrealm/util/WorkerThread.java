@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class WorkerThread {
-    // Fixed pool: cores * 2 for mixed IO/CPU workload, capped to avoid thread explosion
     private static final int THREAD_POOL_COUNT = Math.min(Runtime.getRuntime().availableProcessors() * 8, 50);
     private static final ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors
             .newFixedThreadPool(THREAD_POOL_COUNT, Executors.privilegedThreadFactory());
@@ -64,8 +63,6 @@ public class WorkerThread {
 
         CompletableFuture<Void> cf = CompletableFuture.allOf(futures);
         try {
-            // WorkerThread.log.info("Completing {} asynchronous tasks",
-            // futures.length);
             cf.join();
         } catch (Exception e) {
             WorkerThread.log.error("Failed to complete async tasks {}", e);
@@ -75,17 +72,15 @@ public class WorkerThread {
     public static void submitAndRun(Runnable... runnables) {
         if (runnables == null)
             return;
-        // Single task: run inline, no pool overhead
         if (runnables.length == 1) {
             runnables[0].run();
             return;
         }
-        // Multiple tasks: fan out N-1 to pool, run last one on current thread
+        // Fan out N-1 to the pool, run the last on the calling thread.
         CompletableFuture<?>[] futures = new CompletableFuture[runnables.length - 1];
         for (int i = 0; i < runnables.length - 1; i++) {
             futures[i] = WorkerThread.submit(runnables[i]);
         }
-        // Run the last task on the calling thread while others execute in parallel
         runnables[runnables.length - 1].run();
         WorkerThread.allOf(futures);
     }
@@ -105,10 +100,6 @@ public class WorkerThread {
         WorkerThread.allOf(futures);
     }
 
-    /*
-     * Submits runnables that execute in an newly forked thread (good for long
-     * running tasks)
-     */
     public static CompletableFuture<?>[] submitAndForkRun(Runnable... runnables) {
         if (runnables == null)
             return null;

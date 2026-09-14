@@ -23,24 +23,11 @@ import com.openrealm.net.client.ClientGameLogic;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Per-pixel recolor / overlay cache for player sprites and item icons.
- *
- * Mirrors openrealm-data webclient renderer.js:
- *   - getDyedRegion (~line 469)         — mask-based dye recolor for
- *                                          player class sprites.
- *   - getItemSpriteUrl (~main.js 2762)  — enchantment-pixel overlay for
- *                                          forged equipment icons.
- *
- * The native client originally tinted the entire sprite via
- * {@code batch.setColor}, which (1) painted the head, weapon, and any
- * non-clothing pixels, and (2) silently dropped Black Dye because the
- * lookup array only had 8 slots.  This class does the proper job:
- * looks up the per-frame mask, draws the source cell into a Pixmap,
- * recolors only the masked pixels with luminance preservation, and
- * uploads the result as a small NEAREST-filtered texture.
- *
- * Results are cached by a string key so the recolor work happens once
- * per unique (sprite, dye/enchantment-set) tuple.
+ * Per-pixel recolor / overlay cache for player sprites and item icons. Mirrors
+ * webclient renderer.js getDyedRegion (mask-based dye recolor) and main.js
+ * getItemSpriteUrl (enchantment-pixel overlay). Looks up the per-frame mask,
+ * recolors only masked pixels with luminance preservation, and caches the
+ * result by a string key so the work happens once per (sprite, dye/enchant) tuple.
  */
 @Slf4j
 public class SpriteRecolorCache {
@@ -48,11 +35,8 @@ public class SpriteRecolorCache {
     private static final Map<String, TextureRegion> DYE_CACHE = new HashMap<>();
     /** Composited item icons, keyed "itemId#sig". */
     private static final Map<String, TextureRegion> ITEM_CACHE = new HashMap<>();
-    /** Source-PNG bytes by spriteKey, fetched on first miss and reused
-     *  across all subsequent recolors of the same sheet. */
     private static final Map<String, Pixmap> SOURCE_PIXMAPS = new HashMap<>();
-    /** Per-key one-shot warn so the log tells you exactly which lookup
-     *  is bailing out without spamming a line per render frame. */
+    /** Per-key one-shot warn so a failing lookup doesn't spam a line per frame. */
     private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();
 
     /**
@@ -73,15 +57,9 @@ public class SpriteRecolorCache {
     }
 
     /**
-     * Frame-aware overload: builds the dyed Pixmap at {@code frameW x frameH}
-     * (the actual current animation frame's size) instead of the cell size,
-     * so wider/taller attack frames don't get squished when the renderer
-     * draws this region across the full frame rect. Mirrors webclient
-     * renderer.js getDyedRegion which sizes its offscreen canvas to (w, h).
-     *
-     * The mask still only covers the body cell area; pixels outside the
-     * mask's bounds are copied through un-recolored, so a bow extension or
-     * tail extension shows up at original color rather than getting stretched.
+     * Frame-aware overload: builds the Pixmap at frameW x frameH (the current frame's
+     * size) so wider/taller attack frames aren't squished. The mask only covers the body
+     * cell; pixels outside it are copied through un-recolored (bow/tail extensions).
      */
     public static TextureRegion getDyedRegion(String spriteKey, int classId, int row, int col,
                                               int cellW, int cellH, int frameW, int frameH, int dyeId) {
@@ -125,8 +103,7 @@ public class SpriteRecolorCache {
         tex.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest);
         cell.dispose();
         final TextureRegion region = new TextureRegion(tex);
-        // Match the rest of the engine, which flips its sub-regions to
-        // compensate for libGDX's bottom-left origin.
+        // Flip to compensate for libGDX's bottom-left origin, like the rest of the engine.
         region.flip(false, true);
         DYE_CACHE.put(cacheKey, region);
         return region;
@@ -206,9 +183,7 @@ public class SpriteRecolorCache {
      *  webclient renderer.js getDyedRegion's "solid" branch. */
     private static void applyMaskRecolor(Pixmap cell, int[][] mask, DyeAssetModel dye) {
         final int w = cell.getWidth(), h = cell.getHeight();
-        // Solid path: HSL-ish recolor — every masked, non-transparent
-        // pixel takes the dye color scaled by the original luminance, so
-        // shading and highlights survive instead of flattening to a slab.
+        // Scale the dye color by each pixel's original luminance so shading survives.
         final int color = dye.getColor();
         final float dr = ((color >> 16) & 0xff);
         final float dg = ((color >>  8) & 0xff);
@@ -239,13 +214,8 @@ public class SpriteRecolorCache {
 
     private static int clamp(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
 
-    /** Source-PNG pixmap, served first from GameSpriteManager.PIXMAP_CACHE
-     *  (populated on initial sheet load so recolor never has to hit the
-     *  network or disk again) and only as a last resort by re-reading
-     *  bytes from the classpath / data service. The earlier cache miss
-     *  was the real reason "black dye doesn't show" — class sheets
-     *  aren't bundled in the JAR, so the classpath read returned null
-     *  and the remote retry sometimes 404'd or returned text/html. */
+    /** Served first from GameSpriteManager.PIXMAP_CACHE; class sheets aren't in
+     *  the JAR, so classpath/remote reads are only a last-resort fallback. */
     private static Pixmap sourcePixmap(String spriteKey) {
         if (GameSpriteManager.PIXMAP_CACHE != null) {
             Pixmap shared = GameSpriteManager.PIXMAP_CACHE.get(spriteKey);
@@ -275,11 +245,7 @@ public class SpriteRecolorCache {
         if (WARNED.add(key)) log.warn("[RECOLOR] " + fmt, args);
     }
 
-    /** Boot-time sanity check. Call once after GameDataManager has
-     *  finished loading so the log clearly says whether the dye
-     *  pipeline has everything it needs. If anything is missing, dye
-     *  silently no-ops at draw time — the previous "still no dye"
-     *  reports were impossible to root-cause without this log. */
+    /** Boot-time sanity log: dye no-ops silently at draw time when inputs are missing. */
     public static void logBootstrap() {
         final int dyeCount = GameDataManager.DYE_ASSETS == null ? -1 : GameDataManager.DYE_ASSETS.size();
         final int maskCount = GameDataManager.CLASS_MASK_FRAMES == null ? -1 : GameDataManager.CLASS_MASK_FRAMES.size();
@@ -287,8 +253,6 @@ public class SpriteRecolorCache {
         log.info("[RECOLOR] bootstrap: dyeAssets={} classMaskFrames={} pixmapCache={}",
                 dyeCount, maskCount, pixCount);
         if (GameSpriteManager.PIXMAP_CACHE != null) {
-            // List the class-sheet pixmaps specifically since those are
-            // what the dye path uses.
             for (String k : GameSpriteManager.PIXMAP_CACHE.keySet()) {
                 if (k != null && k.startsWith("rotmg-classes")) {
                     log.info("[RECOLOR]   class pixmap cached: {}", k);

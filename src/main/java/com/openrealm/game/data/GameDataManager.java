@@ -53,9 +53,8 @@ public class GameDataManager {
 	public static final transient ObjectMapper JSON_MAPPER = new ObjectMapper()
 		.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-	// {{...}} angle placeholders — PI_EXPR matches unit-circle radian forms:
-	// PI, 2*PI, 2PI, PI/4, 3*PI/2, 3PI/2, -PI/2, 1.5*PI. Keep in sync with the
-	// server's GameDataManager.
+	// PI_EXPR matches unit-circle radian forms (PI, 2*PI, PI/4, -PI/2, 1.5*PI).
+	// Keep in sync with the server's GameDataManager.
 	private static final Pattern INJECT_VAR = Pattern.compile("\\{\\{(.*?)}}");
 	private static final Pattern PI_EXPR = Pattern.compile("^(-?\\d*\\.?\\d*)\\*?PI(?:/(-?\\d*\\.?\\d+))?$");
 
@@ -80,16 +79,23 @@ public class GameDataManager {
 	public static Map<Integer, DungeonRoomModel>              DUNGEON_ROOMS = null;
 	public static Map<Integer, DungeonModel>                  DUNGEONS = null;
 	public static Map<Integer, RealmEventModel>               REALM_EVENTS = null;
-	// Phase 2A — mirrors server-side ability/passive registries.
 	public static Map<Integer, Ability>                       ABILITIES = null;
 	public static Map<Integer, PassiveAbility>                PASSIVES = null;
-	// Web-parity recolor data (renderer.js getDyedRegion). DYE_ASSETS maps
-	// dyeId -> recolor strategy; CLASS_MASK_FRAMES is keyed by
-	// "classId:row:col" so the renderer can look up a per-frame pixel
-	// mask in O(1) at draw time.
+	// CLASS_MASK_FRAMES is keyed by "classId:row:col" for O(1) per-frame lookup at draw time.
 	public static Map<Integer, DyeAssetModel>                 DYE_ASSETS = null;
 	public static Map<Integer, ClassMaskModel>                CLASS_MASKS = null;
 	public static Map<String, ClassMaskFrame>                 CLASS_MASK_FRAMES = null;
+
+	// Fetch a game-data JSON payload either from the remote data service or the
+	// bundled classpath copy. Callers that tolerate a missing file read the
+	// stream themselves; this path assumes the resource exists.
+	private static String readGameDataText(final String fileName, final boolean remote) throws Exception {
+		if (remote) {
+			return ClientGameLogic.DATA_SERVICE.executeGet("game-data/" + fileName, null);
+		}
+		InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/" + fileName);
+		return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+	}
 
 	private static void loadFameStore(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Fame Store...", LOG_NS);
@@ -114,14 +120,7 @@ public class GameDataManager {
 	private static void loadLootGroups(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Loot Groups...", LOG_NS);
 		GameDataManager.LOOT_GROUPS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/loot-groups.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/loot-groups.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("loot-groups.json", remote);
 		LootGroupModel[] lootGroups = GameDataManager.JSON_MAPPER.readValue(text, LootGroupModel[].class);
 		for (LootGroupModel lootGroup : lootGroups) {
 			GameDataManager.LOOT_GROUPS.put(lootGroup.getLootGroupId(), lootGroup);
@@ -132,14 +131,7 @@ public class GameDataManager {
 	private static void loadLootTables(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Loot Tables...", LOG_NS);
 		GameDataManager.LOOT_TABLES = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/loot-tables.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/loot-tables.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("loot-tables.json", remote);
 		LootTableModel[] lootTables = GameDataManager.JSON_MAPPER.readValue(text, LootTableModel[].class);
 		for (LootTableModel lootTable : lootTables) {
 			GameDataManager.LOOT_TABLES.put(lootTable.getEnemyId(), lootTable);
@@ -150,14 +142,7 @@ public class GameDataManager {
 	private static void loadCharacterClasses(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Character Classes...", LOG_NS);
 		GameDataManager.CHARACTER_CLASSES = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/character-classes.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/character-classes.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("character-classes.json", remote);
 		CharacterClassModel[] characterClasses = GameDataManager.JSON_MAPPER.readValue(text,
 				CharacterClassModel[].class);
 		for (CharacterClassModel characterClass : characterClasses) {
@@ -168,14 +153,7 @@ public class GameDataManager {
 
 	private static void loadExperienceModel(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading ExperienceModel...", LOG_NS);
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/exp-levels.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/exp-levels.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("exp-levels.json", remote);
 		ExperienceModel expModel = GameDataManager.JSON_MAPPER.readValue(text, ExperienceModel.class);
 		expModel.parseMap();
 		GameDataManager.EXPERIENCE_LVLS = expModel;
@@ -185,13 +163,7 @@ public class GameDataManager {
 	private static void loadPortals(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Portals...", LOG_NS);
 		GameDataManager.PORTALS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/portals.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/portals.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("portals.json", remote);
 		PortalModel[] maps = GameDataManager.JSON_MAPPER.readValue(text, PortalModel[].class);
 		for (PortalModel map : maps) {
 			GameDataManager.PORTALS.put(map.getPortalId(), map);
@@ -202,13 +174,7 @@ public class GameDataManager {
 	private static void loadDungeonGraph(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Dungeon Graph...", LOG_NS);
 		GameDataManager.DUNGEON_GRAPH = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/dungeon-graph.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/dungeon-graph.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("dungeon-graph.json", remote);
 		DungeonGraphNode[] nodes = GameDataManager.JSON_MAPPER.readValue(text, DungeonGraphNode[].class);
 		for (DungeonGraphNode node : nodes) {
 			GameDataManager.DUNGEON_GRAPH.put(node.getNodeId(), node);
@@ -219,13 +185,7 @@ public class GameDataManager {
 	private static void loadTerrains(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Terrains...", LOG_NS);
 		GameDataManager.TERRAINS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/terrains.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/terrains.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("terrains.json", remote);
 		TerrainGenerationParameters[] maps = GameDataManager.JSON_MAPPER.readValue(text,
 				TerrainGenerationParameters[].class);
 		for (TerrainGenerationParameters map : maps) {
@@ -237,13 +197,7 @@ public class GameDataManager {
 	private static void loadMaps(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Maps... ", LOG_NS);
 		GameDataManager.MAPS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/maps.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/maps.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("maps.json", remote);
 		MapModel[] maps = GameDataManager.JSON_MAPPER.readValue(text, MapModel[].class);
 		for (MapModel map : maps) {
 			GameDataManager.MAPS.put(map.getMapId(), map);
@@ -254,13 +208,7 @@ public class GameDataManager {
 	private static void loadTiles(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Tiles...", LOG_NS);
 		GameDataManager.TILES = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/tiles.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/tiles.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("tiles.json", remote);
 		TileModel[] tiles = GameDataManager.JSON_MAPPER.readValue(text, TileModel[].class);
 		for (TileModel tile : tiles) {
 			GameDataManager.TILES.put(tile.getTileId(), tile);
@@ -271,13 +219,7 @@ public class GameDataManager {
 	private static void loadEnemies(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Enemies...", LOG_NS);
 		GameDataManager.ENEMIES = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/enemies.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader().getResourceAsStream("data/enemies.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("enemies.json", remote);
 		EnemyModel[] enemies = GameDataManager.JSON_MAPPER.readValue(text, EnemyModel[].class);
 		for (EnemyModel enemy : enemies) {
 			GameDataManager.ENEMIES.put(enemy.getEnemyId(), enemy);
@@ -289,14 +231,7 @@ public class GameDataManager {
 		GameDataManager.log.info("{} Loading Projectile Groups...", LOG_NS);
 
 		GameDataManager.PROJECTILE_GROUPS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/projectile-groups.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/projectile-groups.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("projectile-groups.json", remote);
 		ProjectileGroup[] projectileGroups = GameDataManager.JSON_MAPPER.readValue(text, ProjectileGroup[].class);
 
 		for (ProjectileGroup group : projectileGroups) {
@@ -343,14 +278,7 @@ public class GameDataManager {
 	private static void loadAnimations(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Animations...", LOG_NS);
 		GameDataManager.ANIMATIONS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/animations.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/animations.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("animations.json", remote);
 		AnimationModel[] animations = GameDataManager.JSON_MAPPER.readValue(text, AnimationModel[].class);
 		for (AnimationModel anim : animations) {
 			GameDataManager.ANIMATIONS.put(animationKey(anim.getObjectType(), anim.getObjectId()), anim);
@@ -372,14 +300,7 @@ public class GameDataManager {
 	private static void loadSetPieces(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading SetPieces...", LOG_NS);
 		GameDataManager.SETPIECES = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/setpieces.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/setpieces.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("setpieces.json", remote);
 		SetPieceModel[] pieces = GameDataManager.JSON_MAPPER.readValue(text, SetPieceModel[].class);
 		for (SetPieceModel piece : pieces) {
 			GameDataManager.SETPIECES.put(piece.getSetPieceId(), piece);
@@ -390,14 +311,7 @@ public class GameDataManager {
 	private static void loadDungeonRooms(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Dungeon Rooms...", LOG_NS);
 		GameDataManager.DUNGEON_ROOMS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/dungeon-rooms.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/dungeon-rooms.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("dungeon-rooms.json", remote);
 		DungeonRoomModel[] rooms = GameDataManager.JSON_MAPPER.readValue(text, DungeonRoomModel[].class);
 		for (DungeonRoomModel room : rooms) {
 			GameDataManager.DUNGEON_ROOMS.put(room.getRoomId(), room);
@@ -408,14 +322,7 @@ public class GameDataManager {
 	private static void loadDungeons(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Dungeons...", LOG_NS);
 		GameDataManager.DUNGEONS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/dungeons.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/dungeons.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("dungeons.json", remote);
 		DungeonModel[] dungeons = GameDataManager.JSON_MAPPER.readValue(text, DungeonModel[].class);
 		for (DungeonModel dungeon : dungeons) {
 			GameDataManager.DUNGEONS.put(dungeon.getDungeonId(), dungeon);
@@ -426,14 +333,7 @@ public class GameDataManager {
 	private static void loadRealmEvents(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Realm Events...", LOG_NS);
 		GameDataManager.REALM_EVENTS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/realm-events.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/realm-events.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("realm-events.json", remote);
 		RealmEventModel[] events = GameDataManager.JSON_MAPPER.readValue(text, RealmEventModel[].class);
 		for (RealmEventModel event : events) {
 			GameDataManager.REALM_EVENTS.put(event.getEventId(), event);
@@ -444,14 +344,7 @@ public class GameDataManager {
 	private static void loadDyeAssets(final boolean remote) throws Exception {
 		GameDataManager.log.info("{} Loading Dye Assets...", LOG_NS);
 		GameDataManager.DYE_ASSETS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/dye-assets.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/dye-assets.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("dye-assets.json", remote);
 		DyeAssetModel[] dyes = GameDataManager.JSON_MAPPER.readValue(text, DyeAssetModel[].class);
 		for (DyeAssetModel d : dyes) {
 			GameDataManager.DYE_ASSETS.put(d.getDyeId(), d);
@@ -463,14 +356,7 @@ public class GameDataManager {
 		GameDataManager.log.info("{} Loading Class Masks...", LOG_NS);
 		GameDataManager.CLASS_MASKS = new HashMap<>();
 		GameDataManager.CLASS_MASK_FRAMES = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/character-class-masks.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/character-class-masks.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("character-class-masks.json", remote);
 		ClassMaskModel[] entries = GameDataManager.JSON_MAPPER.readValue(text, ClassMaskModel[].class);
 		for (ClassMaskModel m : entries) {
 			GameDataManager.CLASS_MASKS.put(m.getClassId(), m);
@@ -539,14 +425,7 @@ public class GameDataManager {
 		GameDataManager.log.info("{} Loading Game Items...", LOG_NS);
 
 		GameDataManager.GAME_ITEMS = new HashMap<>();
-		String text = null;
-		if (remote) {
-			text = ClientGameLogic.DATA_SERVICE.executeGet("game-data/game-items.json", null);
-		} else {
-			InputStream inputStream = GameDataManager.class.getClassLoader()
-					.getResourceAsStream("data/game-items.json");
-			text = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-		}
+		String text = readGameDataText("game-items.json", remote);
 		GameItem[] gameItems = GameDataManager.JSON_MAPPER.readValue(text, GameItem[].class);
 
 		for (GameItem item : gameItems) {
@@ -697,9 +576,8 @@ public class GameDataManager {
 		void load() throws Exception;
 	}
 
-	// Run a required loader; on failure record its name (so the caller can refuse to
-	// launch on partial data) and log with the stack trace. Keeps going so one launch
-	// surfaces every broken asset at once.
+	// Record the name on failure (so the caller can refuse to launch on partial
+	// data) but keep going, so one launch surfaces every broken asset at once.
 	private static void runLoader(final String name, final ThrowingLoader loader, final List<String> failures) {
 		try {
 			loader.load();
@@ -710,8 +588,7 @@ public class GameDataManager {
 	}
 
 	// Cosmetic/UI loader with a bundled local fallback — only a failure of BOTH
-	// remote AND local counts against the launch (a missing dye/atlas shouldn't
-	// brick the client the way missing abilities/enemies would).
+	// remote AND local counts against the launch.
 	private static void runLoaderWithFallback(final String name, final ThrowingLoader remote,
 			final ThrowingLoader local, final List<String> failures) {
 		try {
@@ -727,12 +604,8 @@ public class GameDataManager {
 		}
 	}
 
-	/**
-	 * Load every game-data asset group. Returns the names of the groups that failed
-	 * (empty = full success). {@link com.openrealm.game.GameLauncher} refuses to
-	 * launch on a non-empty list — a client must not run on partial/corrupt data
-	 * (that path renders empty realms / missing abilities).
-	 */
+	// Returns the names of the groups that failed (empty = full success);
+	// GameLauncher refuses to launch on a non-empty list.
 	public static List<String> loadGameData(final boolean loadRemote) {
 		GameDataManager.log.info("{} Loading Game Data from remote={}", LOG_NS, loadRemote);
 		final List<String> failures = new ArrayList<>();
@@ -764,8 +637,7 @@ public class GameDataManager {
 				() -> GameDataManager.loadClassMasks(false), failures);
 		runLoaderWithFallback("UI atlas", () -> UiAtlas.load(loadRemote),
 				() -> UiAtlas.load(false), failures);
-		// Wire (de)serializer registration — a failure here silently EOFs packets
-		// mid-stream (the "empty realm" bug), so it's a hard failure too.
+		// A failure here silently EOFs packets mid-stream (the "empty realm" bug), so it's hard.
 		runLoader("serializable data mapping", IOService::mapSerializableData, failures);
 		if (failures.isEmpty()) {
 			GameDataManager.log.info("{} Game data loaded successfully.", LOG_NS);

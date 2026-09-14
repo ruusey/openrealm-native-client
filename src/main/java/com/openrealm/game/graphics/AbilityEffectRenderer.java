@@ -1,31 +1,18 @@
 package com.openrealm.game.graphics;
 
 import com.badlogic.gdx.Gdx;
-import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
-import com.openrealm.game.data.GameDataManager;
-import com.openrealm.game.math.Vector2f;
-import com.openrealm.game.model.ProjectileGroup;
-import com.openrealm.game.model.WeaponArchetypeModel;
 import com.openrealm.game.ui.ActiveVisualEffect;
 import com.openrealm.net.client.packet.CreateEffectPacket;
 
-/**
- * Pure ShapeRenderer geometry for ability / status visual effects, extracted
- * from PlayState so the state class carries game + net logic rather than draw
- * routines. Every method is static; the only state touched is the passed-in
- * ShapeRenderer and GL blend state. Coordinates are world-camera space.
- */
 public final class AbilityEffectRenderer {
 
     private AbilityEffectRenderer() {}
-    /** Procedural per-archetype melee swing (no art required). Sword: clean
-     *  far-reaching crescent + tip gleam. Axe: fat short red cleave + chunk burst.
-     *  Hammer: overhead smash then shockwave ring + ground cracks. Dagger: quick
-     *  lunging thrust. tier = weapon archetype (1/2/3/10). Coords are world-camera
-     *  space (matches the other ShapeRenderer effects); manages its own begin/end. */
+
+    /** tier = weapon archetype: 1 Sword, 2 Axe, 3 Hammer, 10 Dagger. Coords are
+     *  world-camera space; manages its own begin/end. */
     public static void drawMeleeSwing(ShapeRenderer shapes, ActiveVisualEffect vfx, float wx, float wy, float t,
                                       boolean poison) {
         final float ox = vfx.getTargetPosX() - wx;   // origin (player)
@@ -39,7 +26,7 @@ public final class AbilityEffectRenderer {
         final float cos = (float) Math.cos(ang), sin = (float) Math.sin(ang);
 
         if (tier == 3) {
-            // HAMMER — overhead drive, then radial shockwave ring + cracks.
+            // HAMMER
             if (t < 0.5f) {
                 final float p = t / 0.5f;
                 final float headR = reach * (0.45f + 0.55f * p);
@@ -68,7 +55,7 @@ public final class AbilityEffectRenderer {
                 Gdx.gl.glLineWidth(1f);
             }
         } else if (tier == 10) {
-            // DAGGER — quick lunging thrust that extends then retracts.
+            // DAGGER
             final float ext = t < 0.45f ? t / 0.45f : 1f - (t - 0.45f) / 0.55f;
             final float tipR = reach * (0.35f + 0.8f * ext);
             final float tx = ox + cos * tipR, ty = oy + sin * tipR;
@@ -81,7 +68,7 @@ public final class AbilityEffectRenderer {
             if (ext > 0.85f) { shapes.setColor(1f, 1f, 1f, a); shapes.circle(tx, ty, 2.5f); }
             shapes.end();
         } else {
-            // SWORD (1) / AXE (2) — sweeping crescent (triangle-fan smear + edge).
+            // SWORD (1) / AXE (2)
             final boolean isAxe = tier == 2;
             final float half = isAxe ? 1.35f : 1.1f;
             final float reachA = isAxe ? reach * 0.9f : reach;
@@ -124,8 +111,7 @@ public final class AbilityEffectRenderer {
             }
         }
 
-        // Imbue Poison: coat the weapon in venom-green for the buff duration — a
-        // green film along the blade line, a glowing tip, and a couple of drips.
+        // Imbue Poison: venom-green film along the blade for the buff duration.
         if (poison) {
             final float tipR = reach * 0.95f;
             final float bx = ox + cos * tipR, by = oy + sin * tipR;
@@ -149,9 +135,7 @@ public final class AbilityEffectRenderer {
         final float cy = vfx.getPosY() - wy;
         final float maxRadius = vfx.getRadius();
 
-        // Boss beam telegraph — opaque red flashing rectangle from the boss to the
-        // beam's end. Handled before the tier>=10 grenade-ring branch below since
-        // this warning is a beam (rectLine), not a circle.
+        // Beam telegraph is a rectLine, so handle it before the tier>=10 ring branch.
         if (type == CreateEffectPacket.EFFECT_BEAM_WARNING) {
             final float tx = vfx.getTargetPosX() - wx;
             final float ty = vfx.getTargetPosY() - wy;
@@ -165,45 +149,29 @@ public final class AbilityEffectRenderer {
             return;
         }
 
-        // Per-archetype melee swing (tier = weapon: 1 Sword, 2 Axe, 3 Hammer,
-        // 10 Dagger). Procedural here; the sprite override (if authored) is drawn
-        // in renderMeleeSwings() during the batch pass, and this skips those.
+        // Authored sprite override (if any) is drawn in renderMeleeSwings() instead.
         if (type == CreateEffectPacket.EFFECT_MELEE_SWING) {
             if (!swingSpriteAvailable) drawMeleeSwing(shapes, vfx, wx, wy, t, meleePoison);
             return;
         }
 
-        // Water fountain has its own procedural renderer (parabolic-arc
-        // droplets + splash ripples), not the standard ring/particle setup.
         if (type == CreateEffectPacket.EFFECT_WATER_FOUNTAIN) {
             renderWaterFountain(shapes, vfx, cx, cy, maxRadius);
             return;
         }
-
-        // Spawn-protection purify circle — white/gold expanding ring, cleansing
-        // core flash, and gold sparkle motes orbiting the rim.
         if (type == CreateEffectPacket.EFFECT_PURIFY_CIRCLE) {
             renderPurifyCircle(shapes, cx, cy, maxRadius, t);
             return;
         }
-
-        // Priest Healing Word — holy radiance that snaps outward and leaves a
-        // glowing gold ring at the exact heal radius.
         if (type == CreateEffectPacket.EFFECT_HEAL_RADIUS) {
             renderHealRadius(shapes, cx, cy, maxRadius, t);
             return;
         }
 
-        // Boss-grenade warning / impact (Enemy 26). Tier >= 10 is the
-        // sentinel the boss script uses to ask for a *much* more visible
-        // ring than the default CURSE_RADIUS — the standard renderer's
-        // 35% fill reads as faint over the spiral arms + the ground tiles.
-        // This path snaps to full radius, paints a 55%-opacity red disc,
-        // and pulses the outline so the player can read the danger zone
-        // through bullet clutter.
+        // tier >= 10 is a boss-grenade sentinel asking for a much more visible ring
+        // than default CURSE_RADIUS. Colour by tier: 10 red, 11 green, 12 blue.
         if (vfx.getTier() >= 10) {
             final float bossAlpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
-            // Grenade colour by tier: 10 = red, 11 = green, 12 = blue (webclient parity).
             final int gtier = vfx.getTier();
             final float fillR, fillG, fillB, edgeR, edgeG, edgeB, edg2R, edg2G, edg2B;
             if (gtier == 11) {
@@ -239,20 +207,11 @@ public final class AbilityEffectRenderer {
             return;
         }
 
-        // Ring expands fast then holds
         final float currentRadius = maxRadius * Math.min(t * 3.0f, 1.0f);
-        // Stay fully visible for 70% of duration, then fade
         final float alpha = t < 0.7f ? 1.0f : 1.0f - (t - 0.7f) * 3.33f;
 
-        // MELEE_SWING is handled at the top of this method (procedural per-archetype
-        // swing, or the sprite override in renderMeleeSwings()).
-
-        // SOUL_VORTEX (45) is a persistent vortex with bespoke art — render
-        // it specially so it doesn't get drawn as a generic ring on top of
-        // its actual visual. Falls through to the dedicated branch below.
-        // Phase 4 bespoke effects — each dispatches to a self-contained
-        // renderer that manages its own shape begin/end. Mirrors the
-        // procedural rendering done in the webclient renderer.js.
+        // Bespoke effects each dispatch to a self-contained renderer that manages
+        // its own shape begin/end.
         if (type == CreateEffectPacket.EFFECT_SANCTUARY_DOME) {
             renderSanctuaryDome(shapes, cx, cy, maxRadius, t);
             return;
@@ -429,17 +388,13 @@ public final class AbilityEffectRenderer {
             renderWarriorBuff(shapes, cx, cy, maxRadius, t);
             return;
         }
-        // Necromancer Wither / curse cast (non-boss; tier>=10 boss-grenade
-        // handled above) — dark-magic vortex instead of the plain ring.
         if (type == CreateEffectPacket.EFFECT_CURSE_RADIUS) {
             renderCurseVortex(shapes, cx, cy, maxRadius, t);
             return;
         }
-        // BLADE_ORBIT (46) and BLADE_BLENDER (47) are drawn separately in
-        // renderShurikenEffects() using real shuriken sprites + SpriteBatch.
-        // We early-return so the procedural ring path doesn't paint a
-        // generic disc behind them. BLADE_BLENDER still gets a faint ground
-        // halo though, drawn here for hazard-zone readability.
+        // BLADE_ORBIT / BLADE_BLENDER draw via sprites in renderShurikenEffects();
+        // early-return so the procedural ring path doesn't paint a disc behind them.
+        // BLADE_BLENDER keeps a faint ground halo for hazard-zone readability.
         if (type == CreateEffectPacket.EFFECT_BLADE_ORBIT) return;
         if (type == CreateEffectPacket.EFFECT_BLADE_BLENDER) {
             shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -454,9 +409,7 @@ public final class AbilityEffectRenderer {
             Gdx.gl.glLineWidth(1f);
             return;
         }
-        // Per-effect color palette. Mirrors the webclient renderer.js cases
-        // for parity at-a-glance — same hue as the webclient even if the
-        // shape detail is simplified to ring+particles here.
+        // Per-effect color palette (hue matches the webclient).
         float r, g, b;
         switch (type) {
         case CreateEffectPacket.EFFECT_HEAL_RADIUS:       r = 0.10f; g = 1.00f; b = 0.20f; break;
@@ -500,11 +453,8 @@ public final class AbilityEffectRenderer {
         case CreateEffectPacket.EFFECT_STORM_AURA:        r = 0.40f; g = 0.65f; b = 1.00f; break;
         case CreateEffectPacket.EFFECT_DEATH_PACT_AURA:   r = 0.55f; g = 0.10f; b = 0.50f; break;
         case CreateEffectPacket.EFFECT_BLADE_STORM:       r = 0.90f; g = 0.85f; b = 0.85f; break;
-        // Phase 3 (post-rework) bespoke effects — until the native renderer
-        // ports the procedural shape for each, paint a distinctive ring.
         case CreateEffectPacket.EFFECT_SANCTUARY_DOME:    r = 1.00f; g = 0.85f; b = 0.35f; break;
         case CreateEffectPacket.EFFECT_VAMPIRIC_LATCH:    r = 0.85f; g = 0.10f; b = 0.30f; break;
-        // Heavy class kit FX — Debuffer (silver/red), Buffer (gold), DPS (dust).
         case CreateEffectPacket.EFFECT_RAPIER_STAB:       r = 0.88f; g = 0.90f; b = 0.93f; break;
         case CreateEffectPacket.EFFECT_LOW_SWING:         r = 0.75f; g = 0.16f; b = 0.19f; break;
         case CreateEffectPacket.EFFECT_DISARM_FLOURISH:   r = 1.00f; g = 0.82f; b = 0.30f; break;
@@ -514,14 +464,13 @@ public final class AbilityEffectRenderer {
         default:                                          r = 1.00f; g = 1.00f; b = 1.00f; break;
         }
 
-        // Filled translucent disc. Kept light (web parity) so a large AoE tints
-        // the area instead of washing out everything behind it.
+        // Filled translucent disc kept light so a large AoE tints rather than washes out.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(r, g, b, alpha * 0.20f);
         drawCircle(shapes, cx, cy, currentRadius, 48);
         shapes.end();
 
-        // Thick bright outer ring (draw multiple concentric rings for thickness)
+        // Concentric outer rings for thickness.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(4f);
         shapes.setColor(r, g, b, alpha);
@@ -531,7 +480,6 @@ public final class AbilityEffectRenderer {
         drawCircleOutline(shapes, cx, cy, currentRadius * 1.03f, 64);
         shapes.end();
 
-        // Second inner ring, pulsing
         float pulse = 0.7f + 0.3f * (float) Math.sin(t * Math.PI * 8);
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(2f);
@@ -539,7 +487,6 @@ public final class AbilityEffectRenderer {
         drawCircleOutline(shapes, cx, cy, currentRadius * 0.6f, 48);
         shapes.end();
 
-        // Large orbiting particles on the ring edge
         int particleCount = 16;
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int i = 0; i < particleCount; i++) {
@@ -551,7 +498,6 @@ public final class AbilityEffectRenderer {
             shapes.rect(px - 3, py - 3, 6, 6);
         }
 
-        // Inner scattered particles (moving outward or inward)
         int innerParticles = 12;
         for (int i = 0; i < innerParticles; i++) {
             float angle = (float) (i * Math.PI * 2 / innerParticles) - t * (float) Math.PI * 3;
@@ -568,7 +514,6 @@ public final class AbilityEffectRenderer {
             shapes.rect(px - 2.5f, py - 2.5f, 5, 5);
         }
 
-        // Bright center flash at start
         if (t < 0.3f) {
             float flashAlpha = (0.3f - t) * 3.0f;
             shapes.setColor(1f, 1f, 1f, flashAlpha * 0.5f);
@@ -596,7 +541,6 @@ public final class AbilityEffectRenderer {
         final float y1 = vfx.getPosY() - wy;
         final float x2 = vfx.getTargetPosX() - wx;
         final float y2 = vfx.getTargetPosY() - wy;
-        // Stay fully visible for 80% of duration, then fade
         final float alpha = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) * 5.0f;
 
         final float dx = x2 - x1;
@@ -608,7 +552,7 @@ public final class AbilityEffectRenderer {
         float perpX = -dy / length;
         float perpY = dx / length;
 
-        // Pre-compute jitter offsets for main bolt (reused by glow)
+        // Jitter offsets for the main bolt, reused by the glow passes.
         float[] jitters = new float[segments + 1];
         jitters[0] = 0;
         jitters[segments] = 0;
@@ -627,7 +571,6 @@ public final class AbilityEffectRenderer {
             float py0 = y1 + dy * frac0 + perpY * jitters[i];
             float px1 = x1 + dx * frac1 + perpX * jitters[i + 1];
             float py1 = y1 + dy * frac1 + perpY * jitters[i + 1];
-            // Draw thick quads along the bolt as glow
             float glowSize = 6f;
             shapes.setColor(0.3f, 0.4f, 1.0f, alpha * 0.3f);
             shapes.rectLine(px0, py0, px1, py1, glowSize);
@@ -704,14 +647,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Knight Phalanx Shockwave (shield-bash thrust) — directional shield
-     * bash with windup/thrust/slam phases. Ground-shadow streak along the
-     * dash axis, 6 force chevrons sweeping forward, slam burst at the
-     * forward endpoint, two staggered aftermath shockwaves, flash, debris
-     * particles, and forward-radiating ground cracks. Procedural port of
-     * renderer.js case 11 — directional via vfx.posX/Y → targetPosX/Y.
-     */
+    /** Knight Phalanx shield-bash thrust. Directional via vfx pos -> targetPos. */
     public static void renderKnightShockwave(ShapeRenderer shapes, ActiveVisualEffect vfx, float t, float wx, float wy) {
         final float sx = vfx.getPosX() - wx;
         final float sy = vfx.getPosY() - wy;
@@ -733,7 +669,6 @@ public final class AbilityEffectRenderer {
         // Use the gold palette from EFFECT_KNIGHT_SHOCKWAVE
         final float tcR = 0.95f, tcG = 0.85f, tcB = 0.30f;
 
-        // ── Ground-shadow streak along the thrust axis ───────────────
         final float streakStart = -40f;
         final float streakEnd = REACH * Math.min(1.2f, t * 1.4f);
         final float startX = sx + dirX * streakStart, startY = sy + dirY * streakStart;
@@ -747,7 +682,7 @@ public final class AbilityEffectRenderer {
         shapes.rectLine(startX, startY, endX, endY, 6f);
         shapes.end();
 
-        // ── Force chevrons sweeping forward ──────────────────────────
+        // Force chevrons sweeping forward.
         final int chevCount = 6;
         shapes.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < chevCount; i++) {
@@ -798,7 +733,7 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(1f);
         shapes.end();
 
-        // ── Brace flash behind knight during wind-up ─────────────────
+        // Brace flash behind knight during wind-up.
         if (t < WINDUP_END) {
             final float tt = t / WINDUP_END;
             final float brakeA = alpha * (1f - tt) * 0.7f;
@@ -812,7 +747,7 @@ public final class AbilityEffectRenderer {
             shapes.end();
         }
 
-        // ── Slam impact + radial spokes + forward crack lines ────────
+        // Slam impact + radial spokes + forward crack lines.
         if (t >= WINDUP_END) {
             final float slamProg = Math.max(0f, Math.min(1f, (t - WINDUP_END) / (SLAM_END - WINDUP_END)));
             final float slamPeak = (THRUST_END - WINDUP_END) / (SLAM_END - WINDUP_END);
@@ -860,7 +795,7 @@ public final class AbilityEffectRenderer {
             }
         }
 
-        // ── Aftermath shockwaves (two staggered rings) ───────────────
+        // Aftermath shockwaves (two staggered rings).
         if (t >= THRUST_END) {
             final float aftT = (t - THRUST_END) / (1.0f - THRUST_END);
             final float slamX = sx + dirX * REACH;
@@ -886,7 +821,7 @@ public final class AbilityEffectRenderer {
             shapes.end();
         }
 
-        // ── Slam-moment flash ────────────────────────────────────────
+        // Slam-moment flash.
         final float flashWindow = 0.20f;
         final float flashCenter = THRUST_END;
         final float fdist = Math.abs(t - flashCenter);
@@ -902,7 +837,7 @@ public final class AbilityEffectRenderer {
             shapes.end();
         }
 
-        // ── Debris particles ─────────────────────────────────────────
+        // Debris particles.
         if (t >= THRUST_END) {
             final float debT = (t - THRUST_END) / (1.0f - THRUST_END);
             final float slamX = sx + dirX * REACH;
@@ -938,13 +873,7 @@ public final class AbilityEffectRenderer {
         }
     }
 
-    /**
-     * Ninja Dash — directional vortex of slicing blades along the dash path:
-     * dash spine (tier aura + black outline + white core), orbiting blade
-     * diamonds at varying perpendicular offsets, vanish puff at start,
-     * arrival flash + radial spokes at endpoint. Procedural port of
-     * renderer.js case 13. Directional via vfx.posX/Y → targetPosX/Y.
-     */
+    /** Ninja Dash - vortex of slicing blades along the dash path. Directional via vfx pos -> targetPos. */
     public static void renderNinjaDash(ShapeRenderer shapes, ActiveVisualEffect vfx, float t, float wx, float wy) {
         final float sx = vfx.getPosX() - wx;
         final float sy = vfx.getPosY() - wy;
@@ -958,10 +887,9 @@ public final class AbilityEffectRenderer {
         final float dirX = dx / dist, dirY = dy / dist;
         final float perpX = -dirY, perpY = dirX;
 
-        // Cyan tier color from EFFECT_NINJA_DASH palette
         final float tcR = 0.40f, tcG = 0.85f, tcB = 1.00f;
 
-        // ── 1. Dash spine ────────────────────────────────────────────
+        // Dash spine.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(tcR, tcG, tcB, alpha * 0.10f);
         shapes.rectLine(sx, sy, tx, ty, 20f);
@@ -973,7 +901,7 @@ public final class AbilityEffectRenderer {
         shapes.rectLine(sx, sy, tx, ty, 3f);
         shapes.end();
 
-        // ── 2. Vortex of orbiting blades ─────────────────────────────
+        // Vortex of orbiting blades.
         final int bladeCount = Math.max(14, (int) (dist / 14f));
         final float ORBIT_AMP = 44f;
         final float ORBIT_SPEED = 0.011f;
@@ -1051,7 +979,7 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(1f);
         shapes.end();
 
-        // ── 3. Vanish puff at start ──────────────────────────────────
+        // Vanish puff at start.
         final float startPuffA = Math.max(0f, 1.0f - t * 1.6f);
         if (startPuffA > 0f) {
             shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -1062,7 +990,7 @@ public final class AbilityEffectRenderer {
             shapes.end();
         }
 
-        // ── 4. Arrival flash + radial sparks at endpoint ─────────────
+        // Arrival flash + radial sparks at endpoint.
         final float arriveA = t < 0.5f ? (1.0f - t / 0.5f) : 0f;
         if (arriveA > 0f) {
             shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -1087,11 +1015,8 @@ public final class AbilityEffectRenderer {
         }
     }
 
-    /** Render a chunky vial/grenade arc from caster to target position.
-     *  Default palette is green (assassin poison vial, tiers 0-6). When the
-     *  packet's tier is >= 10 we draw red — used by the Inferno Demon grenade
-     *  so we can re-use the same parabolic-lob renderer without inventing a
-     *  parallel effect type. */
+    /** Chunky vial/grenade arc from caster to target. Green vial by default; tier
+     *  sentinels reskin it (see below) so bosses reuse the same parabolic lob. */
     public static void renderPoisonThrow(ShapeRenderer shapes, ActiveVisualEffect vfx, float t, float wx, float wy) {
         final float x1 = vfx.getPosX() - wx;
         final float y1 = vfx.getPosY() - wy;
@@ -1103,9 +1028,7 @@ public final class AbilityEffectRenderer {
         final float dist = (float) Math.sqrt(dx * dx + dy * dy);
         if (dist < 1f) return;
 
-        // Grenade colour by tier sentinel: 10 = red, 12 = blue, else green (11 /
-        // untiered assassin vial). Matches the webclient renderPoisonThrow palette
-        // so both clients look identical; keeps assassin tiers 0-6 on the green look.
+        // Colour by tier sentinel: 10 red, 12 blue, else green (assassin vial).
         final int gtier = vfx.getTier();
         final boolean gRed = gtier == 10, gBlue = gtier == 12;
 
@@ -1125,14 +1048,10 @@ public final class AbilityEffectRenderer {
         final float coreG  = gRed ? 0.851f : gBlue ? 0.816f : 1.000f;
         final float coreB  = gRed ? 0.333f : gBlue ? 1.000f : 0.439f;
 
-        // Tall parabolic arc — 50% of throw distance as peak height
         int steps = 24;
         float arcHeight = dist * 0.5f;
-
-        // Vial position along arc (t goes 0->1 over the duration)
         float vialFrac = Math.min(t, 1.0f);
 
-        // Compute arc positions
         float[] arcX = new float[steps + 1];
         float[] arcY = new float[steps + 1];
         for (int i = 0; i <= steps; i++) {
@@ -1143,22 +1062,21 @@ public final class AbilityEffectRenderer {
 
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // Thick trail behind the vial / grenade
+        // Trail: thin at launch, thick near the vial.
         for (int i = 0; i < steps; i++) {
             float f = (float) (i + 1) / steps;
             if (f > vialFrac) break;
-            // Trail fades from thin at start to thick near vial
             float thickness = 3.0f + 5.0f * (f / Math.max(vialFrac, 0.01f));
             float trailAlpha = 0.15f + 0.4f * (f / Math.max(vialFrac, 0.01f));
             shapes.setColor(trailR, trailG, trailB, trailAlpha);
             shapes.rectLine(arcX[i], arcY[i], arcX[i + 1], arcY[i + 1], thickness);
         }
 
-        // Dripping / sparking particles along the trail
+        // Dripping particles along the trail.
         for (int i = 0; i < 6; i++) {
             float pf = vialFrac * (0.3f + 0.7f * i / 6.0f);
             int idx = Math.min((int) (pf * steps), steps);
-            float dripY = arcY[idx] + (t * 30.0f * (i + 1) / 6.0f);  // drip downward over time
+            float dripY = arcY[idx] + (t * 30.0f * (i + 1) / 6.0f);
             float dripAlpha = Math.max(0, 0.5f - t * 0.6f);
             if (dripAlpha > 0) {
                 shapes.setColor(dripR, dripG, dripB, dripAlpha);
@@ -1166,19 +1084,15 @@ public final class AbilityEffectRenderer {
             }
         }
 
-        // Fat vial / grenade blob
         if (vialFrac < 1.0f) {
             int vialIdx = Math.min((int) (vialFrac * steps), steps);
             float vx = arcX[vialIdx];
             float vy = arcY[vialIdx];
 
-            // Outer glow
             shapes.setColor(glowR, glowG, glowB, 0.4f);
             drawCircle(shapes, vx, vy, 12f, 10);
-            // Main body
             shapes.setColor(bodyR, bodyG, bodyB, 0.9f);
             drawCircle(shapes, vx, vy, 8f, 10);
-            // Bright core / highlight
             shapes.setColor(coreR, coreG, coreB, 0.8f);
             drawCircle(shapes, vx - 2, vy - 2, 3.5f, 8);
         }
@@ -1186,11 +1100,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Sorcerer Reality Tear — pitch-black void disc, violet inner glow,
-     * 6 jagged radial cracks rotating outward, 10 orbiting void shards.
-     * Procedural port of renderer.js case 48 for native LibGDX.
-     */
+    /** Sanctuary Dome - golden translucent dome, light pillars, holy cross, center pulse. */
     public static void renderSanctuaryDome(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.90f ? 1.0f : 1.0f - (t - 0.90f) * 10f;
@@ -1259,11 +1169,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Necromancer Vampiric Latch — dark blood-red ground halo, 8 snaking
-     * tendrils that oscillate perpendicular to outward axis with pulsing
-     * mouth caps at the rim, central heart pulsing.
-     */
+    /** Necromancer Vampiric Latch - blood-red halo, 8 snaking tendrils, pulsing heart core. */
     public static void renderVampiricLatch(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -1326,18 +1232,14 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Heavy Debuffer Sidearm — quick silver rapier stab. 4 cardinal sparkle
-     * arms shoot outward, white core flash, sparkle stars at the tips.
-     * Procedural port of renderer.js case 53.
-     */
+    /** Heavy Debuffer Sidearm - silver rapier stab: 4 sparkle arms, core flash, tip stars. */
     public static void renderRapierStab(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final float corePulse = 1.0f - t;
         final float armReach = radius * (0.4f + 0.7f * t);
 
-        // 4-axis sparkle lines (N/S/E/W) — outward dashes
+        // 4-axis sparkle lines (N/S/E/W), outward dashes.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(4f);
         shapes.setColor(0.54f, 0.60f, 0.66f, alpha * 0.85f);
@@ -1380,18 +1282,13 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Heavy Debuffer Ankle Strike — bottom-half horizontal arc sweep. Steel
-     * underlay, red core, white highlight. Quick ankle-level glint at center.
-     * Procedural port of renderer.js case 54.
-     */
+    /** Heavy Debuffer Ankle Strike - lower-half arc sweep with steel/red/white layers. */
     public static void renderLowSwing(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final float reach = radius * 1.05f;
         final int segs = 10;
-        // Sweep across the lower half of the ring. LibGDX is Y-up; PIXI Y is
-        // down. Negate sin so the arc reads "lower" on screen (below caster).
+        // Negate sin below so the Y-up arc reads "lower" on screen (below caster).
         final float a0 = (float) (Math.PI * 0.15);
         final float a1 = (float) (Math.PI * 0.85);
 
@@ -1430,11 +1327,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Heavy Debuffer Disarm — ultimate flourish. Triple-ring expanding
-     * outward, 8 sparkle stars at cardinal/diagonal points, central impact
-     * burst. Procedural port of renderer.js case 55.
-     */
+    /** Heavy Debuffer Disarm ult - triple expanding ring, 8 sparkle stars, center burst. */
     public static void renderDisarmFlourish(ShapeRenderer shapes, ActiveVisualEffect vfx,
                                        float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
@@ -1471,7 +1364,7 @@ public final class AbilityEffectRenderer {
             shapes.setColor(1f, 1f, 1f, alpha);
             drawCircle(shapes, tx, ty, 2f, 8);
         }
-        // Central impact burst — bright early, fades out.
+        // Central impact burst, bright early then fades.
         final float earlyA = Math.max(0f, 1f - t * 2.5f);
         if (earlyA > 0f) {
             shapes.setColor(1f, 1f, 1f, alpha * earlyA);
@@ -1482,11 +1375,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Heavy Buffer Divine Beam — vertical column of golden light rising from
-     * the caster, ground halo, and rising heal sparkles. Procedural port of
-     * renderer.js case 56. LibGDX is Y-up so the column rises +y.
-     */
+    /** Heavy Buffer Divine Beam - golden light column (Y-up: rises +y), ground halo, heal sparkles. */
     public static void renderDivineBeam(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -1498,7 +1387,7 @@ public final class AbilityEffectRenderer {
         // Outer column glow
         shapes.setColor(1.00f, 0.94f, 0.63f, colA * 0.35f);
         shapes.rect(cx - beamW, cy, beamW * 2f, beamH);
-        // Inner column — bright core
+        // Inner column, bright core.
         shapes.setColor(1.00f, 0.83f, 0.30f, colA * 0.65f);
         shapes.rect(cx - beamW * 0.5f, cy, beamW, beamH);
         // Hot white spine
@@ -1520,7 +1409,7 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(1f);
         shapes.end();
 
-        // Rising sparkle particles (heal feel) — Y-up: rise in +y.
+        // Rising sparkle particles (Y-up: rise +y).
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int i = 0; i < 8; i++) {
             final float seed = i * 0.713f;
@@ -1537,24 +1426,14 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Heavy Buffer Fortify Aura — persistent regen sigil. Outer ring,
-     * hexagram (two interlocking triangles), pulsing rising sparkles.
-     * Procedural port of renderer.js case 57.
-     */
-    /**
-     * Bulwark aura (Knight Hold Your Ground / Paladin Fortify) — a radiating
-     * gradient that fills from a vital green core out to a steadfast blue rim,
-     * with rings pulsing outward to the aura's edge. No sigil, no stars.
-     */
+    /** Bulwark aura (Knight Hold Your Ground / Paladin Fortify) - green core to blue rim
+     *  gradient with rings pulsing out to the edge. */
     public static void renderFortifyAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.90f ? 1.0f : Math.max(0f, 1.0f - (t - 0.90f) * 10f);
         final long now = System.currentTimeMillis();
 
-        // Radial gradient built from overlapping translucent bands: green at the
-        // core, blue at the rim. Drawn rim-inward so the bright green core lands
-        // on top.
+        // Rim-inward so the bright green core lands on top of the blue bands.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int bands = 14;
         for (int i = bands; i >= 1; i--) {
@@ -1568,7 +1447,6 @@ public final class AbilityEffectRenderer {
         }
         shapes.end();
 
-        // Rings radiating outward to the aura edge, green -> blue as they travel.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < 3; i++) {
             final float ph = ((now * 0.0009f) + i / 3f) % 1.0f;
@@ -1597,16 +1475,11 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Heavy DPS Ground Pound — expanding dust ring, 6 radial ground cracks,
-     * lingering dust puffs, central impact flash. Procedural port of
-     * renderer.js case 58.
-     */
+    /** Heavy DPS Ground Pound - dust ring, 6 radial cracks, lingering puffs, impact flash. */
     public static void renderGroundPound(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
 
-        // 1. Expanding dust ring — fast outward in first 40% of life.
         final float ringP = Math.min(1f, t / 0.4f);
         final float ringR = radius * (0.2f + 0.8f * ringP);
         final float ringA = alpha * (1f - ringP * 0.5f);
@@ -1621,7 +1494,7 @@ public final class AbilityEffectRenderer {
         shapes.setColor(0.88f, 0.78f, 0.56f, ringA * 0.9f);
         drawCircleOutline(shapes, cx, cy, ringR, 48);
 
-        // 2. 6 radial crack lines with a midpoint kink for texture.
+        // Radial crack lines with a midpoint kink for texture.
         final float crackR = radius * (0.5f + 0.55f * t);
         Gdx.gl.glLineWidth(4f);
         shapes.setColor(0.25f, 0.16f, 0.06f, alpha * (1f - t * 0.4f));
@@ -1639,7 +1512,7 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(1f);
         shapes.end();
 
-        // 3. Lingering dust puffs — slowly drift up (Y-up: +y) in second half.
+        // Dust puffs drift up (Y-up: +y).
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int puffs = 8;
         for (int i = 0; i < puffs; i++) {
@@ -1654,7 +1527,6 @@ public final class AbilityEffectRenderer {
             shapes.setColor(0.88f, 0.78f, 0.56f, alpha * (1f - t) * 0.55f);
             drawCircle(shapes, px, py, puffR * 0.5f, 10);
         }
-        // 4. Central impact flash — first beat only.
         final float earlyA = Math.max(0f, 1f - t * 4f);
         if (earlyA > 0f) {
             shapes.setColor(1f, 1f, 1f, alpha * earlyA);
@@ -1665,8 +1537,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /** Druid Root Growth — gnarled roots writhe outward from the caster with a green
-     *  ensnaring pulse, marking the DoT zone. Y-up coordinate space. */
+    /** Druid Root Growth - roots writhe outward with a green ensnaring pulse, marking the DoT zone. */
     public static void renderDruidRoots(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) * 5.0f;
@@ -1736,8 +1607,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /** Druid Moonlight — night-blue healing aura with a silver crescent moon,
-     *  descending moonbeams and rising healing motes. Y-up. */
+    /** Druid Moonlight - night-blue heal aura, silver crescent moon, moonbeams, rising motes. */
     public static void renderDruidMoonlight(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.75f ? 1.0f : 1.0f - (t - 0.75f) * 4.0f;
@@ -1804,8 +1674,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /** Druid Wild Surge (ultimate) — spiraling vine arms, bursting leaves and a
-     *  radiant verdant core. Y-up. */
+    /** Druid Wild Surge ult - spiraling vine arms, bursting leaves, radiant verdant core. */
     public static void renderDruidWildSurge(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.8f ? 1.0f : 1.0f - (t - 0.8f) * 5.0f;
@@ -1865,18 +1734,12 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Rogue Smoke Poof — billowy three-tone puff cluster + brief dagger
-     * silhouettes during the first 35% of life + tier-tinted POP flash for
-     * the first 30% + warm ember flecks drifting outward and upward.
-     * Procedural port of renderer.js case 9.
-     */
+    /** Rogue Smoke Poof - puff cluster, early dagger silhouettes, POP flash, ember flecks. */
     public static void renderSmokePoof(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final long now = System.currentTimeMillis();
         final float puffR = radius * (0.6f + t * 1.4f);
-        // 12 overlapping puff circles, rotating slowly
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int i = 0; i < 12; i++) {
             final float a = (i / 12f) * (float) Math.PI * 2f + now * 0.002f;
@@ -1892,7 +1755,7 @@ public final class AbilityEffectRenderer {
             drawCircle(shapes, px, py, pr * 0.45f, 14);
         }
         shapes.end();
-        // Dagger silhouettes (first 35%)
+        // Dagger silhouettes (first 35%).
         if (t < 0.35f) {
             final float dagA = (1f - t / 0.35f) * alpha;
             shapes.begin(ShapeRenderer.ShapeType.Filled);
@@ -1920,7 +1783,7 @@ public final class AbilityEffectRenderer {
             }
             shapes.end();
         }
-        // POP flash (first 30%)
+        // POP flash (first 30%).
         if (t < 0.30f) {
             final float flashA = 1f - t / 0.30f;
             shapes.begin(ShapeRenderer.ShapeType.Line);
@@ -1936,7 +1799,7 @@ public final class AbilityEffectRenderer {
             drawCircle(shapes, cx, cy, puffR * 0.35f * (1f + t), 24);
             shapes.end();
         }
-        // Ember flecks
+        // Ember flecks.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         for (int i = 0; i < 10; i++) {
             final float seed = i * 0.439f;
@@ -1945,7 +1808,7 @@ public final class AbilityEffectRenderer {
             final float dist = puffR * 0.4f + phase * puffR * 0.7f;
             final float lift = phase * 28f;
             final float ex = cx + (float) Math.cos(a) * dist;
-            final float ey = cy + (float) Math.sin(a) * dist + lift;  // +lift: native Y-up flips relative to web Y-down
+            final float ey = cy + (float) Math.sin(a) * dist + lift;  // +lift: Y-up rise
             final float eA = alpha * (1f - phase) * 0.95f;
             if (eA <= 0.05f) continue;
             shapes.setColor(1.00f, 0.55f, 0.15f, eA * 0.4f);
@@ -1956,11 +1819,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Wizard / Mystic Frost Nova — 12 diamond ice spikes radiating outward
-     * from a cold halo, with a tiny white central frost burst.
-     * Procedural port of renderer.js case 19.
-     */
+    /** Frost Nova - 12 ice-diamond spikes radiating from a cold halo, central frost burst. */
     public static void renderFrostNova(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2026,16 +1885,11 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Hunter Reticle — red 4-corner crosshair sweeping inward toward the
-     * target, with center cross-tick lock indicator.
-     * Procedural port of renderer.js case 21.
-     */
+    /** Poison Cloud - green gas disc with a bright rim and bubbling motes. */
     public static void renderPoisonCloud(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final long now = System.currentTimeMillis();
-        // Cloud body
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.19f, 0.31f, 0.06f, alpha * 0.35f);
         drawCircle(shapes, cx, cy, radius, 48);
@@ -2048,7 +1902,6 @@ public final class AbilityEffectRenderer {
         drawCircleOutline(shapes, cx, cy, radius, 48);
         Gdx.gl.glLineWidth(1f);
         shapes.end();
-        // Bubbles
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int bubbles = 9;
         for (int i = 0; i < bubbles; i++) {
@@ -2066,13 +1919,8 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Wizard / Storm Lightning Strike — vertical zigzag bolt crashing down
-     * with bright white core, ground impact ring expanding outward, and
-     * yellow burst at impact point.
-     * Procedural port of renderer.js case 25. Native Y-up means the bolt
-     * descends from cy+r*2.2 to cy (web: from cy-r*2.2 downward to cy).
-     */
+    /** Lightning Strike - zigzag bolt crashing down (Y-up: from cy+r*2.2 down to cy),
+     *  white core, ground impact ring, yellow burst. */
     public static void renderLightningStrike(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2125,11 +1973,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Priest / Paladin Smite Flash — golden cross of light + central white
-     * burst + 4 diagonal ground cracks radiating outward.
-     * Procedural port of renderer.js case 29.
-     */
+    /** Smite Flash - golden cross of light, white center burst, 4 diagonal ground cracks. */
     public static void renderSmiteFlash(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2166,11 +2010,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Necromancer Bone Spikes — 9 jagged white shards erupting from the
-     * ground, each with a darker shadow base. Spikes grow in the first 45%
-     * of life. Procedural port of renderer.js case 24.
-     */
+    /** Necromancer Bone Spikes - 9 white shards erupting with shadow bases (Y-up: tip = by + h). */
     public static void renderBoneSpikes(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2187,20 +2027,15 @@ public final class AbilityEffectRenderer {
             final float by = cy + (float) Math.sin(a) * dist;
             final float h = (14f + 10f * ((seed * 7f) % 1f)) * grow;
             final float w = 6f;
-            // Shadow base triangle (point up in native Y-up: tip = by + h)
             shapes.setColor(0.31f, 0.28f, 0.19f, alpha * 0.7f);
             shapes.triangle(bx - w, by, bx + w, by, bx, by + h);
-            // Bone face
             shapes.setColor(0.92f, 0.88f, 0.75f, alpha);
             shapes.triangle(bx - w * 0.7f, by + 1f, bx + w * 0.7f, by + 1f, bx, by + h * 0.92f);
         }
         shapes.end();
     }
 
-    /**
-     * Wizard Mana Bolt — 6 rotating arcane star arms with violet halo and
-     * bright white core. Procedural port of renderer.js case 26.
-     */
+    /** Wizard Mana Bolt - 6 rotating arcane star arms, violet halo, white core. */
     public static void renderManaBolt(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2235,11 +2070,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Mystic Time Stop — silver chronometer ring with 12 tick marks and
-     * frozen hour/minute hands (no animation: time is stopped).
-     * Procedural port of renderer.js case 27.
-     */
+    /** Mystic Time Stop - silver chronometer ring, 12 ticks, frozen hands (no animation). */
     public static void renderTimeStop(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2254,7 +2085,6 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(2f);
         shapes.setColor(1f, 1f, 1f, alpha);
         drawCircleOutline(shapes, cx, cy, radius - 3f, 64);
-        // Tick marks
         Gdx.gl.glLineWidth(3f);
         shapes.setColor(0.75f, 0.82f, 0.88f, alpha);
         for (int i = 0; i < 12; i++) {
@@ -2263,7 +2093,7 @@ public final class AbilityEffectRenderer {
             shapes.line(cx + ca * (radius - 6f), cy + sa * (radius - 6f),
                         cx + ca * (radius - 14f), cy + sa * (radius - 14f));
         }
-        // Frozen hands (hour pointing up = +y native, minute toward upper-right)
+        // Frozen hands (Y-up: hour points up = +y).
         Gdx.gl.glLineWidth(4f);
         shapes.setColor(1f, 1f, 1f, alpha);
         shapes.line(cx, cy, cx, cy + radius * 0.55f);
@@ -2278,11 +2108,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Druid Beast Claws — 3 angled claw-slash arcs at the caster, each
-     * with shadow + sharp claw + bright white highlight, rotating slowly.
-     * Procedural port of renderer.js case 28.
-     */
+    /** Druid Beast Claws - 3 rotating claw-slash arcs, each shadow + claw + white highlight. */
     public static void renderBeastClaws(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2294,43 +2120,21 @@ public final class AbilityEffectRenderer {
         shapes.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < slashes; i++) {
             final float baseA = (i / (float) slashes) * (float) Math.PI * 2f + now * 0.001f;
-            // Shadow
             Gdx.gl.glLineWidth(7f);
-            shapes.setColor(0.25f, 0.13f, 0.06f, alpha * 0.85f);
-            for (int s = 0; s < segs; s++) {
-                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
-                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
-                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-            }
-            // Sharp claw
+            shapes.setColor(0.25f, 0.13f, 0.06f, alpha * 0.85f);        // shadow
+            drawArcSweep(shapes, cx, cy, reach, baseA, sweep, segs);
             Gdx.gl.glLineWidth(4f);
-            shapes.setColor(0.82f, 0.63f, 0.38f, alpha);
-            for (int s = 0; s < segs; s++) {
-                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
-                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
-                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-            }
-            // Bright highlight
+            shapes.setColor(0.82f, 0.63f, 0.38f, alpha);               // claw
+            drawArcSweep(shapes, cx, cy, reach, baseA, sweep, segs);
             Gdx.gl.glLineWidth(2f);
-            shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
-            for (int s = 0; s < segs; s++) {
-                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
-                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
-                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-            }
+            shapes.setColor(1f, 1f, 1f, alpha * 0.9f);                 // highlight
+            drawArcSweep(shapes, cx, cy, reach, baseA, sweep, segs);
         }
         Gdx.gl.glLineWidth(1f);
         shapes.end();
     }
 
-    /**
-     * Ninja Death Blossom ult — 8 radial slash arcs with dark outer trace
-     * and bright blade core, rotating with progress + red center pip.
-     * Procedural port of renderer.js case 30.
-     */
+    /** Ninja Death Blossom ult - 8 rotating slash arcs (dark trace + bright blade), red center pip. */
     public static void renderDeathBlossom(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2341,24 +2145,12 @@ public final class AbilityEffectRenderer {
         shapes.begin(ShapeRenderer.ShapeType.Line);
         for (int i = 0; i < slashes; i++) {
             final float baseA = (i / (float) slashes) * (float) Math.PI * 2f + t * (float) Math.PI * 0.5f;
-            // Outer dark
             Gdx.gl.glLineWidth(6f);
-            shapes.setColor(0.16f, 0.13f, 0.19f, alpha * 0.85f);
-            for (int s = 0; s < segs; s++) {
-                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
-                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
-                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-            }
-            // Bright blade
+            shapes.setColor(0.16f, 0.13f, 0.19f, alpha * 0.85f);       // outer dark
+            drawArcSweep(shapes, cx, cy, reach, baseA, sweep, segs);
             Gdx.gl.glLineWidth(3f);
-            shapes.setColor(0.88f, 0.88f, 0.94f, alpha);
-            for (int s = 0; s < segs; s++) {
-                final float a0 = baseA - sweep / 2f + (s / (float) segs) * sweep;
-                final float a1 = baseA - sweep / 2f + ((s + 1) / (float) segs) * sweep;
-                shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                            cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-            }
+            shapes.setColor(0.88f, 0.88f, 0.94f, alpha);               // bright blade
+            drawArcSweep(shapes, cx, cy, reach, baseA, sweep, segs);
         }
         Gdx.gl.glLineWidth(1f);
         shapes.end();
@@ -2368,11 +2160,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Bard Inspire Bloom — 6 golden flower petals expanding outward from
-     * the center, with deep-gold base, gold body, and white core.
-     * Procedural port of renderer.js case 31.
-     */
+    /** Bard Inspire Bloom - 6 golden petals expanding out (deep-gold base, gold body, white core). */
     public static void renderInspireBloom(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2397,12 +2185,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Berserker Reckless Slash — wide sweeping red arc with dark outer
-     * trace + bright red blade + white highlight along the sweep.
-     * Procedural port of renderer.js case 32. (Web uses no rotation —
-     * always sweeps right; we keep that for consistency.)
-     */
+    /** Berserker Reckless Slash - wide red sweep (dark trace + red blade + white highlight), sweeps right. */
     public static void renderRecklessSlash(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2411,38 +2194,19 @@ public final class AbilityEffectRenderer {
         final int segs = 14;
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(10f);
-        shapes.setColor(0.38f, 0.00f, 0.06f, alpha * 0.85f);
-        for (int s = 0; s < segs; s++) {
-            final float a0 = -sweep / 2f + (s / (float) segs) * sweep;
-            final float a1 = -sweep / 2f + ((s + 1) / (float) segs) * sweep;
-            shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                        cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-        }
+        shapes.setColor(0.38f, 0.00f, 0.06f, alpha * 0.85f);           // dark trace
+        drawArcSweep(shapes, cx, cy, reach, 0f, sweep, segs);
         Gdx.gl.glLineWidth(6f);
-        shapes.setColor(1.00f, 0.13f, 0.19f, alpha);
-        for (int s = 0; s < segs; s++) {
-            final float a0 = -sweep / 2f + (s / (float) segs) * sweep;
-            final float a1 = -sweep / 2f + ((s + 1) / (float) segs) * sweep;
-            shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                        cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-        }
+        shapes.setColor(1.00f, 0.13f, 0.19f, alpha);                   // red blade
+        drawArcSweep(shapes, cx, cy, reach, 0f, sweep, segs);
         Gdx.gl.glLineWidth(3f);
-        shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
-        for (int s = 0; s < segs; s++) {
-            final float a0 = -sweep / 2f + (s / (float) segs) * sweep;
-            final float a1 = -sweep / 2f + ((s + 1) / (float) segs) * sweep;
-            shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
-                        cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
-        }
+        shapes.setColor(1f, 1f, 1f, alpha * 0.9f);                     // highlight
+        drawArcSweep(shapes, cx, cy, reach, 0f, sweep, segs);
         Gdx.gl.glLineWidth(1f);
         shapes.end();
     }
 
-    /**
-     * Ninja Star Shuriken — rotating 4-point throwing star drawn as two
-     * crossed triangles + bright cross highlight + dark center stud.
-     * Procedural port of renderer.js case 33.
-     */
+    /** Ninja Star Shuriken - rotating 4-point star (two triangles), cross highlight, center stud. */
     public static void renderStarShuriken(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2483,11 +2247,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Sorcerer Blink Glyph — violet runic portal: outer rune ring,
-     * translucent void interior, 6 runic tick-runes orbiting the rim, and
-     * a central vertical rift line. Procedural port of renderer.js case 20.
-     */
+    /** Sorcerer Blink Glyph - violet rune ring, void interior, 6 orbiting runes, vertical rift line. */
     public static void renderBlinkGlyph(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2530,11 +2290,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Necromancer Life Drain — 3 spiraling red ribbon streams pulling
-     * INWARD from the rim to the caster, with bright pulsing center.
-     * Procedural port of renderer.js case 23.
-     */
+    /** Necromancer Life Drain - 3 red ribbon streams spiraling inward to the caster, pulsing core. */
     public static void renderLifeDrain(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2574,10 +2330,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Engineer Snare Gear — tightening iron gear ring with 12 rectangular
-     * teeth around the rim. Procedural port of renderer.js case 34.
-     */
+    /** Engineer Snare Gear - tightening iron gear ring with 12 teeth around the rim. */
     public static void renderSnareGear(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2608,11 +2361,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Pyromancer Combustion Trap — orange explosion ring with hot inner
-     * core, ember sparks, and central flash. Ring expands with progress.
-     * Procedural port of renderer.js case 35.
-     */
+    /** Pyromancer Combustion Trap - expanding orange explosion ring, hot core, embers, center flash. */
     public static void renderCombustionTrap(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2650,31 +2399,20 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Warrior War Cry Wave — 4 concentric red wave-rings at staggered
-     * progress offsets to evoke a roaring shockwave. Procedural port of
-     * renderer.js case 36.
-     */
-    /**
-     * Priest Healing Word — a fast holy burst: golden-green light snaps out to
-     * full radius, sweeping light beams, rising healing motes, and a persistent
-     * glowing gold "holy ring" pinned at the exact heal radius so allies can read
-     * the effect's reach at a glance.
-     */
+    /** Priest Healing Word - holy burst that snaps to full radius, with a gold "holy ring"
+     *  pinned at the exact heal radius so allies can read the reach. */
     public static void renderHealRadius(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.7f ? 1.0f : Math.max(0f, 1.0f - (t - 0.7f) / 0.3f);
         final long now = System.currentTimeMillis();
-        // Snap outward: full radius by ~25% of the effect.
         final float burstR = radius * (float) Math.sqrt(Math.min(1f, t * 4f));
-        // Soft holy fill.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.85f, 1.00f, 0.70f, alpha * 0.16f);
         drawCircle(shapes, cx, cy, burstR, 44);
         shapes.setColor(0.55f, 1.00f, 0.55f, alpha * 0.12f);
         drawCircle(shapes, cx, cy, burstR * 0.6f, 36);
         shapes.end();
-        // Glowing holy ring fixed at the heal radius + sweeping light beams.
+        // Holy ring fixed at the heal radius + sweeping beams.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         final float ringPulse = 0.8f + 0.2f * (float) Math.sin(now * 0.006);
         Gdx.gl.glLineWidth(5f);
@@ -2692,7 +2430,6 @@ public final class AbilityEffectRenderer {
         }
         Gdx.gl.glLineWidth(1f);
         shapes.end();
-        // Rising healing motes + cast flash.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int motes = 12;
         for (int i = 0; i < motes; i++) {
@@ -2716,31 +2453,24 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Knight Shield Bash impact — the concussive shockwave that lands where the
-     * hurled shield connects. A hard steel-and-gold ring punches out to full
-     * radius fast, over a settling dust disc, with radial concussion cracks and
-     * a white slam flash. Punchy (server sends ~650ms) so it reads as a "bash".
-     */
+    /** Knight Shield Bash impact - steel/gold shock ring punches out over a dust disc,
+     *  with concussion cracks and a slam flash. */
     public static void renderWarCryWave(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.65f ? 1.0f : Math.max(0f, 1.0f - (t - 0.65f) / 0.35f);
-        // Shock front snaps out fast (sqrt curve), slightly overshooting the rim.
+        // Shock front snaps out (sqrt curve), slightly overshooting the rim.
         final float ringR = radius * (float) Math.min(1.12, Math.sqrt(t) * 1.15);
-        // Settling dust disc.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.60f, 0.58f, 0.52f, alpha * 0.18f);
         drawCircle(shapes, cx, cy, ringR * 0.92f, 40);
         shapes.end();
-        // Steel/gold shock rings.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(6f);
-        shapes.setColor(0.86f, 0.79f, 0.48f, alpha);              // gold leading edge
+        shapes.setColor(0.86f, 0.79f, 0.48f, alpha);
         drawCircleOutline(shapes, cx, cy, ringR, 56);
         Gdx.gl.glLineWidth(3f);
-        shapes.setColor(0.90f, 0.93f, 1.00f, alpha * 0.9f);       // bright steel inner
+        shapes.setColor(0.90f, 0.93f, 1.00f, alpha * 0.9f);
         drawCircleOutline(shapes, cx, cy, ringR * 0.85f, 56);
-        // Radial concussion cracks.
         Gdx.gl.glLineWidth(3f);
         shapes.setColor(0.80f, 0.82f, 0.90f, alpha * 0.8f);
         for (int i = 0; i < 8; i++) {
@@ -2763,11 +2493,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Trapper Caltrops — 10 scattered tiny 4-point metal spikes inside the
-     * radius, each with a steel center stud. Procedural port of renderer.js
-     * case 37.
-     */
+    /** Trapper Caltrops - 10 scattered 4-point metal spikes with steel center studs. */
     public static void renderCaltrops(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2811,10 +2537,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Wizard Arcane Aura — purple swirling self-aura with 8 orbiting
-     * sparks at varying radii. Procedural port of renderer.js case 38.
-     */
+    /** Wizard Arcane Aura - purple self-aura with 8 orbiting sparks at varying radii. */
     public static void renderArcaneAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2846,9 +2569,8 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /** Necromancer Wither / curse cast — dark-magic vortex: translucent void
-     *  zone, expanding shockwave, two counter-rotating rune rings, particles
-     *  spiralling inward, and a pulsing core. Mirrors renderer.js CURSE_RADIUS. */
+    /** Necromancer Wither - void zone, expanding shockwave, two counter-rotating rune rings,
+     *  inward-spiraling particles, pulsing core. */
     public static void renderCurseVortex(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2856,13 +2578,11 @@ public final class AbilityEffectRenderer {
         final float tt = now * 0.001f;
         final float wave = Math.min(1f, t * 3f);
 
-        // Translucent void zone so the AoE reads on the floor.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.165f, 0.04f, 0.227f, alpha * 0.28f);
         drawCircle(shapes, cx, cy, radius, 48);
         shapes.end();
 
-        // Expanding shockwave + two counter-rotating dashed rune rings.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(3f);
         shapes.setColor(0.61f, 0.19f, 1.00f, alpha * 0.5f * (1f - wave * 0.5f));
@@ -2884,7 +2604,6 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(1f);
         shapes.end();
 
-        // Particles spiralling inward + pulsing void core.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int n = 18;
         for (int i = 0; i < n; i++) {
@@ -2908,11 +2627,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Ninja Haste Wind — 5 vertical cyan streamers at the caster's feet
-     * sliding upward as progress advances. Procedural port of renderer.js
-     * case 39. (Native Y-up: streamers travel up the screen with phase.)
-     */
+    /** Ninja Haste Wind - 5 cyan streamers rising up the screen (Y-up) as progress advances. */
     public static void renderHasteWind(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -2922,8 +2637,6 @@ public final class AbilityEffectRenderer {
             final float seed = i * 0.523f;
             final float phase = (t + seed) % 1.0f;
             final float xOff = (seed * 2f - 1f) * radius * 0.6f;
-            // Web: yStart = sy + r*0.4 - phase * r*1.2; yEnd = yStart + 18 (downward in web Y-down).
-            // In native Y-up, mirror: streamer rises up the screen.
             final float yStart = cy - radius * 0.4f + phase * radius * 1.2f;
             final float yEnd   = yStart - 18f;
             final float a = (1f - phase) * alpha;
@@ -2938,27 +2651,21 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Standard-bearer Banner Raise — vertical red banner with gold pole
-     * above the caster + ground stomp shockwave. Procedural port of
-     * renderer.js case 40. (Native Y-up: banner extends upward = +y.)
-     */
+    /** Banner Raise - red banner on a gold pole (Y-up: extends +y above caster) + stomp shockwave. */
     public static void renderBannerRaise(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final float h = radius * 1.6f * Math.min(t * 1.6f, 1f);
-        // Pole (gold) — extends upward
+        // Pole (gold), extends upward.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(1.00f, 0.82f, 0.38f, alpha);
         shapes.rect(cx - 2f, cy, 4f, radius * 1.5f);
-        // Banner cloth — dark backing
-        shapes.setColor(0.31f, 0.00f, 0.06f, alpha * 0.95f);
+        shapes.setColor(0.31f, 0.00f, 0.06f, alpha * 0.95f);           // cloth backing
         shapes.rect(cx + 2f, cy + radius * 1.4f - h, 30f, h);
-        // Banner cloth — red face
-        shapes.setColor(0.75f, 0.06f, 0.19f, alpha);
+        shapes.setColor(0.75f, 0.06f, 0.19f, alpha);                  // cloth red face
         shapes.rect(cx + 4f, cy + radius * 1.4f - 2f - (h - 4f), 26f, h - 4f);
         shapes.end();
-        // Banner emblem (X) — drawn at the top of banner
+        // Banner emblem (X) at the top.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(2f);
         shapes.setColor(1f, 1f, 1f, alpha);
@@ -2974,11 +2681,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Berserker Rampage Aura — dark-red ground halo with 10 outer flame
-     * tongues drawn as triangles + hot gold inner highlight triangles.
-     * Procedural port of renderer.js case 41.
-     */
+    /** Berserker Rampage Aura - dark-red halo, 10 flame tongues (triangles) with gold highlights. */
     public static void renderRampageAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -3010,11 +2713,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Storm Druid Storm Aura — 5 zigzag yellow bolts emanating outward
-     * with a deep-blue ground halo + bright white center pip.
-     * Procedural port of renderer.js case 42.
-     */
+    /** Storm Druid Storm Aura - 5 zigzag yellow bolts, deep-blue halo, white center pip. */
     public static void renderStormAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -3053,11 +2752,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Necromancer Death Pact Aura — 10 dark-red mist wisps spiraling at
-     * varying radii with deep ground halo. Procedural port of renderer.js
-     * case 43.
-     */
+    /** Necromancer Death Pact Aura - 10 dark-red mist wisps spiraling at varying radii, deep halo. */
     public static void renderDeathPactAura(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -3089,11 +2784,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Berserker Blade Storm — 2 dual rotating blades through the player,
-     * drawn as long line segments crossing the center. Procedural port of
-     * renderer.js case 44.
-     */
+    /** Berserker Blade Storm - 2 rotating blades crossing the center as long line segments. */
     public static void renderBladeStorm(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -3125,11 +2816,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Knight Taunt Roar — translucent red disc + bright outline ring +
-     * small bright center dot. Tightens slightly as it fades.
-     * Procedural port of renderer.js case 17.
-     */
+    /** Knight Taunt Roar - translucent red disc, bright outline ring, center dot; tightens as it fades. */
     public static void renderTauntRoar(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -3153,11 +2840,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Knight Brace Stance — black core with bright accent rim, 8 spoke
-     * decorations, and 4 cardinal bright dots. Expands outward with
-     * progress. Procedural port of renderer.js case 18.
-     */
+    /** Knight Brace Stance - black core with bright rim, 8 spokes, 4 cardinal dots; expands with progress. */
     public static void renderBraceStance(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -3197,44 +2880,29 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Knight Phalanx Shield Dome — HARDCODED BLUE protective bubble: dense
-     * translucent blue interior, heavy multi-layer rim, 4 rotating energy
-     * ripples, edge sparks, plus a bright cast-moment flash on the first
-     * 15% of life. Procedural port of renderer.js case 16.
-     */
-    /**
-     * Knight Parry bulwark dome — a steady brushed-steel shield bubble. Re-emitted
-     * every ~240ms while PHALANX_DOME holds, so it is deliberately static: no
-     * pulse, flicker, rotation or cast flash (any t/clock-driven motion would
-     * strobe on each refresh). Silver, like a raised shield.
-     */
+    /** Knight Parry bulwark dome - brushed-steel shield bubble. Re-emitted every ~240ms while
+     *  PHALANX_DOME holds, so it MUST stay static: any t/clock-driven motion strobes on each refresh. */
     public static void renderShieldDome(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
-        // Envelope only — full through most of the packet, brief fade for a clean
-        // handoff to the next refresh. No sinusoidal pulse.
         final float alpha = t < 0.85f ? 1.0f : Math.max(0f, 1.0f - (t - 0.85f) * 6.67f);
-        // Translucent silver interior.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.72f, 0.76f, 0.82f, alpha * 0.30f);
         drawCircle(shapes, cx, cy, radius, 48);
         shapes.setColor(0.88f, 0.91f, 0.96f, alpha * 0.16f);
         drawCircle(shapes, cx, cy, radius * 0.70f, 40);
         shapes.end();
-        // Heavy brushed-steel rim (static multi-layer).
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(10f);
-        shapes.setColor(0.55f, 0.58f, 0.64f, alpha);          // dark steel
+        shapes.setColor(0.55f, 0.58f, 0.64f, alpha);
         drawCircleOutline(shapes, cx, cy, radius, 64);
         Gdx.gl.glLineWidth(5f);
-        shapes.setColor(0.82f, 0.85f, 0.90f, alpha);          // bright steel
+        shapes.setColor(0.82f, 0.85f, 0.90f, alpha);
         drawCircleOutline(shapes, cx, cy, radius - 7f, 64);
         Gdx.gl.glLineWidth(2f);
-        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);           // highlight
+        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
         drawCircleOutline(shapes, cx, cy, radius - 12f, 64);
         Gdx.gl.glLineWidth(1f);
         shapes.end();
-        // Fixed rivets around the rim (shield studs) — no motion.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int studs = 12;
         for (int i = 0; i < studs; i++) {
@@ -3249,24 +2917,17 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Wizard Burst — arcane release: filled magic-circle floor, two
-     * expanding wave-rings beyond the burst, two main runic rings, glyph
-     * hexagram (rotating Star of David), 6 orbiting rune diamonds, radial
-     * spokes that fade, sparkle convergence (first 30%), bright cast
-     * flash. Procedural port of renderer.js case 10.
-     */
+    /** Wizard Burst - magic-circle floor, wave rings, runic rings, rotating hexagram, orbiting
+     *  rune diamonds, fading spokes, sparkle convergence, cast flash. */
     public static void renderWizardBurst(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final long now = System.currentTimeMillis();
         final float burstR = radius * (0.5f + t * 0.6f);
-        // Floor
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.18f);
         drawCircle(shapes, cx, cy, burstR, 48);
         shapes.end();
-        // Expanding wave rings
         shapes.begin(ShapeRenderer.ShapeType.Line);
         for (int w = 0; w < 2; w++) {
             final float waveDelay = w * 0.20f;
@@ -3288,7 +2949,7 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(2f);
         shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
         drawCircleOutline(shapes, cx, cy, burstR * 0.78f, 64);
-        // Glyph hexagram — two interlocking triangles
+        // Glyph hexagram: two interlocking triangles.
         final float glyphR = burstR * 0.55f;
         final float rot = now * 0.003f;
         shapes.setColor(1.00f, 0.55f, 0.10f, alpha * 0.75f);
@@ -3368,12 +3029,8 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Paladin Seal — vertical pillar of light + radiant gold cross at the
-     * caster + rotating halo with 12 sun-rays + ascending divine motes +
-     * cast-moment consecration flash. Procedural port of renderer.js
-     * case 14. (Native Y-up: pillar extends +y above caster.)
-     */
+    /** Paladin Seal - light pillar (Y-up: +y above caster), gold cross, 12-ray halo,
+     *  ascending motes, cast flash. */
     public static void renderPaladinSeal(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
@@ -3381,8 +3038,7 @@ public final class AbilityEffectRenderer {
         final float baseR = radius * (0.70f + 0.30f * Math.min(1f, t * 3f));
         final float pillarH = baseR * 2.4f;
         final float pillarW = baseR * 0.55f;
-        // Initial cast AoE: a gold ring snaps out to the effect range so the
-        // blessed area reads immediately, with a steady rim at full radius.
+        // Cast AoE: gold ring snaps out to range so the blessed area reads immediately.
         final float castRingR = radius * (float) Math.sqrt(Math.min(1f, t * 4f));
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(4f);
@@ -3393,7 +3049,7 @@ public final class AbilityEffectRenderer {
         drawCircleOutline(shapes, cx, cy, radius, 56);
         Gdx.gl.glLineWidth(1f);
         shapes.end();
-        // Pillar (Y-up: pillar rises upward = positive Y above caster)
+        // Pillar (Y-up: rises +y above caster).
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(1.00f, 0.85f, 0.35f, alpha * 0.18f);
         shapes.rect(cx - pillarW, cy, pillarW * 2f, pillarH);
@@ -3459,7 +3115,7 @@ public final class AbilityEffectRenderer {
         drawCircle(shapes, cx, crossCy + vH * 0.5f, flareR * 1.8f, 14);
         drawCircle(shapes, cx - hW * 0.95f, crossCy + hOff, flareR * 1.8f, 14);
         drawCircle(shapes, cx + hW * 0.95f, crossCy + hOff, flareR * 1.8f, 14);
-        // Ascending motes (web: rises from ground upward; Y-up: same direction)
+        // Ascending motes (Y-up: rise +y).
         final int motes = 14;
         for (int i = 0; i < motes; i++) {
             final float seed = i * 0.61f;
@@ -3467,7 +3123,6 @@ public final class AbilityEffectRenderer {
             final float moteA = (float) Math.sin(phase * (float) Math.PI) * alpha;
             if (moteA <= 0.05f) continue;
             final float dx = (float) Math.sin(seed * 7f + now * 0.001f) * baseR * 0.5f;
-            // Y-up: motes rise upward as phase increases
             final float my = cy - baseR * 0.6f + phase * pillarH * 1.05f;
             final float mx = cx + dx;
             shapes.setColor(1.00f, 0.94f, 0.63f, moteA * 0.5f);
@@ -3486,24 +3141,19 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Warrior Buff — gritty battle rally: smoke haze + jagged 16-segment
-     * shockwave ring + crossed war-blades raised high + 8 outward chevrons
-     * + 18 ember motes + cast-moment roar flash + pulsing core.
-     * Procedural port of renderer.js case 12.
-     */
+    /** Warrior Buff - smoke haze, jagged shockwave ring, crossed war-blades, chevrons,
+     *  ember motes, roar flash, pulsing core. */
     public static void renderWarriorBuff(ShapeRenderer shapes, float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final float earlyA = t < 0.35f ? alpha : alpha * (1.0f - (t - 0.35f) / 0.65f);
         final long now = System.currentTimeMillis();
         final float buffR = radius * (0.5f + t * 0.55f);
-        // 1. Smoke haze
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.33f, 0.20f, 0.13f, alpha * 0.22f);
         drawCircle(shapes, cx, cy, buffR * 1.1f, 48);
         shapes.end();
-        // 2. Jagged 16-segment shockwave ring
+        // Jagged 16-segment shockwave ring.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(5f);
         shapes.setColor(1.00f, 0.65f, 0.20f, alpha * 0.85f);
@@ -3518,7 +3168,7 @@ public final class AbilityEffectRenderer {
         }
         Gdx.gl.glLineWidth(1f);
         shapes.end();
-        // 3. Crossed war-blades — two diagonal stretched diamonds
+        // Crossed war-blades - two diagonal stretched diamonds.
         final float bladeAngle1 = -(float) Math.PI / 4f + (float) Math.sin(now * 0.004f) * 0.06f;
         final float bladeAngle2 = -(float) Math.PI * 3f / 4f - (float) Math.sin(now * 0.004f) * 0.06f;
         final float bladeLen = buffR * 0.55f;
@@ -3530,7 +3180,6 @@ public final class AbilityEffectRenderer {
             // Outer warm glow (orange-red)
             shapes.setColor(1.00f, 0.50f, 0.19f, alpha * 0.55f);
             final float bw = bladeWid + 3f;
-            // Diamond split into two triangles: (tip, side1, tail) + (tip, tail, side2)
             shapes.triangle(cx + bladeLen * 1.1f * cs, cy + bladeLen * 1.1f * sn,
                             cx - bw * sn,              cy + bw * cs,
                             cx - bladeLen * 0.55f * cs, cy - bladeLen * 0.55f * sn);
@@ -3547,7 +3196,7 @@ public final class AbilityEffectRenderer {
                             cx + bladeWid * sn,        cy - bladeWid * cs);
         }
         shapes.end();
-        // 4. Outward war-cry chevrons
+        // Outward war-cry chevrons.
         shapes.begin(ShapeRenderer.ShapeType.Line);
         final int chevs = 8;
         for (int i = 0; i < chevs; i++) {
@@ -3567,7 +3216,7 @@ public final class AbilityEffectRenderer {
         }
         Gdx.gl.glLineWidth(1f);
         shapes.end();
-        // 5. Ember motes (18 little square dust particles)
+        // Ember motes.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int embers = 18;
         for (int i = 0; i < embers; i++) {
@@ -3582,7 +3231,6 @@ public final class AbilityEffectRenderer {
             shapes.setColor(0.53f, 0.27f, 0.00f, alpha * 0.55f);
             shapes.rect(ex - sz - 1f, ey - sz - 1f, sz * 2f + 2f, sz * 2f + 2f);
         }
-        // 6. Initial roar flash
         if (t < 0.18f) {
             final float flashA = 1.0f - t / 0.18f;
             shapes.setColor(1.00f, 0.88f, 0.75f, flashA * 0.95f);
@@ -3590,25 +3238,19 @@ public final class AbilityEffectRenderer {
             shapes.setColor(1.00f, 0.50f, 0.19f, flashA * 0.7f);
             drawCircle(shapes, cx, cy, buffR * 0.5f, 32);
         }
-        // 7. Throbbing core
         final float corePulse = 0.6f + 0.4f * (float) Math.sin(now * 0.022f);
         shapes.setColor(1.00f, 0.65f, 0.20f, earlyA * 0.65f * corePulse);
         drawCircle(shapes, cx, cy, buffR * 0.22f, 24);
         shapes.end();
     }
 
-    /**
-     * Necromancer Soul Harvest visual — persistent crimson/violet vortex
-     * with three inward-spiraling arms + drifting motes + bright core.
-     * Driven by wall-clock so consecutive refresh packets stay phase-
-     * continuous (no resetting on each server pulse).
-     */
+    /** Necromancer Soul Harvest - crimson/violet vortex, 3 inward-spiraling arms, motes, core.
+     *  Driven by wall-clock so consecutive refresh packets stay phase-continuous. */
     public static void renderSoulVortex(ShapeRenderer shapes, ActiveVisualEffect vfx,
                                    float cx, float cy, float radius, float t) {
         if (radius <= 0) return;
         final float alpha = t < 0.85f ? 1.0f : 1.0f - (t - 0.85f) * 6.67f;
         final long now = System.currentTimeMillis();
-        // Ground halo + outer boundary ring
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         shapes.setColor(0.13f, 0.03f, 0.10f, alpha * 0.55f);
         drawCircle(shapes, cx, cy, radius, 48);
@@ -3622,8 +3264,7 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(2f);
         shapes.setColor(0.50f, 0.19f, 0.75f, alpha * 0.85f);
         drawCircleOutline(shapes, cx, cy, radius * 0.78f, 64);
-        // Three inward spiraling arms — chained line segments rotated by
-        // wall-clock so the whole vortex churns.
+        // Three inward-spiraling arms, rotated by wall-clock so the vortex churns.
         final int arms = 3;
         final int segs = 24;
         final float rotSpeed = 0.006f;
@@ -3642,7 +3283,6 @@ public final class AbilityEffectRenderer {
             }
         }
         shapes.end();
-        // Drifting soul motes — orbiting wisps
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int motes = 14;
         for (int i = 0; i < motes; i++) {
@@ -3657,7 +3297,6 @@ public final class AbilityEffectRenderer {
             shapes.setColor(1.0f, 0.5f, 1.0f, moteA * 0.9f);
             shapes.rect(mx - 2f, my - 2f, 4f, 4f);
         }
-        // Bright core — the sink everything spirals into
         shapes.setColor(0.75f, 0.06f, 0.25f, alpha * 0.8f);
         drawCircle(shapes, cx, cy, 9f, 18);
         shapes.setColor(1.0f, 0.5f, 1.0f, alpha);
@@ -3666,23 +3305,16 @@ public final class AbilityEffectRenderer {
         Gdx.gl.glLineWidth(1f);
     }
 
-    /**
-     * Spawn-protection purify circle. White/gold themed: a soft golden fill, a
-     * bright cleansing core flash on cast, concentric gold + white rings, an outer
-     * shockwave that races ahead and fades, and gold sparkle motes orbiting the rim.
-     * {@code t} is normalized effect progress [0..1].
-     */
+    /** Spawn-protection purify circle - golden fill, cleansing core flash, gold/white rings,
+     *  outer shockwave, orbiting sparkle motes. t is normalized progress [0..1]. */
     public static void renderPurifyCircle(ShapeRenderer shapes, float cx, float cy, float maxRadius, float t) {
         if (maxRadius <= 0) return;
-        // Expand quickly to full, then hold; fade over the final third.
         final float radius = maxRadius * Math.min(t * 2.2f, 1f);
         final float alpha = t < 0.65f ? 1f : Math.max(0f, 1f - (t - 0.65f) * 2.86f);
 
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        // Soft golden fill.
         shapes.setColor(1.0f, 0.92f, 0.55f, alpha * 0.18f);
         drawCircle(shapes, cx, cy, radius, 56);
-        // Cleansing white core — punchiest on cast, then eased.
         final float coreAlpha = alpha * (t < 0.3f ? (0.5f + (0.3f - t) * 1.5f) : 0.35f);
         shapes.setColor(1.0f, 1.0f, 0.9f, Math.max(0f, coreAlpha) * 0.5f);
         drawCircle(shapes, cx, cy, radius * 0.45f, 40);
@@ -3690,19 +3322,18 @@ public final class AbilityEffectRenderer {
 
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(5f);
-        shapes.setColor(1.0f, 0.85f, 0.35f, alpha);          // gold rim
+        shapes.setColor(1.0f, 0.85f, 0.35f, alpha);
         drawCircleOutline(shapes, cx, cy, radius, 64);
         drawCircleOutline(shapes, cx, cy, radius * 0.97f, 64);
         Gdx.gl.glLineWidth(2.5f);
-        shapes.setColor(1.0f, 1.0f, 0.85f, alpha * 0.9f);    // inner white-gold
+        shapes.setColor(1.0f, 1.0f, 0.85f, alpha * 0.9f);
         drawCircleOutline(shapes, cx, cy, radius * 0.88f, 64);
-        // Outer shockwave ring that races ahead and fades.
+        // Shockwave ring races ahead and fades.
         final float shock = maxRadius * Math.min(t * 1.6f, 1.15f);
         shapes.setColor(1.0f, 0.95f, 0.6f, alpha * 0.5f * (1f - Math.min(t * 1.4f, 1f)));
         drawCircleOutline(shapes, cx, cy, shock, 64);
         shapes.end();
 
-        // Gold sparkle motes orbiting the rim.
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         final int motes = 20;
         final float spin = t * 3.2f;
@@ -3719,33 +3350,21 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /**
-     * Procedural water fountain — ring of streams continuously launching
-     * droplets up and out from (cx, cy), each following the same parabolic
-     * arc the assassin's poison throw uses, landing inside `radius` and
-     * splashing on impact. Uses the effect's own elapsed-ms clock so the
-     * animation stays smooth across heal-tick packet boundaries.
-     */
+    /** Water fountain - ring of streams launching parabolic-arc droplets that splash on impact.
+     *  Driven off elapsed-ms (not normalized t) so overlapping heal-tick packets stay
+     *  phase-continuous and read as one stream. */
     public static void renderWaterFountain(ShapeRenderer shapes, ActiveVisualEffect vfx,
                                      float cx, float cy, float radius) {
         if (radius <= 0) return;
 
-        // Continuous timeline (seconds). Looping the fountain off elapsed —
-        // not the normalized t — keeps adjacent packets phase-continuous so
-        // overlapping heal-tick packets read as one stream rather than
-        // resetting on each tick.
         final float elapsedSec = vfx.getElapsed() / 1000f;
-        final float dropPeriod = 0.60f;     // seconds per droplet (launch -> land) — snappy
-        final int streams = 14;             // number of staggered launchers around the ring
+        final float dropPeriod = 0.60f;     // seconds per droplet (launch -> land)
+        final int streams = 14;
 
-        // Overall fade so the visual eases out at the end of the packet's
-        // lifetime instead of popping. Because consecutive heal ticks send
-        // overlapping packets, the visible stream stays continuous.
         final float t = vfx.getProgress();
         final float globalAlpha = t < 0.85f ? 1.0f : Math.max(0f, 1.0f - (t - 0.85f) * 6.7f);
 
-        // Initial cast AoE: a holy cleanse ring snaps out to the effect range so
-        // the purified area reads immediately at cast.
+        // Cast AoE: cleanse ring snaps out to range so the purified area reads at cast.
         final float castRingR = radius * (float) Math.sqrt(Math.min(1f, t * 4f));
         shapes.begin(ShapeRenderer.ShapeType.Line);
         Gdx.gl.glLineWidth(4f);
@@ -3759,41 +3378,31 @@ public final class AbilityEffectRenderer {
 
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        // Soft pool reflection at the base (gives the fountain a "wet" anchor
-        // even if the mapper hasn't placed water tiles yet).
+        // Pool reflection at the base.
         shapes.setColor(0.20f, 0.45f, 0.75f, 0.18f * globalAlpha);
         drawCircle(shapes, cx, cy, radius, 32);
         shapes.setColor(0.35f, 0.65f, 0.95f, 0.10f * globalAlpha);
         drawCircle(shapes, cx, cy, radius * 0.82f, 28);
 
         for (int s = 0; s < streams; s++) {
-            // Per-stream deterministic randomness so each launcher has its
-            // own angle / landing distance / phase but the look stays stable.
+            // Per-stream deterministic randomness so each launcher's angle/distance/phase
+            // differs but stays stable frame to frame.
             float r1 = pseudoRand(s * 73 + 11);
             float r2 = pseudoRand(s * 131 + 29);
             float r3 = pseudoRand(s * 197 + 53);
 
-            // Each stream slowly orbits so the fountain doesn't read as
-            // 14 fixed jets — gives a subtle organic motion.
             float baseAngle = (float) (s * Math.PI * 2 / streams)
                     + elapsedSec * 0.35f
                     + r1 * (float) Math.PI * 2;
-            // Landing distance: 55–100% of radius so droplets fill the pool
-            // without all bunching at the rim.
             float landDist = radius * (0.55f + 0.45f * r2);
 
             float landX = cx + (float) Math.cos(baseAngle) * landDist;
             float landY = cy + (float) Math.sin(baseAngle) * landDist;
 
-            // Phase in [0,1) — stream s lags by s/streams of the period plus
-            // its own random jitter so launches don't all line up.
             float phase = ((elapsedSec / dropPeriod) + (s + r3) / streams) % 1.0f;
             if (phase < 0) phase += 1.0f;
 
             if (phase < 0.78f) {
-                // Droplet in flight: parabola from (cx,cy) to (landX,landY)
-                // with peak height ≈ 60% of the ground distance, matching the
-                // poison throw's lob feel.
                 float f = phase / 0.78f;
                 float arcHeight = landDist * 0.65f + radius * 0.10f;
                 float dx = landX - cx;
@@ -3801,7 +3410,6 @@ public final class AbilityEffectRenderer {
                 float px = cx + dx * f;
                 float py = cy + dy * f - 4.0f * arcHeight * f * (1.0f - f);
 
-                // Short trailing tail (3 segments behind the head)
                 int tailSegs = 3;
                 for (int k = 1; k <= tailSegs; k++) {
                     float fk = Math.max(0f, f - 0.06f * k);
@@ -3812,27 +3420,19 @@ public final class AbilityEffectRenderer {
                     shapes.rect(tx - 1.5f, ty - 1.5f, 3f, 3f);
                 }
 
-                // Droplet head — outer halo + bright core.
                 shapes.setColor(0.40f, 0.70f, 1.0f, globalAlpha * 0.55f);
                 drawCircle(shapes, px, py, 3.2f, 10);
                 shapes.setColor(0.85f, 0.95f, 1.0f, globalAlpha * 0.95f);
                 drawCircle(shapes, px, py, 1.6f, 8);
             } else {
-                // Splash ripple at the landing point. Phase 0.78–1.0 covers
-                // ~22% of the period (~190 ms), enough to read as an impact
-                // without lingering past the next launch.
+                // Splash ripple at the landing point.
                 float sf = (phase - 0.78f) / 0.22f;            // 0..1 splash progress
                 float splashR = 2.0f + 7.5f * sf;
                 float splashA = globalAlpha * (1.0f - sf) * 0.85f;
-                // Soft outer halo (filled, low alpha) — staying in Filled
-                // mode for the whole fountain pass keeps batches simple and
-                // avoids per-droplet begin/end churn.
                 shapes.setColor(0.40f, 0.70f, 1.0f, splashA * 0.40f);
                 drawCircle(shapes, landX, landY, splashR, 14);
-                // Bright center splat fading fast
                 shapes.setColor(0.85f, 0.95f, 1.0f, splashA);
                 drawCircle(shapes, landX, landY, Math.max(0.5f, 2.2f * (1.0f - sf)), 8);
-                // Two small side flecks kicked outward by the impact
                 float flAng = baseAngle + (r1 - 0.5f) * 1.2f;
                 float flDist = splashR * 0.9f;
                 float fx = landX + (float) Math.cos(flAng) * flDist;
@@ -3842,8 +3442,7 @@ public final class AbilityEffectRenderer {
             }
         }
 
-        // Bright core at the statue base — the "spout" the fountain emerges
-        // from. Subtly pulses so the source itself looks alive.
+        // Pulsing core at the statue base (the spout).
         float pulse = 0.85f + 0.15f * (float) Math.sin(elapsedSec * Math.PI * 4);
         shapes.setColor(0.85f, 0.95f, 1.0f, globalAlpha * 0.55f * pulse);
         drawCircle(shapes, cx, cy, 4.0f * pulse, 12);
@@ -3853,7 +3452,7 @@ public final class AbilityEffectRenderer {
         shapes.end();
     }
 
-    /** Cheap deterministic [0,1) hash — no allocations, suitable per-frame. */
+    /** Deterministic [0,1) hash, no allocations. */
     public static float pseudoRand(int seed) {
         int x = seed;
         x = (x ^ 61) ^ (x >>> 16);
@@ -3861,8 +3460,20 @@ public final class AbilityEffectRenderer {
         x = x ^ (x >>> 4);
         x = x * 0x27d4eb2d;
         x = x ^ (x >>> 15);
-        // Map to [0,1)
         return ((x & 0x7fffffff) % 1000003) / 1000003f;
+    }
+
+    /** Chained line segments approximating an arc of half-width sweep centered on baseAngle.
+     *  Caller sets color + line width; ShapeRenderer.Line mode must be active. */
+    private static void drawArcSweep(ShapeRenderer shapes, float cx, float cy, float reach,
+                                     float baseAngle, float sweep, int segs) {
+        final float start = baseAngle - sweep / 2f;
+        for (int s = 0; s < segs; s++) {
+            final float a0 = start + (s / (float) segs) * sweep;
+            final float a1 = start + ((s + 1) / (float) segs) * sweep;
+            shapes.line(cx + (float) Math.cos(a0) * reach, cy + (float) Math.sin(a0) * reach,
+                        cx + (float) Math.cos(a1) * reach, cy + (float) Math.sin(a1) * reach);
+        }
     }
 
     /** Draw a filled circle using triangles (ShapeRenderer.Filled mode must be active) */

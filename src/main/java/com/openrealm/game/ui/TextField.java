@@ -10,27 +10,17 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 
 /**
- * Lightweight Swing-style text field for raw SpriteBatch UIs (LoginState,
- * CharacterSelectState). Keeps its own buffer + focus flag and pulls input
- * directly from {@link Gdx#input} via polling, so multiple fields can coexist
- * without fighting over a shared InputProcessor.
- *
- * Caller owns layout and click-to-focus — instantiate, position via
- * {@link #setBounds(int, int, int, int)}, then in the parent's input() call
- * {@link #handleClick(int, int)} on every left-mouse-down to capture/release
- * focus, drive {@link #handleDrag(int, int)} while the button is held and
- * {@link #handleRelease()} on release. Then call {@link #update()} every
- * frame to consume keystrokes.
- *
- * For password fields set {@link #setPassword(boolean)} to render the buffer
- * as masked dots; the underlying {@link #getText()} still returns the real
- * value for use in network calls.
+ * Lightweight text field for raw SpriteBatch UIs. Polls {@link Gdx#input}
+ * directly so multiple fields coexist without a shared InputProcessor. Caller
+ * owns layout and click-to-focus: {@link #handleClick(int, int)} on left-down,
+ * {@link #handleDrag(int, int)} while held, {@link #handleRelease()} on release,
+ * {@link #update()} every frame. {@link #getText()} returns the real value even
+ * when {@link #setPassword(boolean)} masks the display.
  */
 public class TextField {
 
     public enum UpdateResult { NONE, SUBMIT, TAB, SHIFT_TAB }
 
-    // WHY: held-key auto-repeat constants tuned to OS feel (Win/macOS default ~500ms initial, ~30ms repeat).
     private static final float REPEAT_INITIAL_DELAY = 0.40f;
     private static final float REPEAT_INTERVAL = 0.030f;
 
@@ -44,10 +34,12 @@ public class TextField {
     private boolean caretVisible = true;
 
     private int caret = 0;
-    // WHY: -1 means "no selection". Range is [min(caret,selAnchor), max(...)] when active.
+    // -1 means "no selection". Range is [min(caret,selAnchor), max(...)] when active.
     private int selAnchor = -1;
 
-    // Per-key auto-repeat timers.
+    // handleClick can fire before render(), but indexAtX needs a font; cache it on first render.
+    private BitmapFont cachedFont;
+
     private float backspaceHoldTime = -1f;
     private float backspaceRepeatAccum = 0f;
     private float deleteHoldTime = -1f;
@@ -127,10 +119,7 @@ public class TextField {
         if (this.selAnchor == this.caret) this.selAnchor = -1;
     }
 
-    /**
-     * Resolve a screen-x to a buffer index by measuring progressive substrings.
-     * Buffers are tiny (<=64 chars) so the O(n^2) loop is fine.
-     */
+    /** Resolve a screen-x to a buffer index. Buffers are tiny so the O(n^2) scan is fine. */
     private int indexAtX(int mx) {
         String shown = this.displayString();
         if (this.cachedFont == null || shown.isEmpty()) return shown.length();
@@ -148,15 +137,7 @@ public class TextField {
         return shown.length();
     }
 
-    // WHY: handleClick can be called before render(), but indexAtX needs a font.
-    // Cache the font on first render so click-resolution works for subsequent clicks.
-    private BitmapFont cachedFont;
-
-    /**
-     * Consume keyboard input while focused. Returns a result indicating whether
-     * Enter / Tab / Shift+Tab was pressed this frame so the caller can submit
-     * the form or advance focus.
-     */
+    /** Consume keyboard input while focused; returns whether Enter/Tab/Shift+Tab fired. */
     public UpdateResult update() {
         float dt = Gdx.graphics.getDeltaTime();
         this.caretBlinkAccum += dt;
@@ -369,17 +350,14 @@ public class TextField {
 
     private boolean copySelection() {
         if (!this.hasSelection()) return false;
-        // WHY: never expose password text via the system clipboard.
+        // Never expose password text via the system clipboard.
         if (this.password) return true;
         String sel = this.buf.substring(this.selStart(), this.selEnd());
         Gdx.app.getClipboard().setContents(sel);
         return true;
     }
 
-    /**
-     * Forwarded from the parent state's InputProcessor.keyTyped(c) — adds the
-     * printable character to the buffer at the caret. Filters control codes.
-     */
+    /** Forwarded from the parent's keyTyped(c). Adds a printable char at the caret. */
     public void appendChar(char c) {
         if (!this.focused) return;
         if (c < 32 || c == 127) return;

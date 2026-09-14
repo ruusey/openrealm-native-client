@@ -42,10 +42,7 @@ public class AccountDto implements Serializable {
     private Date updated;
     private Date deleted;
 
-    /**
-     * Check if this account has access given a set of required provisions.
-     * Passes if any held provision satisfies any required provision.
-     */
+    /** Passes if any held provision satisfies any required provision. */
     public boolean hasAccess(AccountProvision... required) {
         return AccountProvision.checkAccess(this.accountProvisions, required);
     }

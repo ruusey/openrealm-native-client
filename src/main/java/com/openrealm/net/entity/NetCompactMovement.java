@@ -14,17 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * Compact movement entry using a 2-byte short entity ID instead of 8-byte long.
- * Used in ObjectMovePacket when short IDs have been assigned via ShortIdAllocator.
- * <p>
- * Wire format: 15 bytes per entity (was 26 with NetObjectMovement):
- *   shortEntityId (2) + posX (4) + posY (4) + velX (2, quantized) + velY (2, quantized) + flags (1)
- * Velocity is encoded as fixed-point: value * 128, giving ~0.008 precision per unit.
- * This is more than sufficient for entity speeds in the range 0–3.5.
- * <p>
- * Compared to NetObjectMovement (26 bytes): 42% size reduction per entity.
- */
+// Wire: 15 bytes = shortEntityId(2)+posX(4)+posY(4)+velXFixed(2)+velYFixed(2)+flags(1). Velocity is fixed-point value*128.
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -36,7 +26,6 @@ public class NetCompactMovement extends SerializableFieldType<NetCompactMovement
     private float posX;
     @SerializableField(order = 2, type = SerializableFloat.class)
     private float posY;
-    // Velocity encoded as fixed-point short: value * 128
     @SerializableField(order = 3, type = SerializableShort.class)
     private short velXFixed;
     @SerializableField(order = 4, type = SerializableShort.class)
@@ -46,9 +35,6 @@ public class NetCompactMovement extends SerializableFieldType<NetCompactMovement
 
     private static final float VEL_SCALE = 128f;
 
-    /**
-     * Create from a full NetObjectMovement with a pre-assigned short ID.
-     */
     public NetCompactMovement(short shortId, NetObjectMovement full) {
         this.shortEntityId = shortId;
         this.posX = full.getPosX();
@@ -66,7 +52,6 @@ public class NetCompactMovement extends SerializableFieldType<NetCompactMovement
         return velYFixed / VEL_SCALE;
     }
 
-    /** Hand-coded write: 15 bytes (2+4+4+2+2+1) */
     @Override
     public int write(NetCompactMovement value, DataOutputStream stream) throws Exception {
         final NetCompactMovement v = (value == null) ? new NetCompactMovement() : value;
@@ -79,7 +64,6 @@ public class NetCompactMovement extends SerializableFieldType<NetCompactMovement
         return 15;
     }
 
-    /** Hand-coded read: 15 bytes */
     @Override
     public NetCompactMovement read(DataInputStream stream) throws Exception {
         final NetCompactMovement m = new NetCompactMovement();
