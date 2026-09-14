@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.entity.item.AttributeModifier;
 import com.openrealm.game.entity.item.Damage;
 import com.openrealm.game.entity.item.Effect;
@@ -218,6 +219,16 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 			item.setAttributeModifiers(out);
 		} else {
 			item.setAttributeModifiers(new ArrayList<>());
+		}
+		// archetypeId isn't carried on the wire — resolve it from the item
+		// definition so melee weapons predict correctly (the client skips
+		// projectile spawning for melee) and the melee cone reticle renders.
+		// Without this every equipped weapon reads archetypeId=0, so melee
+		// swings fired a ghost basic-attack projectile (doubled by a multishot
+		// gem) instead of the AoE cone.
+		if (GameDataManager.GAME_ITEMS != null) {
+			final GameItem def = GameDataManager.GAME_ITEMS.get(this.itemId);
+			if (def != null) item.setArchetypeId(def.getArchetypeId());
 		}
 		return item;
 	}
