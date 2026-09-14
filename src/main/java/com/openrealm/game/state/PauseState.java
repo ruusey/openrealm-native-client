@@ -3,7 +3,6 @@ package com.openrealm.game.state;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
@@ -46,13 +45,7 @@ public class PauseState extends GameState {
     private final LeaderboardPanel leaderboard = new LeaderboardPanel();
     private final VaultWindow vault = new VaultWindow();
 
-    // Staged teardown: the GL thread must not block on the untimed
-    // getAccount() HTTP call, so a worker fills these and update() applies the
-    // transition next frame.
-    private boolean returnPending = false;
-    private final AtomicReference<PlayerAccountDto> returnAcctResult = new AtomicReference<>();
-    private final AtomicReference<String> returnError = new AtomicReference<>();
-    private volatile boolean returnWorkerDone = false;
+    private final CharacterSelectReturn charSelectReturn = new CharacterSelectReturn();
 
     private float charScrollOffset = 0f;
 
@@ -67,11 +60,10 @@ public class PauseState extends GameState {
     @Override
     public void update(double time) {
         this.vault.update();
-        if (this.returnPending && this.returnWorkerDone) {
-            this.returnPending = false;
-            this.returnWorkerDone = false;
-            PlayerAccountDto acct = this.returnAcctResult.getAndSet(null);
-            String err = this.returnError.getAndSet(null);
+        CharacterSelectReturnResult result = this.charSelectReturn.poll();
+        if (result != null) {
+            PlayerAccountDto acct = result.getAccount();
+            String err = result.getError();
             this.gsm.pop(GameStateManager.PLAY);
             this.gsm.pop(GameStateManager.PAUSE);
             if (acct != null) {
@@ -95,7 +87,7 @@ public class PauseState extends GameState {
 
     @Override
     public void input(MouseHandler mouse, KeyHandler key) {
-        if (this.returnPending) return;
+        if (this.charSelectReturn.isPending()) return;
         if (Gdx.input.isKeyJustPressed(Input.Keys.V)) {
             if (this.vault.isVisible()) this.vault.hide(); else this.vault.show();
         }
@@ -170,38 +162,20 @@ public class PauseState extends GameState {
     }
 
     private void returnToCharSelect() {
-        if (this.returnPending) return;
-        this.returnPending = true;
-        this.returnWorkerDone = false;
+        if (this.charSelectReturn.isPending()) return;
         ClientGameLogic.GAME_OVER = false;
         final SessionStore store = SessionStore.get();
         final OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
-        try {
-            PlayState play = this.gsm.getPlayState();
-            if (play != null && play.getRealmManager() != null) {
-                play.getRealmManager().shutdownClient();
-            }
-        } catch (Exception e) {
-            log.warn("Failed to shut down realm manager on pause exit: {}", e.getMessage());
-        }
-
-        if (!(store.hasSession() && svc != null && svc.getSessionToken() != null)) {
-            this.returnAcctResult.set(null);
-            this.returnError.set("no-session");
-            this.returnWorkerDone = true;
-            return;
-        }
-
-        new Thread(() -> {
+        this.charSelectReturn.begin(svc, store, "openrealm-pause-return", () -> {
             try {
-                PlayerAccountDto acct = svc.getAccount(store.getAccountGuid());
-                this.returnAcctResult.set(acct);
+                PlayState play = this.gsm.getPlayState();
+                if (play != null && play.getRealmManager() != null) {
+                    play.getRealmManager().shutdownClient();
+                }
             } catch (Exception e) {
-                this.returnError.set(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-            } finally {
-                this.returnWorkerDone = true;
+                log.warn("Failed to shut down realm manager on pause exit: {}", e.getMessage());
             }
-        }, "openrealm-pause-return").start();
+        });
     }
 
     @Override
@@ -212,7 +186,7 @@ public class PauseState extends GameState {
         font.setColor(Color.WHITE);
         UiRender.drawCentered(batch, font, "PAUSED - Press ESC to resume",
                 OpenRealmGame.width / 2f, OpenRealmGame.height / 2f - 48);
-        if (this.returnPending) {
+        if (this.charSelectReturn.isPending()) {
             font.setColor(0.78f, 0.66f, 0.43f, 1f);
             UiRender.drawCentered(batch, font, "Returning to character select...",
                     OpenRealmGame.width / 2f, OpenRealmGame.height / 2f - 16);

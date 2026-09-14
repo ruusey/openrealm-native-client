@@ -20,6 +20,7 @@ import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.LootContainer;
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.graphics.Sprite;
+import com.openrealm.game.graphics.SpriteOutline;
 import com.openrealm.game.graphics.SpriteRecolorCache;
 import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.math.Vector2f;
@@ -765,19 +766,8 @@ public class Player extends Entity {
 
 		// Outline: 8 dark offset copies behind the body; the bottom (+Y) copies
 		// are skipped while wading so the waterline edge stays a clean cut.
-		final float prevColor = batch.getPackedColor();
-		batch.setColor(0f, 0f, 0f, BODY_OUTLINE_ALPHA);
-		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY,                      drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY,                      drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX,                       bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY - BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		if (!this.wading) {
-			batch.draw(bodyRegion, drawX,                       bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-			batch.draw(bodyRegion, drawX - BODY_OUTLINE_OFFSET, bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-			batch.draw(bodyRegion, drawX + BODY_OUTLINE_OFFSET, bodyDrawY + BODY_OUTLINE_OFFSET, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
-		}
-		batch.setPackedColor(prevColor);
+		SpriteOutline.drawOutline(batch, bodyRegion, drawX, bodyDrawY, drawW * 0.5f, bodyH * 0.5f,
+				drawW, bodyH, flipX, 1f, 0f, BODY_OUTLINE_OFFSET, BODY_OUTLINE_ALPHA, !this.wading);
 
 		batch.draw(bodyRegion, drawX, bodyDrawY, drawW * 0.5f, bodyH * 0.5f, drawW, bodyH, flipX, 1f, 0f);
 	}

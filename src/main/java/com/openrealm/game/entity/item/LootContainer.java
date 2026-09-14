@@ -9,6 +9,7 @@ import com.openrealm.game.Settings;
 import com.openrealm.game.contants.LootTier;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.graphics.Sprite;
+import com.openrealm.game.graphics.SpriteOutline;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.realm.Realm;
 
@@ -211,17 +212,7 @@ public class LootContainer {
             final TextureRegion region = this.sprite.getRegion();
             // Dark silhouette outline: 8 offset copies behind the bag.
             if (Settings.get().isSpriteStroke()) {
-                final float prevColor = batch.getPackedColor();
-                batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-                batch.draw(region, bx + OUTLINE_OFFSET, by,                 draw, draw);
-                batch.draw(region, bx - OUTLINE_OFFSET, by,                 draw, draw);
-                batch.draw(region, bx,                 by + OUTLINE_OFFSET, draw, draw);
-                batch.draw(region, bx,                 by - OUTLINE_OFFSET, draw, draw);
-                batch.draw(region, bx + OUTLINE_OFFSET, by + OUTLINE_OFFSET, draw, draw);
-                batch.draw(region, bx + OUTLINE_OFFSET, by - OUTLINE_OFFSET, draw, draw);
-                batch.draw(region, bx - OUTLINE_OFFSET, by + OUTLINE_OFFSET, draw, draw);
-                batch.draw(region, bx - OUTLINE_OFFSET, by - OUTLINE_OFFSET, draw, draw);
-                batch.setPackedColor(prevColor);
+                SpriteOutline.drawOutline(batch, region, bx, by, draw, draw, OUTLINE_OFFSET, OUTLINE_ALPHA);
             }
             // Soulbound bags get a red tint to distinguish them from public bags.
             if (!this.isPublicLoot()) {

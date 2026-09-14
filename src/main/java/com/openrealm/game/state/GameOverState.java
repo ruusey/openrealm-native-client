@@ -1,7 +1,5 @@
 package com.openrealm.game.state;
 
-import java.util.concurrent.atomic.AtomicReference;
-
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
@@ -24,13 +22,7 @@ public class GameOverState extends GameState {
 
     private boolean prevMouseDown = false;
 
-    // Staged teardown (matches PauseState): the GL thread must not block on
-    // the untimed getAccount() HTTP call, so a worker fills these and update()
-    // applies the transition next frame.
-    private boolean returnPending = false;
-    private final AtomicReference<PlayerAccountDto> returnAcctResult = new AtomicReference<>();
-    private final AtomicReference<String> returnError = new AtomicReference<>();
-    private volatile boolean returnWorkerDone = false;
+    private final CharacterSelectReturn charSelectReturn = new CharacterSelectReturn();
 
     public GameOverState(GameStateManager gsm) {
         super(gsm);
@@ -38,11 +30,10 @@ public class GameOverState extends GameState {
 
     @Override
     public void update(double time) {
-        if (this.returnPending && this.returnWorkerDone) {
-            this.returnPending = false;
-            this.returnWorkerDone = false;
-            PlayerAccountDto acct = this.returnAcctResult.getAndSet(null);
-            String err = this.returnError.getAndSet(null);
+        CharacterSelectReturnResult result = this.charSelectReturn.poll();
+        if (result != null) {
+            PlayerAccountDto acct = result.getAccount();
+            String err = result.getError();
             this.gsm.pop(GameStateManager.PLAY);
             this.gsm.pop(GameStateManager.PAUSE);
             this.gsm.pop(GameStateManager.GAMEOVER);
@@ -58,7 +49,7 @@ public class GameOverState extends GameState {
 
     @Override
     public void input(MouseHandler mouse, KeyHandler key) {
-        if (this.returnPending) return;
+        if (this.charSelectReturn.isPending()) return;
         key.escape.tick();
         key.enter.tick();
 
@@ -97,38 +88,20 @@ public class GameOverState extends GameState {
     }
 
     private void returnToCharSelect() {
-        if (this.returnPending) return;
-        this.returnPending = true;
-        this.returnWorkerDone = false;
+        if (this.charSelectReturn.isPending()) return;
         ClientGameLogic.GAME_OVER = false;
         final SessionStore store = SessionStore.get();
         final OpenRealmClientDataService svc = ClientGameLogic.DATA_SERVICE;
-        try {
-            PlayState play = this.gsm.getPlayState();
-            if (play != null && play.getRealmManager() != null) {
-                play.getRealmManager().shutdownClient();
-            }
-        } catch (Exception e) {
-            log.warn("Failed to shut down realm manager on game-over: {}", e.getMessage());
-        }
-
-        if (!(store.hasSession() && svc != null && svc.getSessionToken() != null)) {
-            this.returnAcctResult.set(null);
-            this.returnError.set("no-session");
-            this.returnWorkerDone = true;
-            return;
-        }
-
-        new Thread(() -> {
+        this.charSelectReturn.begin(svc, store, "openrealm-gameover-return", () -> {
             try {
-                PlayerAccountDto acct = svc.getAccount(store.getAccountGuid());
-                this.returnAcctResult.set(acct);
+                PlayState play = this.gsm.getPlayState();
+                if (play != null && play.getRealmManager() != null) {
+                    play.getRealmManager().shutdownClient();
+                }
             } catch (Exception e) {
-                this.returnError.set(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-            } finally {
-                this.returnWorkerDone = true;
+                log.warn("Failed to shut down realm manager on game-over: {}", e.getMessage());
             }
-        }, "openrealm-gameover-return").start();
+        });
     }
 
     @Override
@@ -144,7 +117,7 @@ public class GameOverState extends GameState {
 
         font.setColor(Color.RED);
         UiRender.drawCentered(batch, font, "GAME OVER", OpenRealmGame.width / 2f, OpenRealmGame.height / 2f - 32);
-        if (this.returnPending) {
+        if (this.charSelectReturn.isPending()) {
             font.setColor(0.78f, 0.66f, 0.43f, 1f);
             UiRender.drawCentered(batch, font, "Returning to character select...",
                     OpenRealmGame.width / 2f, OpenRealmGame.height / 2f - 8);

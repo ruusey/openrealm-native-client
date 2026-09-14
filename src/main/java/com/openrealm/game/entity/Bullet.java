@@ -9,6 +9,7 @@ import java.util.List;
 import com.openrealm.game.contants.ProjectileFlag;
 import com.openrealm.game.contants.StatusEffectType;
 import com.openrealm.game.data.GameDataManager;
+import com.openrealm.game.graphics.SpriteOutline;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.Projectile;
 import com.openrealm.game.model.ProjectileGroup;
@@ -516,16 +517,7 @@ public class Bullet extends GameObject  {
         final float wx = this.pos.getWorldVar().x;
         final float wy = this.pos.getWorldVar().y;
         final float halfSize = this.size / 2f;
-        final float prev = batch.getPackedColor();
-        batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-        batch.draw(frame, wx + OUTLINE_OFFSET, wy,                 halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx - OUTLINE_OFFSET, wy,                 halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx,                 wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx,                 wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx + OUTLINE_OFFSET, wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx + OUTLINE_OFFSET, wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx - OUTLINE_OFFSET, wy + OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.draw(frame, wx - OUTLINE_OFFSET, wy - OUTLINE_OFFSET, halfSize, halfSize, this.size, this.size, 1f, 1f, rotationDeg);
-        batch.setPackedColor(prev);
+        SpriteOutline.drawOutline(batch, frame, wx, wy, halfSize, halfSize, this.size, this.size,
+                1f, 1f, rotationDeg, OUTLINE_OFFSET, OUTLINE_ALPHA);
     }
 }

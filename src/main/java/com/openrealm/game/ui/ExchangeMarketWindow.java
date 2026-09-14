@@ -16,6 +16,7 @@ import com.openrealm.game.OpenRealmGame;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.item.GameItem;
+import com.openrealm.game.math.Rectangle;
 import com.openrealm.net.realm.RealmManagerClient;
 import com.openrealm.net.server.packet.ExchangeItemsPacket;
 
@@ -166,18 +167,9 @@ public class ExchangeMarketWindow {
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        shapes.setColor(0f, 0f, 0f, 0.65f);
-        shapes.rect(0, 0, w, h);
-        shapes.setColor(0.10f, 0.10f, 0.12f, 0.97f);
-        shapes.rect(x, y, DIALOG_W, dialogH);
-        shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
-        shapes.rect(x, y, DIALOG_W, HEADER_H);
-
-        final int closeBtnW = 60, closeBtnH = HEADER_H - 8;
-        final int closeBtnX = x + DIALOG_W - closeBtnW - 6;
-        final int closeBtnY = y + 4;
-        shapes.setColor(0.40f, 0.20f, 0.20f, 1f);
-        shapes.rect(closeBtnX, closeBtnY, closeBtnW, closeBtnH);
+        ModalFrame.drawBackdropInPass(shapes, w, h);
+        ModalFrame.drawPanel(shapes, x, y, DIALOG_W, dialogH, HEADER_H);
+        ModalFrame.drawCloseButton(shapes, x, y, DIALOG_W, HEADER_H);
 
         // Give rows (left).
         for (int i = 0; i < this.giveRows.size(); i++) {
@@ -214,9 +206,11 @@ public class ExchangeMarketWindow {
         shapes.end();
         batch.begin();
 
+        final Rectangle closeBtn = ModalFrame.closeButtonBounds(x, y, DIALOG_W, HEADER_H);
         font.setColor(Color.WHITE);
         font.draw(batch, "EXCHANGE MARKET", x + 16, y + 22);
-        UiRender.drawCenteredIn(batch, font, "Cancel", closeBtnX, closeBtnY, closeBtnW, closeBtnH);
+        UiRender.drawCenteredIn(batch, font, "Cancel",
+                closeBtn.getPos().x, closeBtn.getPos().y, closeBtn.getWidth(), closeBtn.getHeight());
         font.setColor(Color.LIGHT_GRAY);
         font.draw(batch, "You give", leftColX + 4, y + HEADER_H + 28);
         font.draw(batch, "You receive", rightColX + 4, y + HEADER_H + 28);
@@ -285,10 +279,7 @@ public class ExchangeMarketWindow {
         final int colTop = y + HEADER_H + 44;
 
         // Cancel.
-        final int closeBtnW = 60, closeBtnH = HEADER_H - 8;
-        final int closeBtnX = x + DIALOG_W - closeBtnW - 6;
-        final int closeBtnY = y + 4;
-        if (hit(mx, my, closeBtnX, closeBtnY, closeBtnW, closeBtnH)) {
+        if (ModalFrame.contains(ModalFrame.closeButtonBounds(x, y, DIALOG_W, HEADER_H), mx, my)) {
             this.hide();
             return;
         }

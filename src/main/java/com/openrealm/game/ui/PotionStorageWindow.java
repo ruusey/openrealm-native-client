@@ -3,7 +3,6 @@ package com.openrealm.game.ui;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
@@ -254,12 +253,7 @@ public class PotionStorageWindow {
 
         // Dimmed backdrop.
         batch.end();
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0f, 0f, 0f, 0.65f);
-        shapes.rect(0, 0, OpenRealmGame.width, OpenRealmGame.height);
-        shapes.end();
+        ModalFrame.drawBackdrop(shapes, OpenRealmGame.width, OpenRealmGame.height);
         batch.begin();
 
         final TextureRegion textArea = UiAtlas.region("panel.hud.chat.text_area");

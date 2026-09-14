@@ -11,6 +11,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.openrealm.game.OpenRealmGame;
+import com.openrealm.game.math.Rectangle;
 import com.openrealm.net.realm.RealmManagerClient;
 import com.openrealm.net.server.packet.BuyFameItemPacket;
 
@@ -93,14 +94,9 @@ public class FameStoreWindow {
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        shapes.setColor(0f, 0f, 0f, 0.65f);
-        shapes.rect(0, 0, w, h);
-        shapes.setColor(0.10f, 0.10f, 0.12f, 0.97f);
-        shapes.rect(x, y, dialogW, dialogH);
-
-        int headerH = 32;
-        shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
-        shapes.rect(x, y, dialogW, headerH);
+        int headerH = ModalFrame.HEADER_HEIGHT;
+        ModalFrame.drawBackdropInPass(shapes, w, h);
+        ModalFrame.drawPanel(shapes, x, y, dialogW, dialogH, headerH);
 
         int rowH = 36;
         int rowsTop = y + headerH + 24;
@@ -119,19 +115,17 @@ public class FameStoreWindow {
             shapes.rect(x + dialogW - 90, rowY + 4, buyBtnW, buyBtnH);
         }
 
-        int closeBtnW = 60, closeBtnH = headerH - 8;
-        int closeBtnX = x + dialogW - closeBtnW - 6;
-        int closeBtnY = y + 4;
-        shapes.setColor(0.40f, 0.20f, 0.20f, 1f);
-        shapes.rect(closeBtnX, closeBtnY, closeBtnW, closeBtnH);
+        ModalFrame.drawCloseButton(shapes, x, y, dialogW, headerH);
 
         shapes.end();
         batch.begin();
 
+        Rectangle closeBtn = ModalFrame.closeButtonBounds(x, y, dialogW, headerH);
         font.setColor(Color.WHITE);
         font.draw(batch, "FAME STORE", x + 16, y + 22);
         font.draw(batch, "* " + this.accountFame + " Fame", x + 160, y + 22);
-        UiRender.drawCenteredIn(batch, font, "Cancel", closeBtnX, closeBtnY, closeBtnW, closeBtnH);
+        UiRender.drawCenteredIn(batch, font, "Cancel",
+                closeBtn.getPos().x, closeBtn.getPos().y, closeBtn.getWidth(), closeBtn.getHeight());
 
         for (int i = firstIdx; i < lastIdx; i++) {
             int rowY = rowsTop + (i - firstIdx) * rowH;
@@ -184,14 +178,10 @@ public class FameStoreWindow {
         int dialogH = Math.min(480, h - 80);
         int x = (w - dialogW) / 2;
         int y = (h - dialogH) / 2;
-        int headerH = 32;
+        int headerH = ModalFrame.HEADER_HEIGHT;
 
         // Cancel button in the header.
-        int closeBtnW = 60, closeBtnH = headerH - 8;
-        int closeBtnX = x + dialogW - closeBtnW - 6;
-        int closeBtnY = y + 4;
-        if (mx >= closeBtnX && mx <= closeBtnX + closeBtnW
-                && my >= closeBtnY && my <= closeBtnY + closeBtnH) {
+        if (ModalFrame.contains(ModalFrame.closeButtonBounds(x, y, dialogW, headerH), mx, my)) {
             this.hide();
             return;
         }

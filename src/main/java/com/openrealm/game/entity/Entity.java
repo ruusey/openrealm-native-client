@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.openrealm.game.contants.StatusEffectType;
 import com.openrealm.game.graphics.Sprite;
+import com.openrealm.game.graphics.SpriteOutline;
 import com.openrealm.game.graphics.SpriteSheet;
 import com.openrealm.game.math.Rectangle;
 import com.openrealm.game.math.Vector2f;
@@ -29,9 +30,6 @@ public abstract class Entity extends GameObject {
     // Sprite stroke: 8 dark copies (4 cardinal + 4 diagonal) behind the body. Offset in world units.
     private static final float STROKE_OFFSET = 1f;
     private static final float STROKE_ALPHA = 0.85f;
-    private static final float[][] STROKE_OFFSETS = {
-            { 1f, 0f }, { -1f, 0f }, { 0f, 1f }, { 0f, -1f },
-            { 1f, 1f }, { 1f, -1f }, { -1f, 1f }, { -1f, -1f } };
 
     public boolean xCol = false;
     public boolean yCol = false;
@@ -472,13 +470,8 @@ public abstract class Entity extends GameObject {
             drawY = wy + this.size - drawH;
         }
         final float scaleX = this.left ? -1f : 1f;
-        final float prevColor = batch.getPackedColor();
-        batch.setColor(0f, 0f, 0f, STROKE_ALPHA);
-        for (float[] off : STROKE_OFFSETS) {
-            batch.draw(frame, drawX + off[0] * STROKE_OFFSET, drawY + off[1] * STROKE_OFFSET,
-                    drawW * 0.5f, drawH * 0.5f, drawW, drawH, scaleX, 1f, 0f);
-        }
-        batch.setPackedColor(prevColor);
+        SpriteOutline.drawOutline(batch, frame, drawX, drawY, drawW * 0.5f, drawH * 0.5f,
+                drawW, drawH, scaleX, 1f, 0f, STROKE_OFFSET, STROKE_ALPHA);
     }
 
     /** Draw the main sprite body with its current effect (caller manages shader). */

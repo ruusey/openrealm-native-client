@@ -3,19 +3,17 @@ package com.openrealm.game.model;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
-import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
-import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
-import com.openrealm.game.OpenRealmGame;
+import com.badlogic.gdx.math.Vector2;
 import com.openrealm.game.entity.Player;
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.game.model.ability.Ability;
 import com.openrealm.game.model.ability.AbilityScaling;
+import com.openrealm.game.ui.TooltipRenderer;
 
 public class AbilityTooltip {
 
@@ -28,10 +26,8 @@ public class AbilityTooltip {
     /** When true, {@code pos} is the anchor's BOTTOM edge and the box draws above it. */
     private boolean anchorAbove;
 
-    private static final int PADDING = 8;
-    private static final int LINE_HEIGHT = 18;
-    private static final Color BG_COLOR     = new Color(0.12f, 0.12f, 0.15f, 0.95f);
-    private static final Color BORDER_COLOR = new Color(0.4f,  0.4f,  0.5f,  1f);
+    private static final int PADDING = TooltipRenderer.PADDING;
+    private static final int LINE_HEIGHT = TooltipRenderer.LINE_HEIGHT;
     private static final Color NAME_COLOR   = new Color(1f,    0.85f, 0.2f,  1f);
     private static final Color SUB_COLOR    = new Color(0.78f, 0.66f, 0.43f, 1f);
     private static final Color DESC_COLOR   = new Color(0.85f, 0.85f, 0.85f, 1f);
@@ -77,31 +73,11 @@ public class AbilityTooltip {
         final int boxH = contentH + PADDING * 2;
         final int boxW = this.width;
 
-        // Clamp pos to keep the tooltip on-screen.
-        float bx = this.pos.x;
-        float by = this.anchorAbove ? this.pos.y - boxH - 6 : this.pos.y;
-        if (bx + boxW > OpenRealmGame.width - 4) {
-            bx = OpenRealmGame.width - 4 - boxW;
-        }
-        if (bx < 4) bx = 4;
-        if (by + boxH > OpenRealmGame.height - 4) {
-            by = OpenRealmGame.height - 4 - boxH;
-        }
-        if (by < 4) by = 4;
+        final Vector2 origin = TooltipRenderer.clampBox(this.pos.x, this.pos.y, boxW, boxH, this.anchorAbove);
+        final float bx = origin.x;
+        final float by = origin.y;
 
-        batch.end();
-        Gdx.gl.glEnable(GL20.GL_BLEND);
-        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(BG_COLOR);
-        shapes.rect(bx, by, boxW, boxH);
-        shapes.end();
-        shapes.begin(ShapeRenderer.ShapeType.Line);
-        shapes.setColor(BORDER_COLOR);
-        shapes.rect(bx, by, boxW, boxH);
-        shapes.end();
-        Gdx.gl.glDisable(GL20.GL_BLEND);
-        batch.begin();
+        TooltipRenderer.drawFrame(batch, shapes, bx, by, boxW, boxH);
 
         float ty = by + PADDING + LINE_HEIGHT - 4;
         for (TooltipLine line : lines) {
@@ -134,7 +110,7 @@ public class AbilityTooltip {
         lines.add(new TooltipLine(subtitle.toString(), SUB_COLOR));
 
         if (this.ability.getDescription() != null && !this.ability.getDescription().isEmpty()) {
-            for (String l : wrapLines(font, this.ability.getDescription(), maxTextW)) {
+            for (String l : TooltipRenderer.wrapLines(font, this.ability.getDescription(), maxTextW)) {
                 lines.add(new TooltipLine(l, DESC_COLOR));
             }
         }
@@ -167,7 +143,7 @@ public class AbilityTooltip {
                 final Color dmgColor = pierce ? DMG_PIERCE : DMG_COLOR;
                 lines.add(new TooltipLine((pierce ? "Armor-Pierce Damage: " : "Damage: ") + total, dmgColor));
                 final String breakdown = parts.isEmpty() ? Long.toString(total) : String.join(" ", parts);
-                for (String wl : wrapLines(font, "= " + breakdown, maxTextW)) {
+                for (String wl : TooltipRenderer.wrapLines(font, "= " + breakdown, maxTextW)) {
                     lines.add(new TooltipLine("  " + wl, GREEN_BONUS));
                 }
             }
@@ -231,28 +207,5 @@ public class AbilityTooltip {
         float contrib = sc.getCoeff() * statVal;
         if (sc.getCap() > 0 && contrib > sc.getCap()) contrib = sc.getCap();
         return Math.max(0, (int) contrib);
-    }
-
-    private static List<String> wrapLines(BitmapFont font, String text, int maxWidth) {
-        final List<String> out = new ArrayList<>();
-        if (text == null || text.isEmpty() || maxWidth <= 0) return out;
-        final String[] words = text.split("\\s+");
-        final GlyphLayout layout = new GlyphLayout();
-        StringBuilder current = new StringBuilder();
-        for (String w : words) {
-            if (w.isEmpty()) continue;
-            final String trial = current.length() == 0 ? w : current + " " + w;
-            layout.setText(font, trial);
-            if (layout.width <= maxWidth) {
-                current.setLength(0);
-                current.append(trial);
-            } else {
-                if (current.length() > 0) out.add(current.toString());
-                current.setLength(0);
-                current.append(w);
-            }
-        }
-        if (current.length() > 0) out.add(current.toString());
-        return out;
     }
 }

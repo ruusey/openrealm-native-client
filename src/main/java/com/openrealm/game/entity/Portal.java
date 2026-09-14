@@ -7,6 +7,7 @@ import java.time.Instant;
 import com.openrealm.game.data.GameDataManager;
 import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.graphics.Sprite;
+import com.openrealm.game.graphics.SpriteOutline;
 import com.openrealm.game.math.Vector2f;
 import com.openrealm.net.Streamable;
 import com.openrealm.net.realm.Realm;
@@ -109,18 +110,7 @@ public class Portal {
             final TextureRegion region = this.sprite.getRegion();
             final float bx = this.pos.getWorldVar().x;
             final float by = this.pos.getWorldVar().y;
-            // Dark silhouette outline: 8 offset copies (4 cardinal + 4 diagonal) behind the portal.
-            final float prevColor = batch.getPackedColor();
-            batch.setColor(0f, 0f, 0f, OUTLINE_ALPHA);
-            batch.draw(region, bx + OUTLINE_OFFSET, by,                 32, 32);
-            batch.draw(region, bx - OUTLINE_OFFSET, by,                 32, 32);
-            batch.draw(region, bx,                 by + OUTLINE_OFFSET, 32, 32);
-            batch.draw(region, bx,                 by - OUTLINE_OFFSET, 32, 32);
-            batch.draw(region, bx + OUTLINE_OFFSET, by + OUTLINE_OFFSET, 32, 32);
-            batch.draw(region, bx + OUTLINE_OFFSET, by - OUTLINE_OFFSET, 32, 32);
-            batch.draw(region, bx - OUTLINE_OFFSET, by + OUTLINE_OFFSET, 32, 32);
-            batch.draw(region, bx - OUTLINE_OFFSET, by - OUTLINE_OFFSET, 32, 32);
-            batch.setPackedColor(prevColor);
+            SpriteOutline.drawOutline(batch, region, bx, by, 32, 32, OUTLINE_OFFSET, OUTLINE_ALPHA);
             batch.draw(region, bx, by, 32, 32);
         }
     }

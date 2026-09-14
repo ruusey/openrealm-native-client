@@ -79,8 +79,8 @@ public class VaultWindow {
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0f, 0f, 0f, 0.65f);
-        shapes.rect(0, 0, w, h);
+        ModalFrame.drawBackdropInPass(shapes, w, h);
+        // Distinct panel fill (no header strip); not the shared ModalFrame.drawPanel look.
         shapes.setColor(0.10f, 0.10f, 0.14f, 0.95f);
         shapes.rect(x, y, dialogW, dialogH);
 
