@@ -23,6 +23,7 @@ import com.openrealm.game.model.AnimationFrameModel;
 import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.model.AnimationSetModel;
 import com.openrealm.game.model.SpriteModel;
+import com.openrealm.game.model.LootContainerModel;
 import com.openrealm.game.model.TileModel;
 import com.openrealm.net.client.ClientGameLogic;
 
@@ -450,6 +451,13 @@ public class GameSpriteManager {
             if (GameDataManager.ABILITIES != null) {
                 for (Object v : GameDataManager.ABILITIES.values()) {
                     addSpriteKeyReflective(v, keys);
+                }
+            }
+            if (GameDataManager.LOOT_CONTAINERS != null) {
+                for (LootContainerModel v : GameDataManager.LOOT_CONTAINERS.values()) {
+                    if (v != null && v.getSpriteKey() != null && !v.getSpriteKey().isEmpty()) {
+                        keys.add(v.getSpriteKey());
+                    }
                 }
             }
         } catch (Exception e) {

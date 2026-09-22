@@ -250,6 +250,10 @@ public class PlayerChat {
         final float toggleBoxTop   = this.collapsed
                 ? (screenBottom - TOGGLE_H)
                 : (msgBoxTop - TOGGLE_H);
+        // Vertically centered top-Y for a single line of text inside the input box; the
+        // placeholder and the typed input's bottom line both sit here.
+        final float lineTextH      = UiRender.textHeight(font, "Ay");
+        final float inputLineTopY  = inputBoxTop + (INPUT_H - lineTextH) / 2f;
 
         batch.end();
         Gdx.gl.glEnable(GL20.GL_BLEND);
@@ -285,9 +289,7 @@ public class PlayerChat {
 
         font.setColor(0xc8 / 255f, 0xa8 / 255f, 0x6e / 255f, 1f);
         String toggleGlyph = this.collapsed ? "^" : "v";
-        font.draw(batch, toggleGlyph,
-                PANEL_X + PANEL_W - TOGGLE_W + 8,
-                toggleBoxTop + TOGGLE_H - 4);
+        UiRender.drawCenteredIn(batch, font, toggleGlyph, barX, toggleBoxTop, barW, TOGGLE_H);
 
         if (!this.collapsed) {
             // Body wraps, so a message spans 1..N rows. Walk newest-first
@@ -391,7 +393,7 @@ public class PlayerChat {
                 font.setColor(0xe0 / 255f, 0xd8 / 255f, 0xc8 / 255f, 1f);
             }
 
-            final float firstLineY = inputBoxBottom - 9 - (wrapLines - 1) * LINE_H;
+            final float firstLineY = inputLineTopY - (wrapLines - 1) * LINE_H;
 
             // Caret column/row: re-layout the substring up to the caret with the same wrap.
             this.layout.setText(font, this.currentMessage.substring(0, caret),
@@ -413,9 +415,7 @@ public class PlayerChat {
             font.draw(batch, "|", caretX, caretY);
         } else if (!this.collapsed) {
             font.setColor(0x88 / 255f, 0x78 / 255f, 0x68 / 255f, 1f);
-            font.draw(batch, "Press Enter to chat...",
-                    PANEL_X + TEXT_PAD_X + 2,
-                    inputBoxBottom - 9);
+            font.draw(batch, "Press Enter to chat...", PANEL_X + TEXT_PAD_X + 2, inputLineTopY);
         }
         font.setColor(Color.WHITE);
         font.getData().setScale(originalScale);
