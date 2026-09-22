@@ -10,11 +10,8 @@ import com.openrealm.game.entity.Entity;
 import com.openrealm.game.entity.GameObject;
 import com.openrealm.game.entity.Player;
 import com.openrealm.net.Streamable;
-import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
-import com.openrealm.net.core.nettypes.SerializableByte;
-import com.openrealm.net.core.nettypes.SerializableFloat;
-import com.openrealm.net.core.nettypes.SerializableLong;
+import com.openrealm.net.core.codec.StreamCodec;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -25,23 +22,26 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @Streamable
 public class NetObjectMovement extends SerializableFieldType<NetObjectMovement> {
-	@SerializableField(order = 0, type = SerializableLong.class)
     private long entityId;
-	@SerializableField(order = 1, type = SerializableByte.class)
     private byte entityType;
-	@SerializableField(order = 2, type = SerializableFloat.class)
     private float posX;
-	@SerializableField(order = 3, type = SerializableFloat.class)
     private float posY;
-	@SerializableField(order = 4, type = SerializableFloat.class)
     private float velX;
-	@SerializableField(order = 5, type = SerializableFloat.class)
     private float velY;
-	@SerializableField(order = 6, type = SerializableByte.class)
     private byte flags;
 
     /** Flag bit: entity is currently in an attack/shoot animation. */
     private static final byte FLAG_ATTACKING = 0x01;
+
+    public static final StreamCodec<NetObjectMovement> CODEC = StreamCodec.builder(NetObjectMovement::new)
+            .int64(NetObjectMovement::getEntityId, NetObjectMovement::setEntityId)
+            .int8(NetObjectMovement::getEntityType, NetObjectMovement::setEntityType)
+            .float32(NetObjectMovement::getPosX, NetObjectMovement::setPosX)
+            .float32(NetObjectMovement::getPosY, NetObjectMovement::setPosY)
+            .float32(NetObjectMovement::getVelX, NetObjectMovement::setVelX)
+            .float32(NetObjectMovement::getVelY, NetObjectMovement::setVelY)
+            .int8(NetObjectMovement::getFlags, NetObjectMovement::setFlags)
+            .build();
 
     public NetObjectMovement(float posX, float posY) {
         this.posX = posX;
@@ -80,30 +80,13 @@ public class NetObjectMovement extends SerializableFieldType<NetObjectMovement> 
                 && this.getVelY() == other.getVelY() && this.flags == other.getFlags();
     }
 
-    // Wire: 26 bytes (8+1+4+4+4+4+1).
     @Override
     public int write(NetObjectMovement value, DataOutputStream stream) throws Exception {
-        final NetObjectMovement v = (value == null) ? new NetObjectMovement() : value;
-        stream.writeLong(v.entityId);
-        stream.writeByte(v.entityType);
-        stream.writeFloat(v.posX);
-        stream.writeFloat(v.posY);
-        stream.writeFloat(v.velX);
-        stream.writeFloat(v.velY);
-        stream.writeByte(v.flags);
-        return 26;
+        return CODEC.write(value, stream);
     }
 
     @Override
     public NetObjectMovement read(DataInputStream stream) throws Exception {
-        final NetObjectMovement m = new NetObjectMovement();
-        m.entityId = stream.readLong();
-        m.entityType = stream.readByte();
-        m.posX = stream.readFloat();
-        m.posY = stream.readFloat();
-        m.velX = stream.readFloat();
-        m.velY = stream.readFloat();
-        m.flags = stream.readByte();
-        return m;
+        return CODEC.read(stream);
     }
 }

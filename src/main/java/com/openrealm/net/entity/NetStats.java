@@ -5,11 +5,8 @@ import java.io.DataOutputStream;
 
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.net.Streamable;
-import com.openrealm.net.core.IOService;
-import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
-import com.openrealm.net.core.nettypes.SerializableInt;
-import com.openrealm.net.core.nettypes.SerializableShort;
+import com.openrealm.net.core.codec.StreamCodec;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -18,22 +15,25 @@ import lombok.Data;
 @Streamable
 @AllArgsConstructor
 public class NetStats extends SerializableFieldType<NetStats> {
-	@SerializableField(order = 0, type = SerializableInt.class)
 	private int hp;
-	@SerializableField(order = 1, type = SerializableShort.class)
 	private short mp;
-	@SerializableField(order = 2, type = SerializableShort.class)
 	private short def;
-	@SerializableField(order = 3, type = SerializableShort.class)
 	private short str;
-	@SerializableField(order = 4, type = SerializableShort.class)
 	private short spd;
-	@SerializableField(order = 5, type = SerializableShort.class)
 	private short dex;
-	@SerializableField(order = 6, type = SerializableShort.class)
 	private short vit;
-	@SerializableField(order = 7, type = SerializableShort.class)
 	private short wis;
+
+	public static final StreamCodec<NetStats> CODEC = StreamCodec.builder(NetStats::new)
+			.int32(NetStats::getHp, NetStats::setHp)
+			.int16(NetStats::getMp, NetStats::setMp)
+			.int16(NetStats::getDef, NetStats::setDef)
+			.int16(NetStats::getStr, NetStats::setStr)
+			.int16(NetStats::getSpd, NetStats::setSpd)
+			.int16(NetStats::getDex, NetStats::setDex)
+			.int16(NetStats::getVit, NetStats::setVit)
+			.int16(NetStats::getWis, NetStats::setWis)
+			.build();
 
 	public NetStats() {
 		this.hp = 0;
@@ -46,30 +46,14 @@ public class NetStats extends SerializableFieldType<NetStats> {
 		this.wis = 0;
 	}
 
-	// Wire: 18 bytes (1 int + 7 shorts).
 	@Override
 	public int write(NetStats value, DataOutputStream stream) throws Exception {
-		final NetStats v = value == null ? new NetStats() : value;
-		stream.writeInt(v.hp);
-		stream.writeShort(v.mp);
-		stream.writeShort(v.def);
-		stream.writeShort(v.str);
-		stream.writeShort(v.spd);
-		stream.writeShort(v.dex);
-		stream.writeShort(v.vit);
-		stream.writeShort(v.wis);
-		return 18;
+		return CODEC.write(value, stream);
 	}
 
 	@Override
 	public NetStats read(DataInputStream stream) throws Exception {
-		return new NetStats(
-			stream.readInt(),
-			stream.readShort(), stream.readShort(),
-			stream.readShort(), stream.readShort(),
-			stream.readShort(), stream.readShort(),
-			stream.readShort()
-		);
+		return CODEC.read(stream);
 	}
 
 	public static NetStats fromStats(Stats stats) {

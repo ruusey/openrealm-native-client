@@ -2,7 +2,6 @@ package com.openrealm.net.entity;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.nio.charset.StandardCharsets;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,12 +15,8 @@ import com.openrealm.game.entity.item.GameItem;
 import com.openrealm.game.entity.item.Stats;
 import com.openrealm.net.Streamable;
 import com.openrealm.net.core.IOService;
-import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
-import com.openrealm.net.core.nettypes.SerializableBoolean;
-import com.openrealm.net.core.nettypes.SerializableByte;
-import com.openrealm.net.core.nettypes.SerializableInt;
-import com.openrealm.net.core.nettypes.SerializableString;
+import com.openrealm.net.core.codec.StreamCodec;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -30,41 +25,23 @@ import lombok.Data;
 @AllArgsConstructor
 @Streamable
 public class NetGameItem extends SerializableFieldType<NetGameItem> {
-	@SerializableField(order = 0, type = SerializableInt.class)
 	private int itemId;
-	@SerializableField(order = 1, type = SerializableString.class)
 	private String uid;
-	@SerializableField(order = 2, type = SerializableString.class)
 	private String name;
-	@SerializableField(order = 3, type = SerializableString.class)
 	private String description;
-	@SerializableField(order = 4, type = NetStats.class)
 	private NetStats stats;
-	@SerializableField(order = 5, type = NetDamage.class)
 	private NetDamage damage;
-	@SerializableField(order = 6, type = NetEffect.class)
 	private NetEffect effect;
-	@SerializableField(order = 7, type = SerializableBoolean.class)
 	private boolean consumable;
-	@SerializableField(order = 8, type = SerializableByte.class)
 	private byte tier;
-	@SerializableField(order = 9, type = SerializableByte.class)
 	private byte targetSlot;
-	@SerializableField(order = 10, type = SerializableByte.class)
 	private byte targetClass;
-	@SerializableField(order = 11, type = SerializableByte.class)
 	private byte fameBonus;
-	@SerializableField(order = 12, type = SerializableBoolean.class)
 	private boolean stackable;
-	@SerializableField(order = 13, type = SerializableInt.class)
 	private int maxStack;
-	@SerializableField(order = 14, type = SerializableInt.class)
 	private int stackCount;
-	@SerializableField(order = 15, type = SerializableString.class)
 	private String category;
-	@SerializableField(order = 16, type = SerializableByte.class)
 	private byte forgeStatId;
-	@SerializableField(order = 17, type = SerializableByte.class)
 	private byte forgeSlotId;
 	private List<NetEnchantment> enchantments;
 	private byte rarity;
@@ -74,106 +51,43 @@ public class NetGameItem extends SerializableFieldType<NetGameItem> {
 	private byte gemPixelY;
 	private int gemPixelColor;
 
-	private static final NetStats STATS_SERIALIZER = new NetStats();
-	private static final NetDamage DAMAGE_SERIALIZER = new NetDamage();
-	private static final NetEffect EFFECT_SERIALIZER = new NetEffect();
-	private static final NetEnchantment ENCHANTMENT_SERIALIZER = new NetEnchantment();
-	private static final NetAttributeModifier MODIFIER_SERIALIZER = new NetAttributeModifier();
-
-	private static int writeString(String s, DataOutputStream stream) throws Exception {
-		if (s == null) s = "";
-		final byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
-		stream.writeInt(bytes.length);
-		stream.write(bytes);
-		return 4 + bytes.length;
-	}
-
-	private static String readString(DataInputStream stream) throws Exception {
-		final int len = stream.readInt();
-		if (len <= 0) return "";
-		final byte[] bytes = new byte[len];
-		stream.readFully(bytes);
-		return new String(bytes, StandardCharsets.UTF_8);
-	}
-
 	// Wire layout MUST match server NetGameItem.write byte-for-byte or inventory packets desync.
+	public static final StreamCodec<NetGameItem> CODEC = StreamCodec.builder(NetGameItem::new)
+			.int32(NetGameItem::getItemId, NetGameItem::setItemId)
+			.utf(NetGameItem::getUid, NetGameItem::setUid)
+			.utf(NetGameItem::getName, NetGameItem::setName)
+			.utf(NetGameItem::getDescription, NetGameItem::setDescription)
+			.nested(NetStats.CODEC, NetGameItem::getStats, NetGameItem::setStats)
+			.nested(NetDamage.CODEC, NetGameItem::getDamage, NetGameItem::setDamage)
+			.nested(NetEffect.CODEC, NetGameItem::getEffect, NetGameItem::setEffect)
+			.bool(NetGameItem::isConsumable, NetGameItem::setConsumable)
+			.int8(NetGameItem::getTier, NetGameItem::setTier)
+			.int8(NetGameItem::getTargetSlot, NetGameItem::setTargetSlot)
+			.int8(NetGameItem::getTargetClass, NetGameItem::setTargetClass)
+			.int8(NetGameItem::getFameBonus, NetGameItem::setFameBonus)
+			.bool(NetGameItem::isStackable, NetGameItem::setStackable)
+			.int32(NetGameItem::getMaxStack, NetGameItem::setMaxStack)
+			.int32(NetGameItem::getStackCount, NetGameItem::setStackCount)
+			.utf(NetGameItem::getCategory, NetGameItem::setCategory)
+			.int8(NetGameItem::getForgeStatId, NetGameItem::setForgeStatId)
+			.int8(NetGameItem::getForgeSlotId, NetGameItem::setForgeSlotId)
+			.list(NetEnchantment.CODEC, NetGameItem::getEnchantments, NetGameItem::setEnchantments)
+			.int8(NetGameItem::getRarity, NetGameItem::setRarity)
+			.list(NetAttributeModifier.CODEC, NetGameItem::getAttributeModifiers, NetGameItem::setAttributeModifiers)
+			.int8(NetGameItem::getGemstoneType, NetGameItem::setGemstoneType)
+			.int8(NetGameItem::getGemPixelX, NetGameItem::setGemPixelX)
+			.int8(NetGameItem::getGemPixelY, NetGameItem::setGemPixelY)
+			.int32(NetGameItem::getGemPixelColor, NetGameItem::setGemPixelColor)
+			.build();
+
 	@Override
 	public int write(NetGameItem value, DataOutputStream stream) throws Exception {
-		final NetGameItem v = (value == null ? new NetGameItem() : value);
-		int written = 0;
-		stream.writeInt(v.itemId); written += 4;
-		written += writeString(v.uid, stream);
-		written += writeString(v.name, stream);
-		written += writeString(v.description, stream);
-		written += STATS_SERIALIZER.write(v.stats, stream);
-		written += DAMAGE_SERIALIZER.write(v.damage, stream);
-		written += EFFECT_SERIALIZER.write(v.effect, stream);
-		stream.writeBoolean(v.consumable); written += 1;
-		stream.writeByte(v.tier); written += 1;
-		stream.writeByte(v.targetSlot); written += 1;
-		stream.writeByte(v.targetClass); written += 1;
-		stream.writeByte(v.fameBonus); written += 1;
-		stream.writeBoolean(v.stackable); written += 1;
-		stream.writeInt(v.maxStack); written += 4;
-		stream.writeInt(v.stackCount); written += 4;
-		written += writeString(v.category, stream);
-		stream.writeByte(v.forgeStatId); written += 1;
-		stream.writeByte(v.forgeSlotId); written += 1;
-		final List<NetEnchantment> ench = v.enchantments == null ? new ArrayList<>() : v.enchantments;
-		stream.writeInt(ench.size()); written += 4;
-		for (NetEnchantment e : ench) {
-			written += ENCHANTMENT_SERIALIZER.write(e, stream);
-		}
-		stream.writeByte(v.rarity); written += 1;
-		final List<NetAttributeModifier> mods = v.attributeModifiers == null ? new ArrayList<>() : v.attributeModifiers;
-		stream.writeInt(mods.size()); written += 4;
-		for (NetAttributeModifier m : mods) {
-			written += MODIFIER_SERIALIZER.write(m, stream);
-		}
-		stream.writeByte(v.gemstoneType); written += 1;
-		stream.writeByte(v.gemPixelX); written += 1;
-		stream.writeByte(v.gemPixelY); written += 1;
-		stream.writeInt(v.gemPixelColor); written += 4;
-		return written;
+		return CODEC.write(value, stream);
 	}
 
 	@Override
 	public NetGameItem read(DataInputStream stream) throws Exception {
-		final NetGameItem item = new NetGameItem();
-		item.itemId = stream.readInt();
-		item.uid = readString(stream);
-		item.name = readString(stream);
-		item.description = readString(stream);
-		item.stats = STATS_SERIALIZER.read(stream);
-		item.damage = DAMAGE_SERIALIZER.read(stream);
-		item.effect = EFFECT_SERIALIZER.read(stream);
-		item.consumable = stream.readBoolean();
-		item.tier = stream.readByte();
-		item.targetSlot = stream.readByte();
-		item.targetClass = stream.readByte();
-		item.fameBonus = stream.readByte();
-		item.stackable = stream.readBoolean();
-		item.maxStack = stream.readInt();
-		item.stackCount = stream.readInt();
-		item.category = readString(stream);
-		item.forgeStatId = stream.readByte();
-		item.forgeSlotId = stream.readByte();
-		final int enchCount = stream.readInt();
-		item.enchantments = new ArrayList<>(Math.max(0, enchCount));
-		for (int i = 0; i < enchCount; i++) {
-			item.enchantments.add(ENCHANTMENT_SERIALIZER.read(stream));
-		}
-		item.rarity = stream.readByte();
-		final int modCount = stream.readInt();
-		item.attributeModifiers = new ArrayList<>(Math.max(0, modCount));
-		for (int i = 0; i < modCount; i++) {
-			item.attributeModifiers.add(MODIFIER_SERIALIZER.read(stream));
-		}
-		item.gemstoneType = stream.readByte();
-		item.gemPixelX = stream.readByte();
-		item.gemPixelY = stream.readByte();
-		item.gemPixelColor = stream.readInt();
-		return item;
+		return CODEC.read(stream);
 	}
 
 	public GameItem asGameItem() {

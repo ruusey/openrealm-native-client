@@ -6,11 +6,8 @@ import java.io.DataOutputStream;
 import com.openrealm.game.contants.StatusEffectType;
 import com.openrealm.game.entity.item.Effect;
 import com.openrealm.net.Streamable;
-import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
-import com.openrealm.net.core.nettypes.SerializableBoolean;
-import com.openrealm.net.core.nettypes.SerializableLong;
-import com.openrealm.net.core.nettypes.SerializableShort;
+import com.openrealm.net.core.codec.StreamCodec;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -19,15 +16,10 @@ import lombok.Data;
 @Streamable
 @AllArgsConstructor
 public class NetEffect extends SerializableFieldType<NetEffect> {
-	@SerializableField(order = 0, type = SerializableBoolean.class)
 	private boolean self;
-	@SerializableField(order = 1, type = SerializableShort.class)
 	private short effectId;
-	@SerializableField(order = 2, type = SerializableLong.class)
 	private long duration;
-	@SerializableField(order = 3, type = SerializableLong.class)
 	private long cooldownDuration;
-	@SerializableField(order = 4, type = SerializableShort.class)
 	private short mpCost;
 
 	public NetEffect() {
@@ -38,6 +30,14 @@ public class NetEffect extends SerializableFieldType<NetEffect> {
 		this.mpCost = -1;
 	}
 
+	public static final StreamCodec<NetEffect> CODEC = StreamCodec.builder(NetEffect::new)
+			.bool(NetEffect::isSelf, NetEffect::setSelf)
+			.int16(NetEffect::getEffectId, NetEffect::setEffectId)
+			.int64(NetEffect::getDuration, NetEffect::setDuration)
+			.int64(NetEffect::getCooldownDuration, NetEffect::setCooldownDuration)
+			.int16(NetEffect::getMpCost, NetEffect::setMpCost)
+			.build();
+
 	public Effect asEffect() {
 		return Effect.builder().self(this.self).effectId(StatusEffectType.valueOf(this.effectId)).duration(this.duration)
 				.cooldownDuration(this.cooldownDuration).mpCost(this.mpCost).build();
@@ -45,18 +45,11 @@ public class NetEffect extends SerializableFieldType<NetEffect> {
 
 	@Override
 	public int write(NetEffect value, DataOutputStream stream) throws Exception {
-		final NetEffect v = value == null ? new NetEffect() : value;
-		stream.writeBoolean(v.self);
-		stream.writeShort(v.effectId);
-		stream.writeLong(v.duration);
-		stream.writeLong(v.cooldownDuration);
-		stream.writeShort(v.mpCost);
-		return 21;
+		return CODEC.write(value, stream);
 	}
 
 	@Override
 	public NetEffect read(DataInputStream stream) throws Exception {
-		return new NetEffect(stream.readBoolean(), stream.readShort(),
-				stream.readLong(), stream.readLong(), stream.readShort());
+		return CODEC.read(stream);
 	}
 }

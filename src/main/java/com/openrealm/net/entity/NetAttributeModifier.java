@@ -5,6 +5,7 @@ import java.io.DataOutputStream;
 
 import com.openrealm.net.Streamable;
 import com.openrealm.net.core.SerializableFieldType;
+import com.openrealm.net.core.codec.StreamCodec;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -18,19 +19,18 @@ public class NetAttributeModifier extends SerializableFieldType<NetAttributeModi
     private byte statId;
     private byte deltaValue;
 
+    public static final StreamCodec<NetAttributeModifier> CODEC = StreamCodec.builder(NetAttributeModifier::new)
+            .int8(NetAttributeModifier::getStatId, NetAttributeModifier::setStatId)
+            .int8(NetAttributeModifier::getDeltaValue, NetAttributeModifier::setDeltaValue)
+            .build();
+
     @Override
     public int write(NetAttributeModifier value, DataOutputStream stream) throws Exception {
-        final NetAttributeModifier v = value == null ? new NetAttributeModifier() : value;
-        stream.writeByte(v.statId);
-        stream.writeByte(v.deltaValue);
-        return 2;
+        return CODEC.write(value, stream);
     }
 
     @Override
     public NetAttributeModifier read(DataInputStream stream) throws Exception {
-        final NetAttributeModifier v = new NetAttributeModifier();
-        v.statId = stream.readByte();
-        v.deltaValue = stream.readByte();
-        return v;
+        return CODEC.read(stream);
     }
 }

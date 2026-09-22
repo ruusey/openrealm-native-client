@@ -5,6 +5,7 @@ import java.io.DataOutputStream;
 
 import com.openrealm.net.Streamable;
 import com.openrealm.net.core.SerializableFieldType;
+import com.openrealm.net.core.codec.StreamCodec;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -21,25 +22,21 @@ public class NetEnchantment extends SerializableFieldType<NetEnchantment> {
     private byte pixelY;
     private int pixelColor;
 
+    public static final StreamCodec<NetEnchantment> CODEC = StreamCodec.builder(NetEnchantment::new)
+            .int8(NetEnchantment::getStatId, NetEnchantment::setStatId)
+            .int8(NetEnchantment::getDeltaValue, NetEnchantment::setDeltaValue)
+            .int8(NetEnchantment::getPixelX, NetEnchantment::setPixelX)
+            .int8(NetEnchantment::getPixelY, NetEnchantment::setPixelY)
+            .int32(NetEnchantment::getPixelColor, NetEnchantment::setPixelColor)
+            .build();
+
     @Override
     public int write(NetEnchantment value, DataOutputStream stream) throws Exception {
-        final NetEnchantment v = value == null ? new NetEnchantment() : value;
-        stream.writeByte(v.statId);
-        stream.writeByte(v.deltaValue);
-        stream.writeByte(v.pixelX);
-        stream.writeByte(v.pixelY);
-        stream.writeInt(v.pixelColor);
-        return 8;
+        return CODEC.write(value, stream);
     }
 
     @Override
     public NetEnchantment read(DataInputStream stream) throws Exception {
-        final NetEnchantment v = new NetEnchantment();
-        v.statId = stream.readByte();
-        v.deltaValue = stream.readByte();
-        v.pixelX = stream.readByte();
-        v.pixelY = stream.readByte();
-        v.pixelColor = stream.readInt();
-        return v;
+        return CODEC.read(stream);
     }
 }

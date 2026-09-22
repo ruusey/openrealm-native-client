@@ -4,10 +4,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 
 import com.openrealm.net.Streamable;
-import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
-import com.openrealm.net.core.nettypes.SerializableInt;
-import com.openrealm.net.core.nettypes.SerializableShort;
+import com.openrealm.net.core.codec.StreamCodec;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -16,11 +14,8 @@ import lombok.Data;
 @Streamable
 @AllArgsConstructor
 public class NetDamage extends SerializableFieldType<NetDamage> {
-	@SerializableField(order = 0, type = SerializableInt.class)
 	private int projectileGroupId;
-	@SerializableField(order = 1, type = SerializableShort.class)
 	private short min;
-	@SerializableField(order = 2, type = SerializableShort.class)
 	private short max;
 
 	public NetDamage() {
@@ -29,17 +24,19 @@ public class NetDamage extends SerializableFieldType<NetDamage> {
 		this.max =-1;
 	}
 
+	public static final StreamCodec<NetDamage> CODEC = StreamCodec.builder(NetDamage::new)
+			.int32(NetDamage::getProjectileGroupId, NetDamage::setProjectileGroupId)
+			.int16(NetDamage::getMin, NetDamage::setMin)
+			.int16(NetDamage::getMax, NetDamage::setMax)
+			.build();
+
 	@Override
 	public int write(NetDamage value, DataOutputStream stream) throws Exception {
-		final NetDamage v = value == null ? new NetDamage() : value;
-		stream.writeInt(v.projectileGroupId);
-		stream.writeShort(v.min);
-		stream.writeShort(v.max);
-		return 8;
+		return CODEC.write(value, stream);
 	}
 
 	@Override
 	public NetDamage read(DataInputStream stream) throws Exception {
-		return new NetDamage(stream.readInt(), stream.readShort(), stream.readShort());
+		return CODEC.read(stream);
 	}
 }
