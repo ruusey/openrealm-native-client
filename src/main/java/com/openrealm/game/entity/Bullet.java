@@ -42,7 +42,12 @@ public class Bullet extends GameObject  {
 
     private long timeStep = 0;
     private short amplitude = 4;
-    private short frequency = 25;
+    // Default 0, NOT 25: NetBullet omits the motion block (amplitude/frequency/
+    // invert/timeStep) from the wire when all are zero, so a reconstructed bullet
+    // must default frequency to 0 to match. A non-zero default made frequency=0
+    // LINE_SEGMENT walls (e.g. the Fire Drake cataclysm beams) spin at 25 deg/tick
+    // client-side even though the server bullet is static.
+    private short frequency = 0;
 
     private float orbitCenterX;
     private float orbitCenterY;
