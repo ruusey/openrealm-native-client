@@ -1972,9 +1972,13 @@ public class PlayerUI {
                     ? Color.YELLOW
                     : roleColorFor(p.getChatRole());
             font.setColor(nameColor);
-            font.draw(batch, p.getName(),
+            // Vertically center the name against the entry (same as the icon),
+            // measuring the glyph height instead of a fixed offset that dropped
+            // the text below the icon.
+            final GlyphLayout nameGl = new GlyphLayout(font, p.getName());
+            font.draw(batch, nameGl,
                     x + iconSize + 6,
-                    y + (entryHeight + 10) / 2);
+                    y + (entryHeight - nameGl.height) / 2f);
         }
         font.setColor(Color.WHITE);
     }
@@ -2358,8 +2362,8 @@ public class PlayerUI {
         if (this.hoveredPlayer == null) return;
 
         final Player p = this.hoveredPlayer;
-        final int padX = 12;
-        final int padY = 12;
+        final int padX = 10;
+        final int padY = 8;
         final int tooltipW = 240;
 
         final int hp = p.getHealth();
@@ -2378,11 +2382,11 @@ public class PlayerUI {
 
         final GameItem[] equips = p.getSlots(0, Player.EQUIPMENT_SLOT_COUNT);
 
-        final int nameRowH  = 18;
-        final int classRowH = 16;
-        final int hpRowH    = 16;
-        final int mpRowH    = 16;
-        final int gapBeforeEquip = 8;
+        final int nameRowH  = 16;
+        final int classRowH = 15;
+        final int hpRowH    = 15;
+        final int mpRowH    = 15;
+        final int gapBeforeEquip = 10;
         final int equipSlot = 36;
         final int equipGap  = 4;
         final int equipRowH = equipSlot + 4;
@@ -2427,7 +2431,16 @@ public class PlayerUI {
         font.setColor(0x55 / 255f, 0x77 / 255f, 0xe0 / 255f, 1f);
         font.draw(batch, "MP: " + mp + "/" + maxMp, tooltipX + padX, y);
         y += gapBeforeEquip;
-        int equipStartX = tooltipX + padX;
+        // Thin divider between the stat lines and the equipment row.
+        batch.end();
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0x3a / 255f, 0x2a / 255f, 0x38 / 255f, 1f);
+        shapes.rect(tooltipX + padX, y - 5, tooltipW - padX * 2, 1);
+        shapes.end();
+        batch.begin();
+        // Center the 5 equipment slots within the card width.
+        final int equipRowW = equips.length * equipSlot + (equips.length - 1) * equipGap;
+        int equipStartX = tooltipX + (tooltipW - equipRowW) / 2;
         for (int i = 0; i < equips.length; i++) {
             final int sx = equipStartX + i * (equipSlot + equipGap);
             batch.end();

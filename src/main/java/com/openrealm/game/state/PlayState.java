@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.GlyphLayout;
+import com.badlogic.gdx.utils.Align;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
@@ -1348,7 +1349,9 @@ public class PlayState extends GameState {
 
         // Plain keys 1..4 fire the four hotbar slots at the cursor; shift+number
         // is inventory hot-swap (above), so skip the cast when shift is held.
-        {
+        // Gated on !captureMode so typing a digit while the chat box is open
+        // doesn't fire an ability.
+        if (!key.captureMode) {
             final boolean shiftHeldDigit = Gdx.input.isKeyPressed(Input.Keys.SHIFT_LEFT)
                     || Gdx.input.isKeyPressed(Input.Keys.SHIFT_RIGHT);
             final int[] digitKeys = { Input.Keys.NUM_1, Input.Keys.NUM_2, Input.Keys.NUM_3, Input.Keys.NUM_4 };
@@ -1941,14 +1944,14 @@ public class PlayState extends GameState {
                 final float wy = rp.getEffectiveRenderY() - Vector2f.worldY;
                 this.nameLayoutScratch.setText(font, nm);
                 final float nameH = this.nameLayoutScratch.height;
-                this.chatBubbleLayoutScratch.setText(font, bubble.getMessage());
+                this.chatBubbleLayoutScratch.setText(font, bubble.getMessage(), Color.BLACK, 180f / ws, Align.center, true);
                 final float chatW = this.chatBubbleLayoutScratch.width;
                 final float chatH = this.chatBubbleLayoutScratch.height;
                 final float textTopY = wy - 12 - nameH - 4 - chatH;
                 final float bgW = chatW + 2 * padX;
                 final float bgH = chatH + 2 * padY;
                 final float bgX = wx + (sSize * 0.5f) - (bgW * 0.5f);
-                final float bgY = textTopY - chatH - padY;
+                final float bgY = textTopY - padY;
                 shapes.setColor(1f, 1f, 1f, 0.95f * bubble.alpha(now));
                 this.drawRoundedRect(shapes, bgX, bgY, bgW, bgH, radius);
             }
@@ -2021,9 +2024,9 @@ public class PlayState extends GameState {
             // Chat bubble floats just above the nameplate, fading out at end of life.
             final ChatBubble bubble = gfx.isShowChatBubbles() ? this.chatBubbles.get(nm) : null;
             if (bubble != null && !bubble.isExpired(bubbleNowMs)) {
-                this.chatBubbleLayoutScratch.setText(font, bubble.getMessage());
-                // Dark text for contrast on the white bubble background.
-                font.setColor(0.10f, 0.10f, 0.10f, bubble.alpha(bubbleNowMs));
+                this.chatBubbleLayoutScratch.setText(font, bubble.getMessage(),
+                        new Color(0f, 0f, 0f, bubble.alpha(bubbleNowMs)),
+                        180f / OpenRealmGame.WORLD_SCALE, Align.center, true);
                 font.draw(batch, this.chatBubbleLayoutScratch,
                         wx + (s * 0.5f) - (this.chatBubbleLayoutScratch.width * 0.5f),
                         wy - 12 - this.nameLayoutScratch.height - 4 - this.chatBubbleLayoutScratch.height);
