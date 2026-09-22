@@ -357,26 +357,25 @@ public class Minimap {
         if (this.mapTexture == null) return;
 
         final float[] src = this.computeSrcRect();
-        // Dot math MUST reuse these rounded src pixels or the player dot drifts off the map.
-        final int srcXi = Math.round(src[0]);
-        final int srcYi = Math.round(src[1]);
-        final int viewWi = Math.max(1, Math.round(src[2]));
-        final int viewHi = Math.max(1, Math.round(src[3]));
-        final float srcX = srcXi;
-        final float srcY = srcYi;
-        final float viewW = viewWi;
-        final float viewH = viewHi;
+        // Float src (no per-tile rounding) so the view + player dot slide smoothly instead of
+        // snapping to the tile grid; Nearest filtering keeps tiles crisp as the sampling window
+        // shifts sub-tile. Matches the webclient minimap.
+        final float srcX = src[0];
+        final float srcY = src[1];
+        final float viewW = Math.max(1f, src[2]);
+        final float viewH = Math.max(1f, src[3]);
 
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         UiRender.fillRect(batch, shapes, this.drawX - 1, this.drawY - 1,
                 this.sizePx + 2, this.sizePx + 2, BG_COLOR);
 
-        // flipY=true: the y-down UI cam flips this draw overload; matches the top-down dots below.
+        // Float UV sub-window; v is swapped to flip for the y-down UI cam (was flipY on the int overload).
+        final float texW = this.mapTexture.getWidth();
+        final float texH = this.mapTexture.getHeight();
         batch.draw(this.mapTexture,
                 this.drawX, this.drawY, this.sizePx, this.sizePx,
-                srcXi, srcYi, viewWi, viewHi,
-                false, true);
+                srcX / texW, (srcY + viewH) / texH, (srcX + viewW) / texW, srcY / texH);
 
         batch.end();
         shapes.begin(ShapeRenderer.ShapeType.Filled);
