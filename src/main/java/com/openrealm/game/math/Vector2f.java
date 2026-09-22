@@ -8,6 +8,7 @@ import com.openrealm.net.Streamable;
 import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
 import com.openrealm.net.core.nettypes.SerializableFloat;
+import com.openrealm.net.core.codec.StreamCodec;
 import com.openrealm.net.realm.Realm;
 
 import lombok.Data;
@@ -19,6 +20,11 @@ public class Vector2f extends SerializableFieldType<Vector2f>{
     public float x;
 	@SerializableField(order = 1, type = SerializableFloat.class)
     public float y;
+
+    public static final StreamCodec<Vector2f> CODEC = StreamCodec.builder(Vector2f::new)
+            .float32(Vector2f::getX, Vector2f::setX)
+            .float32(Vector2f::getY, Vector2f::setY)
+            .build();
 
     public static float worldX;
     public static float worldY;
@@ -162,17 +168,12 @@ public class Vector2f extends SerializableFieldType<Vector2f>{
 
 	@Override
 	public Vector2f read(DataInputStream stream) throws Exception {
-		final float x = stream.readFloat();
-		final float y = stream.readFloat();
-		return new Vector2f(x, y);
+		return CODEC.read(stream);
 	}
 
 	@Override
 	public int write(Vector2f value, DataOutputStream stream) throws Exception {
-		stream.writeFloat(value.x);
-		stream.writeFloat(value.y);
-		
-		return NetConstants.FLOAT_LENGTH * 2;
+		return CODEC.write(value, stream);
 	}
 
 }

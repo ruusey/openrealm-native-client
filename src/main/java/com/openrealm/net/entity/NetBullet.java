@@ -2,7 +2,6 @@ package com.openrealm.net.entity;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import com.openrealm.game.data.GameDataManager;
@@ -14,6 +13,7 @@ import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.net.Streamable;
 import com.openrealm.net.core.SerializableField;
 import com.openrealm.net.core.SerializableFieldType;
+import com.openrealm.net.core.codec.StreamCodec;
 import com.openrealm.net.core.nettypes.*;
 
 
@@ -98,7 +98,56 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 	private static final byte SECT_ORBIT  = 0x02;
 	private static final byte SECT_HOMING = 0x04;
 	private static final byte SECT_SPRITE = 0x08;
-	private static final Short[] EMPTY_FLAGS = new Short[0];
+
+	// Authoritative wire layout (the @SerializableField annotations above are inert once
+	// write/read delegate here). Base fields always ride; wavy/orbit/homing/sprite groups
+	// ride only when non-default, gated by a section-mask byte. MUST byte-match server + webclient.
+	public static final StreamCodec<NetBullet> CODEC = StreamCodec.builder(NetBullet::new)
+			.int64(NetBullet::getId, NetBullet::setId)
+			.int32(NetBullet::getProjectileId, NetBullet::setProjectileId)
+			.int16(NetBullet::getSize, NetBullet::setSize)
+			.nested(Vector2f.CODEC, NetBullet::getPos, NetBullet::setPos)
+			.float32(NetBullet::getDX, NetBullet::setDX)
+			.float32(NetBullet::getDY, NetBullet::setDY)
+			.float32(NetBullet::getAngle, NetBullet::setAngle)
+			.float32(NetBullet::getMagnitude, NetBullet::setMagnitude)
+			.float32(NetBullet::getRange, NetBullet::setRange)
+			.int16(NetBullet::getDamage, NetBullet::setDamage)
+			.int16(NetBullet::getLength, NetBullet::setLength)
+			.int32(NetBullet::getLifetimeTicks, NetBullet::setLifetimeTicks)
+			.int64(NetBullet::getSrcEntityId, NetBullet::setSrcEntityId)
+			.int64(NetBullet::getCreatedTime, NetBullet::setCreatedTime)
+			.shortArray(NetBullet::getFlags, NetBullet::setFlags)
+			.maskedSections(maskedData -> maskedData
+					.section(SECT_WAVY,
+							p -> (p.amplitude != 0 || p.frequency != 0 || p.invert || p.timeStep != 0L),
+							wavyData -> wavyData
+									.bool(NetBullet::isInvert, NetBullet::setInvert)
+									.int64(NetBullet::getTimeStep, NetBullet::setTimeStep)
+									.int16(NetBullet::getAmplitude, NetBullet::setAmplitude)
+									.int16(NetBullet::getFrequency, NetBullet::setFrequency))
+					.section(SECT_ORBIT,
+							p -> (p.orbitRadius != 0f),
+							orbitData -> orbitData
+									.float32(NetBullet::getOrbitCenterX, NetBullet::setOrbitCenterX)
+									.float32(NetBullet::getOrbitCenterY, NetBullet::setOrbitCenterY)
+									.float32(NetBullet::getOrbitRadius, NetBullet::setOrbitRadius)
+									.float32(NetBullet::getOrbitPhase, NetBullet::setOrbitPhase))
+					.section(SECT_HOMING,
+							p -> (p.targetEntityId != 0L),
+							homing -> homing
+									.int64(NetBullet::getTargetEntityId, NetBullet::setTargetEntityId))
+					.section(SECT_SPRITE,
+							p -> ((p.overrideSpriteKey != null && !p.overrideSpriteKey.isEmpty())
+									|| p.overrideSpriteRow != 0 || p.overrideSpriteCol != 0
+									|| p.overrideSpriteSize != 0 || p.overrideSpriteHeight != 0),
+							spriteOverride -> spriteOverride
+									.utf(NetBullet::getOverrideSpriteKey, NetBullet::setOverrideSpriteKey)
+									.int32(NetBullet::getOverrideSpriteRow, NetBullet::setOverrideSpriteRow)
+									.int32(NetBullet::getOverrideSpriteCol, NetBullet::setOverrideSpriteCol)
+									.int32(NetBullet::getOverrideSpriteSize, NetBullet::setOverrideSpriteSize)
+									.int32(NetBullet::getOverrideSpriteHeight, NetBullet::setOverrideSpriteHeight)))
+			.build();
 
 	public static NetBullet fromBullet(Bullet b) {
 		final NetBullet n = new NetBullet();
@@ -191,130 +240,13 @@ public class NetBullet extends SerializableFieldType<NetBullet> {
 		return bullet;
 	}
 
-	// Conditional write MUST byte-match server + webclient NetBullet serializers.
 	@Override
 	public int write(NetBullet value, DataOutputStream stream) throws Exception {
-		final NetBullet v = (value == null) ? new NetBullet() : value;
-		int bytes = 0;
-		stream.writeLong(v.id);                                  bytes += 8;
-		stream.writeInt(v.projectileId);                         bytes += 4;
-		stream.writeShort(v.size);                               bytes += 2;
-		stream.writeFloat(v.pos != null ? v.pos.x : 0f);         bytes += 4;
-		stream.writeFloat(v.pos != null ? v.pos.y : 0f);         bytes += 4;
-		stream.writeFloat(v.dX);                                 bytes += 4;
-		stream.writeFloat(v.dY);                                 bytes += 4;
-		stream.writeFloat(v.angle);                              bytes += 4;
-		stream.writeFloat(v.magnitude);                          bytes += 4;
-		stream.writeFloat(v.range);                              bytes += 4;
-		stream.writeShort(v.damage);                             bytes += 2;
-		stream.writeShort(v.length);                             bytes += 2;
-		stream.writeInt(v.lifetimeTicks);                        bytes += 4;
-		stream.writeLong(v.srcEntityId);                         bytes += 8;
-		stream.writeLong(v.createdTime);                         bytes += 8;
-		final Short[] fl = (v.flags != null) ? v.flags : EMPTY_FLAGS;
-		stream.writeInt(fl.length);                              bytes += 4;
-		for (final Short s : fl) { stream.writeShort(s != null ? s : 0); bytes += 2; }
-
-		final boolean wavy = v.amplitude != 0 || v.frequency != 0 || v.invert || v.timeStep != 0L;
-		final boolean orbit = v.orbitRadius != 0f;
-		final boolean homing = v.targetEntityId != 0L;
-		final boolean sprite = (v.overrideSpriteKey != null && !v.overrideSpriteKey.isEmpty())
-				|| v.overrideSpriteRow != 0 || v.overrideSpriteCol != 0
-				|| v.overrideSpriteSize != 0 || v.overrideSpriteHeight != 0;
-		byte mask = 0;
-		if (wavy)   mask |= SECT_WAVY;
-		if (orbit)  mask |= SECT_ORBIT;
-		if (homing) mask |= SECT_HOMING;
-		if (sprite) mask |= SECT_SPRITE;
-		stream.writeByte(mask);                                  bytes += 1;
-
-		if (wavy) {
-			stream.writeBoolean(v.invert);   bytes += 1;
-			stream.writeLong(v.timeStep);    bytes += 8;
-			stream.writeShort(v.amplitude);  bytes += 2;
-			stream.writeShort(v.frequency);  bytes += 2;
-		}
-		if (orbit) {
-			stream.writeFloat(v.orbitCenterX); bytes += 4;
-			stream.writeFloat(v.orbitCenterY); bytes += 4;
-			stream.writeFloat(v.orbitRadius);  bytes += 4;
-			stream.writeFloat(v.orbitPhase);   bytes += 4;
-		}
-		if (homing) {
-			stream.writeLong(v.targetEntityId); bytes += 8;
-		}
-		if (sprite) {
-			bytes += writeString(v.overrideSpriteKey, stream);
-			stream.writeInt(v.overrideSpriteRow);    bytes += 4;
-			stream.writeInt(v.overrideSpriteCol);    bytes += 4;
-			stream.writeInt(v.overrideSpriteSize);   bytes += 4;
-			stream.writeInt(v.overrideSpriteHeight); bytes += 4;
-		}
-		return bytes;
+		return CODEC.write(value, stream);
 	}
 
 	@Override
 	public NetBullet read(DataInputStream stream) throws Exception {
-		final NetBullet b = new NetBullet();
-		b.id = stream.readLong();
-		b.projectileId = stream.readInt();
-		b.size = stream.readShort();
-		final float px = stream.readFloat();
-		final float py = stream.readFloat();
-		b.pos = new Vector2f(px, py);
-		b.dX = stream.readFloat();
-		b.dY = stream.readFloat();
-		b.angle = stream.readFloat();
-		b.magnitude = stream.readFloat();
-		b.range = stream.readFloat();
-		b.damage = stream.readShort();
-		b.length = stream.readShort();
-		b.lifetimeTicks = stream.readInt();
-		b.srcEntityId = stream.readLong();
-		b.createdTime = stream.readLong();
-		final int flagCount = stream.readInt();
-		final Short[] fl = new Short[flagCount];
-		for (int i = 0; i < flagCount; i++) fl[i] = stream.readShort();
-		b.flags = fl;
-		b.overrideSpriteKey = "";
-
-		final byte mask = stream.readByte();
-		if ((mask & SECT_WAVY) != 0) {
-			b.invert = stream.readBoolean();
-			b.timeStep = stream.readLong();
-			b.amplitude = stream.readShort();
-			b.frequency = stream.readShort();
-		}
-		if ((mask & SECT_ORBIT) != 0) {
-			b.orbitCenterX = stream.readFloat();
-			b.orbitCenterY = stream.readFloat();
-			b.orbitRadius = stream.readFloat();
-			b.orbitPhase = stream.readFloat();
-		}
-		if ((mask & SECT_HOMING) != 0) {
-			b.targetEntityId = stream.readLong();
-		}
-		if ((mask & SECT_SPRITE) != 0) {
-			b.overrideSpriteKey = readString(stream);
-			b.overrideSpriteRow = stream.readInt();
-			b.overrideSpriteCol = stream.readInt();
-			b.overrideSpriteSize = stream.readInt();
-			b.overrideSpriteHeight = stream.readInt();
-		}
-		return b;
-	}
-
-	private static int writeString(final String value, final DataOutputStream stream) throws Exception {
-		final byte[] encoded = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
-		stream.writeInt(encoded.length);
-		stream.write(encoded);
-		return 4 + encoded.length;
-	}
-
-	private static String readString(final DataInputStream stream) throws Exception {
-		final int len = stream.readInt();
-		final byte[] buf = new byte[len];
-		stream.readFully(buf);
-		return new String(buf, StandardCharsets.UTF_8);
+		return CODEC.read(stream);
 	}
 }
