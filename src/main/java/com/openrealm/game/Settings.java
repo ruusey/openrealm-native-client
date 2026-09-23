@@ -100,6 +100,7 @@ public class Settings {
         m.put("menu", Input.Keys.ESCAPE);
         m.put("skillsMenu", Input.Keys.M);
         m.put("metricsMenu", Input.Keys.PERIOD);
+        m.put("questLog", Input.Keys.L);
         return m;
     }
 

@@ -203,6 +203,7 @@ public class PlayerUI {
     private final RealmTransitionState realmTransition = new RealmTransitionState();
     private final PotionStorageWindow potionStorageWindow = new PotionStorageWindow();
     private final SkillsWindow skillsWindow = new SkillsWindow();
+    private final QuestWindow questWindow = new QuestWindow();
     private final MetricsWindow metricsWindow = new MetricsWindow();
 
     /** Reused per-frame to avoid slot-render allocations: 5 equipment + 20 page cells. */
@@ -1588,6 +1589,8 @@ public class PlayerUI {
         this.skillsWindow.update();
         this.skillsWindow.render(batch, shapes, font,
                 this.playState != null ? this.playState.getSkillXp() : null);
+        this.questWindow.update(this.playState);
+        this.questWindow.render(batch, shapes, font, this.playState);
         this.metricsWindow.update();
         this.metricsWindow.render(batch, shapes, font);
 

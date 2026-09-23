@@ -98,6 +98,10 @@ public class Player extends Entity {
 	@Builder.Default
 	private int dyeId = 0;
 
+	// Public quest score, refreshed from UpdatePacket. Rendered under the nameplate.
+	@Builder.Default
+	private int stars = 0;
+
 	// Account fame refreshed at login + after each fame-shop purchase. NOT
 	// serialized to clients; server uses it to validate purchases without a refetch.
 	@Builder.Default
@@ -155,7 +159,7 @@ public class Player extends Entity {
 			String accountUuid, String characterUuid, long experience, Stats stats, boolean statsServerComputed,
 			boolean headless, boolean bot,
 			String chatRole, int lastInputSeq, int lastProcessedInputSeq, float currentVx, float currentVy,
-			Queue<float[]> inputQueue, int hpPotions, int mpPotions, int dyeId, long cachedAccountFame,
+			Queue<float[]> inputQueue, int hpPotions, int mpPotions, int dyeId, int stars, long cachedAccountFame,
 			float renderX, float renderY,
 			long[] abilityCooldowns, CastState currentCast, int[] hotbarBindings,
 			int availableSkillPoints, Map<Integer, Integer> abilitySkillPoints) {
@@ -180,6 +184,7 @@ public class Player extends Entity {
 		this.hpPotions = hpPotions;
 		this.mpPotions = mpPotions;
 		this.dyeId = dyeId;
+		this.stars = stars;
 		this.cachedAccountFame = cachedAccountFame;
 		this.renderX = renderX;
 		this.renderY = renderY;
@@ -925,6 +930,7 @@ public class Player extends Entity {
 		}
 		this.health = packet.getHealth();
 		this.mana = packet.getMana();
+		this.stars = packet.getStars();
 		// Server-authoritative potion counts (a realm switch otherwise left the local count stale).
 		this.hpPotions = packet.getHpPotions();
 		this.mpPotions = packet.getMpPotions();

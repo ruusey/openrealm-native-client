@@ -54,6 +54,7 @@ import com.openrealm.game.model.PortalModel;
 import com.openrealm.game.model.Projectile;
 import com.openrealm.game.model.ProjectileGroup;
 import com.openrealm.game.model.WeaponArchetypeModel;
+import com.openrealm.game.model.QuestView;
 import com.openrealm.game.model.AnimationModel;
 import com.openrealm.game.model.AnimationSetModel;
 import com.openrealm.game.model.AnimationFrameModel;
@@ -160,6 +161,9 @@ public class PlayState extends GameState {
     public long playerId = -1l;
     /** Account-wide skill XP (PlayerSkill ordinal -> XP), synced by SkillsPacket. */
     private long[] skillXp = new long[9];
+    /** Public quest score + quest-log snapshot, synced by QuestStatePacket. */
+    private long questStars = 0;
+    private List<QuestView> quests = new ArrayList<>();
 
     private long lastSampleTime;
     private long frames;
@@ -1214,6 +1218,8 @@ public class PlayState extends GameState {
             if (this.pui != null && !key.captureMode) {
                 if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("skillsMenu")))
                     this.pui.getSkillsWindow().toggle();
+                if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("questLog")))
+                    this.pui.getQuestWindow().toggle();
                 if (Gdx.input.isKeyJustPressed(Settings.get().getKeybind("metricsMenu")))
                     this.pui.getMetricsWindow().toggleFor(SocketClient.CHARACTER_UUID);
                 if (Gdx.input.isKeyJustPressed(Input.Keys.N)) this.pui.getMinimap().toggle();
@@ -2020,6 +2026,16 @@ public class PlayState extends GameState {
                 font.draw(batch, this.nameLayoutScratch,
                         wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
                         wy + s + 2);
+                // Public quest score in gold directly under the name (ASCII '*').
+                if (rp.getStars() > 0) {
+                    final float nameH = this.nameLayoutScratch.height;
+                    this.nameLayoutScratch.setText(font, "* " + rp.getStars());
+                    font.setColor(Color.GOLD);
+                    font.draw(batch, this.nameLayoutScratch,
+                            wx + (s * 0.5f) - (this.nameLayoutScratch.width * 0.5f),
+                            wy + s + 2 + nameH + 2);
+                    this.nameLayoutScratch.setText(font, nm);
+                }
             }
             // Chat bubble floats just above the nameplate, fading out at end of life.
             final ChatBubble bubble = gfx.isShowChatBubbles() ? this.chatBubbles.get(nm) : null;
@@ -2338,6 +2354,22 @@ public class PlayState extends GameState {
         if (skillXp != null && skillXp.length == this.skillXp.length) {
             this.skillXp = skillXp;
         }
+    }
+
+    public long getQuestStars() {
+        return this.questStars;
+    }
+
+    public void setQuestStars(final long questStars) {
+        this.questStars = questStars;
+    }
+
+    public List<QuestView> getQuests() {
+        return this.quests;
+    }
+
+    public void setQuests(final List<QuestView> quests) {
+        this.quests = quests != null ? quests : new ArrayList<>();
     }
 
     /** Horde name-cull: label all enemies below the threshold, else only those

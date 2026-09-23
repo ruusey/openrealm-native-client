@@ -130,6 +130,12 @@ public class SocketClient implements Runnable {
                         packetBytes = PacketCompression.decompressPayload(packetBytes);
                     }
                     final Class<? extends Packet> packetClass = PacketType.valueOf(packetId);
+                    // Unknown id (e.g. a newer server-only packet): the frame is already
+                    // consumed by length prefix, so skip it instead of NPEing the read loop.
+                    if (packetClass == null) {
+                        SocketClient.log.warn("[CLIENT] Skipping unknown packet id {}", packetId);
+                        continue;
+                    }
                     final Packet newPacket = IOService.readStream(packetClass, packetBytes);
                     newPacket.setSrcIp(this.clientSocket.getInetAddress().getHostAddress());
                     newPacket.setId(packetId);

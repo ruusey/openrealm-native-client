@@ -65,6 +65,9 @@ public class UpdatePacket extends Packet {
 	private byte investedSlot2;
 	@SerializableField(order = 14, type = SerializableByte.class)
 	private byte investedSlot3;
+	// Public quest score (trailing field, mirrors the server UpdatePacket).
+	@SerializableField(order = 15, type = SerializableInt.class)
+	private int stars;
 
 	public static final NetGameItem[] EMPTY_INVENTORY = new NetGameItem[0];
 

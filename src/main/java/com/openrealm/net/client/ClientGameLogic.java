@@ -75,6 +75,8 @@ import com.openrealm.net.client.packet.PlayerStatePacket;
 import com.openrealm.net.client.packet.AbilityCastStartPacket;
 import com.openrealm.net.client.packet.PartyUpdatePacket;
 import com.openrealm.net.client.packet.SkillsPacket;
+import com.openrealm.net.client.packet.QuestStatePacket;
+import com.openrealm.game.model.QuestSnapshot;
 import com.openrealm.net.entity.NetGameItem;
 import com.openrealm.net.entity.NetPartyMember;
 import com.openrealm.game.entity.item.GameItem;
@@ -463,6 +465,20 @@ public class ClientGameLogic {
 			cli.getState().setSkillXp(skills.asArray());
 		} catch (Exception e) {
 			ClientGameLogic.log.error("[CLIENT] Failed to handle Skills Packet. Reason: {}", e);
+		}
+	}
+
+	@PacketHandlerClient(QuestStatePacket.class)
+	public static void handleQuestStateClient(RealmManagerClient cli, Packet packet) {
+		try {
+			if (cli.getState() == null) return;
+			final QuestStatePacket quests = (QuestStatePacket) packet;
+			final QuestSnapshot snapshot = GameDataManager.JSON_MAPPER.readValue(
+					quests.getJson() == null ? "{}" : quests.getJson(), QuestSnapshot.class);
+			cli.getState().setQuestStars(quests.getStars());
+			cli.getState().setQuests(snapshot.getQuests());
+		} catch (Exception e) {
+			ClientGameLogic.log.error("[CLIENT] Failed to handle QuestState Packet. Reason: {}", e);
 		}
 	}
 
