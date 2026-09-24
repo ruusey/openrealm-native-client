@@ -5,6 +5,8 @@
 ### Credits:
 * [@Mingau244](https://github.com/Mingau244)
 * [@Aurusenth](https://github.com/Aurusenth)
+* [@EtichBruh](https://github.com/EtichBruh)
+* [@seand88](https://github.com/seand88)
 <div>
     <img src="https://github.com/ruusey/openrealm/blob/main/banner.png" width="100%">
 </div>
