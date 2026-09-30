@@ -9,7 +9,7 @@ public enum WeaponArchetype {
     HAMMER((byte) 3),
     DAGGER((byte) 10),
     BOW((byte) 11),
-    CHAKRAM((byte) 12),
+    THROWING_KNIFE((byte) 12),
     TOME((byte) 20),
     STAFF((byte) 21),
     WAND((byte) 22);
@@ -23,7 +23,7 @@ public enum WeaponArchetype {
     public ItemClass itemClass() {
         switch (this) {
             case SWORD: case AXE: case HAMMER:    return ItemClass.HEAVY_WEAPON;
-            case DAGGER: case BOW: case CHAKRAM:  return ItemClass.LIGHT_WEAPON;
+            case DAGGER: case BOW: case THROWING_KNIFE:  return ItemClass.LIGHT_WEAPON;
             case TOME: case STAFF: case WAND:     return ItemClass.MAGIC_WEAPON;
             default: return ItemClass.NONE;
         }
