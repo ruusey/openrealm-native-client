@@ -7,6 +7,7 @@
 * [@Aurusenth](https://github.com/Aurusenth)
 * [@EtichBruh](https://github.com/EtichBruh)
 * [@seand88](https://github.com/seand88)
+* [@JosephBlank](https://github.com/JosephBlank)
 <div>
     <img src="https://github.com/ruusey/openrealm/blob/main/banner.png" width="100%">
 </div>
