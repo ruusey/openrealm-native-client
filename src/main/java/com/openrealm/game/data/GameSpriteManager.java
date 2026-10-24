@@ -38,12 +38,12 @@ public class GameSpriteManager {
     private static final String[] SPRITE_NAMES = {
             // ui.png / buttons.png must be cached or GameStateManager's SpriteSheet ctor NPEs on startup.
             "ui.png", "buttons.png",
-            "rotmg-projectiles.png",
-            "rotmg-bosses.png", "rotmg-bosses-1.png",
-            "rotmg-items-1.png",
-            "rotmg-tiles.png", "rotmg-tiles-1.png", "rotmg-tiles-2.png", "rotmg-tiles-all.png",
-            "rotmg-misc.png",
-            "rotmg-classes-0.png", "rotmg-classes-1.png", "rotmg-classes-2.png", "rotmg-classes-3.png",
+            "realm-projectiles.png",
+            "realm-bosses.png", "realm-bosses-1.png",
+            "realm-items-1.png",
+            "realm-tiles.png", "realm-tiles-1.png", "realm-tiles-2.png", "realm-tiles-all.png",
+            "realm-misc.png",
+            "realm-classes-0.png", "realm-classes-1.png", "realm-classes-2.png", "realm-classes-3.png",
             "lofiObj2.png", "lofiObj3.png", "lofiObjBig.png",
             "lofiEnvironment2.png", "lofiEnvironment3.png",
             "lofi_dungeon_features.png",
@@ -67,7 +67,7 @@ public class GameSpriteManager {
     private static final Set<String> BUNDLED_HUD_SHEETS = Set.of("ui.png", "buttons.png");
 
     private static final String[] CLASS_SHEET_NAMES = {
-        "rotmg-classes-0.png", "rotmg-classes-1.png", "rotmg-classes-2.png", "rotmg-classes-3.png"
+        "realm-classes-0.png", "realm-classes-1.png", "realm-classes-2.png", "realm-classes-3.png"
     };
 
     public static Map<String, Texture> TEXTURE_CACHE;

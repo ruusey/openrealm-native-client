@@ -473,20 +473,20 @@ public class GameDataManager {
 	}
 
 	// Loot bag sprites — data-driven from loot-containers.json. Falls back to
-	// the rotmg-misc.png row 9 / rotmg-projectiles defaults if the data file
+	// the realm-misc.png row 9 / realm-projectiles defaults if the data file
 	// is missing or doesn't define the requested tier.
 	public static Sprite getLootSprite(int tier) {
 		final byte t = (byte) tier;
 		final int fallbackCol = (tier >= 0 && tier < 5) ? tier : 0;
-		return loadLootContainerSprite(t, fallbackCol, 9, "rotmg-misc.png");
+		return loadLootContainerSprite(t, fallbackCol, 9, "realm-misc.png");
 	}
 
 	public static Sprite getGraveSprite() {
-		return loadLootContainerSprite((byte) 5, 3, 1, "rotmg-projectiles.png");
+		return loadLootContainerSprite((byte) 5, 3, 1, "realm-projectiles.png");
 	}
 
 	public static Sprite getChestSprite() {
-		return loadLootContainerSprite((byte) -1, 2, 0, "rotmg-projectiles.png");
+		return loadLootContainerSprite((byte) -1, 2, 0, "realm-projectiles.png");
 	}
 
 	public static Map<Integer, GameItem> getStartingEquipment(final CharacterClass characterClass) {

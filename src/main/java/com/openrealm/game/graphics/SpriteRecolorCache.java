@@ -44,10 +44,10 @@ public class SpriteRecolorCache {
      * mask key + dye id. Returns {@code null} if any input is missing,
      * so callers can fall back to the original undyed region.
      *
-     * @param spriteKey  source sheet (e.g. "rotmg-classes-0.png")
+     * @param spriteKey  source sheet (e.g. "realm-classes-0.png")
      * @param classId    used together with row/col to look up the mask
      * @param row,col    cell coordinates inside the source sheet
-     * @param spriteSize cell size in pixels (8 for vanilla rotmg)
+     * @param spriteSize cell size in pixels (8 for the classic sheets)
      * @param dyeId      registry id from dye-assets.json
      */
     public static TextureRegion getDyedRegion(String spriteKey, int classId, int row, int col,
@@ -254,7 +254,7 @@ public class SpriteRecolorCache {
                 dyeCount, maskCount, pixCount);
         if (GameSpriteManager.PIXMAP_CACHE != null) {
             for (String k : GameSpriteManager.PIXMAP_CACHE.keySet()) {
-                if (k != null && k.startsWith("rotmg-classes")) {
+                if (k != null && k.startsWith("realm-classes")) {
                     log.info("[RECOLOR]   class pixmap cached: {}", k);
                 }
             }
