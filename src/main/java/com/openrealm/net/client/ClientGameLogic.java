@@ -31,6 +31,7 @@ import com.openrealm.net.client.packet.ObjectMovePacket;
 import com.openrealm.net.entity.NetCompactMovement;
 import com.openrealm.net.client.packet.PlayerDeathPacket;
 import com.openrealm.net.client.packet.RequestTradePacket;
+import com.openrealm.game.audio.SoundManager;
 import com.openrealm.net.client.packet.TextEffectPacket;
 import com.openrealm.net.client.packet.UnloadPacket;
 import com.openrealm.net.client.packet.UpdatePacket;
@@ -304,6 +305,16 @@ public class ClientGameLogic {
 				final EffectText hitText = EffectText.builder().damage(textEffect.getText())
 						.effect(fx).sourcePos(targetPos).laneOffset(laneOffset).build();
 				cli.getState().getDamageText().add(hitText);
+				if (fx == TextEffect.DAMAGE || fx == TextEffect.ARMOR_BREAK) {
+					final EntityType hitType = EntityType.valueOf(textEffect.getEntityType());
+					final Player localPlayer = cli.getState().getPlayer();
+					if (hitType == EntityType.ENEMY) {
+						SoundManager.playEvent("enemy_hit");
+					} else if (hitType == EntityType.PLAYER && fx == TextEffect.DAMAGE
+							&& localPlayer != null && textEffect.getTargetEntityId() == localPlayer.getId()) {
+						SoundManager.playEvent("player_hurt");
+					}
+				}
 			} catch (Exception e) {
 				ClientGameLogic.log.error("[CLIENT] Failed to create client TextEffect. Reason: {}", e);
 			}

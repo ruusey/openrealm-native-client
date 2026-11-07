@@ -7,6 +7,7 @@ import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.openrealm.game.audio.SoundManager;
 import com.openrealm.game.data.GameSpriteManager;
 import com.openrealm.game.graphics.ShaderManager;
 import com.openrealm.game.state.GameStateManager;
@@ -110,6 +111,8 @@ public class OpenRealmGame implements ApplicationListener {
         GameSpriteManager.loadTileSprites();
         GameSpriteManager.loadItemSprites();
         GameSpriteManager.loadAbilitySprites();
+        // Preload the data-driven sound effects (sounds.json + its oggs), same source as the sprites.
+        SoundManager.load(true);
         // One-time bake of seam-feather TextureRegions for tile blending.
         // Must run AFTER loadTileSprites so TILE_SPRITES is populated.
         // Uses PIXMAP_CACHE for source pixels — those were stashed by

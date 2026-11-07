@@ -97,6 +97,7 @@ import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import com.badlogic.gdx.Input;
 import com.openrealm.game.graphics.ShaderManager;
+import com.openrealm.game.audio.SoundManager;
 import com.openrealm.game.graphics.ProjectileFxManager;
 import com.openrealm.game.graphics.Sprite;
 import com.openrealm.game.graphics.AbilityEffectRenderer;
@@ -768,6 +769,8 @@ public class PlayState extends GameState {
         if (player == null || player.getInventory() == null) return;
         final GameItem weapon = player.getSlot(0);
         if (weapon == null || weapon.getDamage() == null) return;
+        // Swing/shot sound fires here (before the melee early-return) so melee swings sound too.
+        SoundManager.playAttack(weapon.getArchetypeId());
         final int projGroupId = weapon.getDamage().getProjectileGroupId();
         if (GameDataManager.PROJECTILE_GROUPS == null) return;
         final ProjectileGroup group = GameDataManager.PROJECTILE_GROUPS.get(projGroupId);
@@ -1375,6 +1378,7 @@ public class PlayState extends GameState {
                     Vector2f pos = clampCastPos(player, slot, aimWx, aimWy);
                     UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos, slot);
                     this.realmManager.getClient().sendRemote(useAbility);
+                    SoundManager.playAbility(player.getActiveAbility(slot));
                     this.lastAbilityTick = now;
                     final long cd = this.effectiveAbilityCooldownMs(player, slot);
                     if (cds != null && slot < cds.length && cd > 0) cds[slot] = now + cd;
@@ -1408,6 +1412,7 @@ public class PlayState extends GameState {
                     Vector2f pos = new Vector2f(aimWx, aimWy);
                     UseAbilityPacket useAbility = UseAbilityPacket.from(this.getPlayer(), pos);
                     this.realmManager.getClient().sendRemote(useAbility);
+                    SoundManager.playAbility(player.getActiveAbility(0));
                     this.lastAbilityTick = rcNow;
                     final long cd = this.effectiveAbilityCooldownMs(player, 0);
                     if (rcCds != null && rcCds.length > 0 && cd > 0) rcCds[0] = rcNow + cd;

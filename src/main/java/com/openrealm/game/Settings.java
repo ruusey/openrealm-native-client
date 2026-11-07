@@ -69,7 +69,7 @@ public class Settings {
      *  Null/empty means show the prompt for any newer release. */
     private String skipUpdateVersion = null;
 
-    /** Audio sliders, 0.0–1.0. No audio engine is wired yet, but the values persist. */
+    /** Audio sliders, 0.0–1.0. SoundManager gates SFX on masterVolume * sfxVolume. */
     private float masterVolume = 0.7f;
     private float sfxVolume = 0.8f;
     private float musicVolume = 0.5f;
