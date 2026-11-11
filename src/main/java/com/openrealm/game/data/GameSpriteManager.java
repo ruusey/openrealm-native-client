@@ -61,7 +61,8 @@ public class GameSpriteManager {
             "lofiBosses16x16.png",
             "lofiCharacter10x10.png", "lofiProjectiles.png",
             "battleOryxObjects8x8.png",
-            "openrealm-items.png", "openrealm-classes.png", "openrealm-ability-icons.png" };
+            "openrealm-items.png", "openrealm-classes.png", "openrealm-ability-icons.png",
+            "gravebound-bosses.png", "gravebound-bosses-cl.png", "gravebound-untiered-32.png" };
 
     // Bundled under resources/ui/; preferred outright so startup doesn't stall on the data service.
     private static final Set<String> BUNDLED_HUD_SHEETS = Set.of("ui.png", "buttons.png");
